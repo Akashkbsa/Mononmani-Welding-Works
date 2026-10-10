@@ -48,10 +48,10 @@ export function Button({
 /* ---------- Form fields ---------- */
 
 export const inputClass =
-  "w-full h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100 disabled:text-slate-500";
+  "w-full h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100 disabled:text-slate-500";
 
 export const textareaClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200";
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200";
 
 interface FieldProps {
   label: string;
@@ -161,7 +161,11 @@ export function Stat({
   return onClick ? (
     <button
       onClick={onClick}
-      className="text-left bg-white border border-slate-200 rounded-lg px-4 py-3 hover:border-slate-300 hover:bg-slate-50"
+      className={`text-left border rounded-lg px-4 py-3 ${
+        tone === "red"
+          ? "bg-red-50 border-red-200 hover:bg-red-100 hover:border-red-300"
+          : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+      }`}
     >
       {body}
     </button>
@@ -281,22 +285,52 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const [id] = useState(() => ++modalCounter);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     openModals.push(id);
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      );
+    // Move focus into the dialog unless a field already took it (autoFocus).
+    if (!dialogRef.current?.contains(document.activeElement)) (focusable()[0] ?? dialogRef.current)?.focus();
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && openModals[openModals.length - 1] === id) closeRef.current();
+      if (openModals[openModals.length - 1] !== id) return;
+      if (e.key === "Escape") {
+        closeRef.current();
+      } else if (e.key === "Tab") {
+        // Keep Tab inside the dialog.
+        const items = focusable();
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       openModals.splice(openModals.indexOf(id), 1);
+      previouslyFocused?.focus?.();
     };
   }, [id]);
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-6">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         className={`w-full ${modalWidths[size]} max-h-full flex flex-col bg-white rounded-lg shadow-xl`}
@@ -312,7 +346,7 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="p-1.5 -mr-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              className="p-1.5 -mr-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
             >
               <X className="w-5 h-5" />
             </button>

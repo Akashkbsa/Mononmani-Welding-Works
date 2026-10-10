@@ -31,11 +31,14 @@ function NavButton({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-colors ${
-        active ? "bg-slate-100 text-slate-900 font-medium" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+      aria-current={active ? "page" : undefined}
+      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-colors border-l-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 ${
+        active
+          ? "border-orange-600 bg-orange-50 text-slate-900 font-medium"
+          : "border-transparent text-slate-700 hover:bg-slate-50 hover:text-slate-900"
       }`}
     >
-      <Icon className={`w-4 h-4 ${active ? "text-orange-600" : "text-slate-400"}`} />
+      <Icon className={`w-4 h-4 ${active ? "text-orange-700" : "text-slate-500"}`} />
       {label}
     </button>
   );
@@ -48,9 +51,14 @@ function App() {
     <ToastProvider>
       <div className="h-full flex">
         <aside className="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col">
-          <div className="px-5 py-5">
-            <div className="text-[15px] font-semibold text-slate-900 leading-tight">Mononmani</div>
-            <div className="text-xs text-slate-500">Welding Works</div>
+          <div className="px-4 py-4 mb-3 border-b border-slate-200 flex items-center gap-2.5">
+            <div className="h-8 w-8 shrink-0 rounded-md bg-orange-600 text-white grid place-items-center text-xs font-bold">
+              MW
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-900 leading-tight">Mononmani</div>
+              <div className="text-xs text-slate-600">Welding Works</div>
+            </div>
           </div>
           <nav className="flex-1 px-3 space-y-0.5">
             {NAV.map((item) => (

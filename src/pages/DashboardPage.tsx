@@ -42,16 +42,36 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
     load();
   }, [load]);
 
+  // Ctrl+N starts a new invoice, unless the user is typing or a dialog is already open.
+  const modalOpen = creatingInvoice || recordingPayment || viewingInvoiceId !== null;
+  useEffect(() => {
+    if (modalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "n") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      e.preventDefault();
+      setCreatingInvoice(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalOpen]);
+
   return (
     <>
       <PageHeader
         title="Dashboard"
         actions={
           <>
-            <Button onClick={() => setRecordingPayment(true)}>Record payment</Button>
-            <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreatingInvoice(true)}>
+            <Button
+              variant="primary"
+              icon={<Plus className="w-4 h-4" />}
+              title="New invoice (Ctrl+N)"
+              onClick={() => setCreatingInvoice(true)}
+            >
               New invoice
             </Button>
+            <Button onClick={() => setRecordingPayment(true)}>Record payment</Button>
           </>
         }
       />
@@ -68,16 +88,16 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
         <>
           <div className="grid grid-cols-4 gap-4 mb-8">
             <Stat
-              label="Balance due"
-              value={formatMoney(summary.total_outstanding)}
-              note={`${summary.unpaid_invoices_count} unpaid invoice${summary.unpaid_invoices_count === 1 ? "" : "s"}`}
-              onClick={() => onNavigate("invoices")}
-            />
-            <Stat
               label="Overdue"
               value={formatMoney(summary.overdue_invoices_value)}
               note={`${summary.overdue_invoices_count} invoice${summary.overdue_invoices_count === 1 ? "" : "s"} past due`}
               tone={summary.overdue_invoices_count > 0 ? "red" : undefined}
+              onClick={() => onNavigate("invoices")}
+            />
+            <Stat
+              label="Balance due"
+              value={formatMoney(summary.total_outstanding)}
+              note={`${summary.unpaid_invoices_count} unpaid invoice${summary.unpaid_invoices_count === 1 ? "" : "s"}`}
               onClick={() => onNavigate("invoices")}
             />
             <Stat
