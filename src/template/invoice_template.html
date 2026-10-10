@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tax Invoice - Mononmani Welding Works</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="invoice_styles.css">
+</head>
+<body>
+  <div class="page-container">
+    <div class="invoice-box">
+      
+      <!-- 1. HEADER SECTION (Static / Seller Info) -->
+      <header class="invoice-header">
+        <div class="header-top-row">
+          <div class="header-gstin">GSTIN: <span class="field-val" data-bind="seller.gstin">34AIRPV5028N1ZG</span></div>
+          <div class="header-title-container">
+            <div class="header-title">TAX INVOICE</div>
+          </div>
+          <div class="header-right-group">
+            <div class="header-copy-type" data-bind="invoice.copy_type"></div>
+            <div class="header-cell">Cell : <span class="field-val" data-bind="seller.phone">94432 94052</span></div>
+          </div>
+        </div>
+
+        <div class="company-brand">
+          <h1 class="company-name" data-bind="seller.name">MONONMANI WELDING WORKS</h1>
+          <div class="company-subtitle" data-bind="seller.subtitle">(FABRICATIONS)</div>
+        </div>
+
+        <div class="services-banner" data-bind="seller.services_banner">
+          Silver Brazing, Gas, Plasma Cutting, ARK, S.S. &amp; Aluminium, Tig &amp; Mic Welding, Shed Work
+        </div>
+
+        <div class="company-contact">
+          <div class="contact-address" data-bind="seller.address"># 468, Vazhudavur Road, Muthirapalayam, Pondicherry - 605 009.</div>
+          <div class="contact-email">Email : <span class="field-val" data-bind="seller.email">mononmani80@gmail.com</span></div>
+        </div>
+      </header>
+
+      <!-- 2. INVOICE META & RECEIVER / DELIVERY DETAILS -->
+      <section class="invoice-meta-section">
+        <!-- Left Column: Invoice Meta & Receiver Details -->
+        <div class="meta-left">
+          <div class="invoice-meta-info">
+            <div class="meta-field">
+              <span class="meta-label">Invoice No</span>
+              <span class="meta-colon">:</span>
+              <span class="meta-val field-val" data-bind="invoice.number">MWW/24-25/089</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-label">Invoice Date</span>
+              <span class="meta-colon">:</span>
+              <span class="meta-val field-val" data-bind="invoice.date">21-09-2024</span>
+              <span class="meta-due" id="due-date-wrapper" style="display: none;">Due : <span class="field-val" data-bind="invoice.due_date">20-11-2024</span></span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-label">Invoice State</span>
+              <span class="meta-colon">:</span>
+              <span class="meta-val field-val" data-bind="invoice.state">Puducherry</span>
+            </div>
+          </div>
+
+          <div class="section-subbar receiver-bar">
+            Details of Receiver / Bill To
+          </div>
+
+          <div class="receiver-details-area">
+            <div class="receiver-content">
+              <div class="customer-name" data-bind="customer.name">Sri Krishna Engineering Works</div>
+              <div class="customer-address" data-bind="customer.address">#12, Bharathidasn street, Thamarai Nagar, Vanarapet, Puducherry – 605 009</div>
+              <div class="customer-contact-state-row">
+                <span class="customer-contact" id="customer-contact-wrapper">Contact: <span class="field-val" data-bind="customer.phone">+91 98765 43210</span></span>
+                <span class="customer-state" id="customer-state-wrapper" style="display: none;">State: <span class="field-val" data-bind="customer.state">Puducherry</span> (<span class="field-val" data-bind="customer.state_code">34</span>)</span>
+              </div>
+              <div class="customer-gstin" id="customer-gstin-wrapper">
+                GSTIN: <span class="field-val" data-bind="customer.gstin">34AAAAA1234A1Z5</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Reference & Delivery Details -->
+        <div class="meta-right">
+          <div class="section-subbar delivery-bar">
+            REFERENCE &amp; DELIVERY DETAILS
+          </div>
+
+          <div class="delivery-grid">
+            <div class="delivery-row">
+              <div class="delivery-cell delivery-cell-left">
+                <div class="delivery-label">PO Number &amp; Date</div>
+                <div class="delivery-underline"></div>
+                <div class="delivery-val field-val" data-bind="delivery.po_number_and_date">PO-SK-4421/18-09-2024</div>
+              </div>
+              <div class="delivery-cell delivery-cell-right">
+                <div class="delivery-label">Vehicle Number</div>
+                <div class="delivery-underline"></div>
+                <div class="delivery-val field-val" data-bind="delivery.vehicle_number">PY-01-BX-4589</div>
+              </div>
+            </div>
+
+            <div class="delivery-row">
+              <div class="delivery-cell delivery-cell-left">
+                <div class="delivery-label">Date of Supply</div>
+                <div class="delivery-underline"></div>
+                <div class="delivery-val field-val" data-bind="delivery.date_of_supply">21-09-2024</div>
+              </div>
+              <div class="delivery-cell delivery-cell-right">
+                <div class="delivery-label">Place of Supply</div>
+                <div class="delivery-underline"></div>
+                <div class="delivery-val field-val" data-bind="delivery.place_of_supply">Puducherry</div>
+              </div>
+            </div>
+
+            <div class="delivery-row">
+              <div class="delivery-cell delivery-cell-left">
+                <div class="delivery-label">Our DC Number &amp; Date</div>
+                <div class="delivery-underline"></div>
+                <div class="delivery-val field-val" data-bind="delivery.our_dc_number_and_date">DC/074 / 20-09-2024</div>
+              </div>
+              <div class="delivery-cell delivery-cell-right">
+                <div class="delivery-label">Your DC Number &amp; Date</div>
+                <div class="delivery-underline"></div>
+                <div class="delivery-val field-val" data-bind="delivery.your_dc_number_and_date">SK/DC/102 / 18-09-2024</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. ITEMS TABLE -->
+      <section class="invoice-items-section">
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th class="col-sl">Sl. No.</th>
+              <th class="col-desc">Name of Product / Service</th>
+              <th class="col-hsn">HSN/SAC Code</th>
+              <th class="col-qum">QUM</th>
+              <th class="col-qty">QTY</th>
+              <th class="col-rate">RATE</th>
+              <th class="col-amount">AMOUNT</th>
+            </tr>
+          </thead>
+          <tbody id="items-tbody">
+            <!-- Dynamic Line Items Placeholder Loop -->
+            <!-- {{#each items}} -->
+            <tr class="item-row">
+              <td class="col-sl">1</td>
+              <td class="col-desc">Stainless Steel TIG Welding &amp; Joint Fabrication</td>
+              <td class="col-hsn">998898</td>
+              <td class="col-qum">KGS</td>
+              <td class="col-qty">120</td>
+              <td class="col-rate">180.00</td>
+              <td class="col-amount">21,600.00</td>
+            </tr>
+            <tr class="item-row">
+              <td class="col-sl">2</td>
+              <td class="col-desc">Heavy Industrial Shed Structure Fabrication Work</td>
+              <td class="col-hsn">995468</td>
+              <td class="col-qum">SQFT</td>
+              <td class="col-qty">250</td>
+              <td class="col-rate">120.00</td>
+              <td class="col-amount">30,000.00</td>
+            </tr>
+            <tr class="item-row">
+              <td class="col-sl">3</td>
+              <td class="col-desc">Precision CNC Plasma Plate Cutting Charges</td>
+              <td class="col-hsn">998898</td>
+              <td class="col-qum">NOS</td>
+              <td class="col-qty">40</td>
+              <td class="col-rate">110.00</td>
+              <td class="col-amount">4,400.00</td>
+            </tr>
+            <!-- {{/each}} -->
+
+            <!-- Filler Row: Ensures vertical borders extend continuously down to footer -->
+            <tr class="item-spacer-row">
+              <td class="col-sl"></td>
+              <td class="col-desc"></td>
+              <td class="col-hsn"></td>
+              <td class="col-qum"></td>
+              <td class="col-qty"></td>
+              <td class="col-rate"></td>
+              <td class="col-amount"></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 4. FOOTER SUMMARY & TOTALS SECTION -->
+      <footer class="invoice-footer-section">
+        <!-- Left Column: Amount in Words, Bank Details, Terms & Conditions -->
+        <div class="footer-left">
+          
+          <!-- Words Box -->
+          <div class="words-container">
+            <div class="section-subbar words-bar">
+              Total Invoice Amount in Words
+            </div>
+            <div class="words-content field-val" data-bind="totals.amount_in_words">
+              Sixty-Six Thousand Eighty Rupees Only
+            </div>
+          </div>
+
+          <!-- Bank Details Box -->
+          <div class="bank-container">
+            <div class="section-subbar bank-bar">
+              Bank Details :
+            </div>
+            <div class="bank-content">
+              <div class="bank-grid">
+                <div class="bank-col-left">
+                  <div class="bank-line">Bank: <span class="field-val" data-bind="bank.name">Indian Bank</span></div>
+                  <div class="bank-line">Branch: <span class="field-val" data-bind="bank.branch">Mettupalayam (PONDY)</span></div>
+                </div>
+                <div class="bank-col-right">
+                  <div class="bank-line">A/c No.:<span class="field-val" data-bind="bank.account_no">498877880</span></div>
+                  <div class="bank-line">IFSC: <span class="field-val" data-bind="bank.ifsc">IDIB000M070</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Terms & Conditions Box -->
+          <div class="terms-container">
+            <div class="section-subbar terms-bar">
+              Terms &amp; Conditions
+            </div>
+            <div class="terms-content" id="terms-content">
+              <div class="terms-item">1. Goods once sold will not be taken back or Exchanged</div>
+              <div class="terms-item">2. Dispute if any will be subject to Puducherry.</div>
+              <div class="terms-item">3. Payment within due date else 21% p.a. interest will be charged</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right Column: Totals & Signature Box -->
+        <div class="footer-right">
+          
+          <!-- Totals Grid -->
+          <div class="totals-container">
+            <div class="totals-row row-before-tax">
+              <div class="totals-label">Total Amount before Tax</div>
+              <div class="totals-value field-val" data-bind="totals.subtotal">₹56,000.00</div>
+            </div>
+
+            <!-- Optional Discount Row if present in data -->
+            <div class="totals-row row-discount" id="discount-row" style="display: none;">
+              <div class="totals-label">Discount</div>
+              <div class="totals-value field-val" data-bind="totals.discount"></div>
+            </div>
+
+            <div class="totals-row row-cgst" id="cgst-row">
+              <div class="totals-tax-col">
+                <span class="tax-name">CGST</span>
+                <span class="tax-rate" data-bind="totals.cgst_rate">9%</span>
+              </div>
+              <div class="totals-value field-val" data-bind="totals.cgst_amount">₹5,040.00</div>
+            </div>
+
+            <div class="totals-row row-sgst" id="sgst-row">
+              <div class="totals-tax-col">
+                <span class="tax-name">SGST</span>
+                <span class="tax-rate" data-bind="totals.sgst_rate">9%</span>
+              </div>
+              <div class="totals-value field-val" data-bind="totals.sgst_amount">₹5,040.00</div>
+            </div>
+
+            <div class="totals-row row-igst" id="igst-row" style="display: none;">
+              <div class="totals-tax-col">
+                <span class="tax-name">IGST</span>
+                <span class="tax-rate" data-bind="totals.igst_rate"></span>
+              </div>
+              <div class="totals-value field-val" data-bind="totals.igst_amount"></div>
+            </div>
+
+            <div class="totals-row row-after-tax">
+              <div class="totals-label bold-label">Total Amount After Tax :</div>
+              <div class="totals-value bold-value field-val" data-bind="totals.total_amount">₹66,080.00</div>
+            </div>
+          </div>
+
+          <!-- Signature Box -->
+          <div class="signature-container">
+            <div class="signature-company">For <span data-bind="seller.name">MONONMANI WELDING WORKS</span></div>
+            <div class="signature-space"></div>
+            <div class="signature-signatory">Authorised Signatory</div>
+          </div>
+
+        </div>
+      </footer>
+
+    </div>
+  </div>
+
+  <!-- Helper script for dynamic client-side population -->
+  <script>
+    /**
+     * Programmatic Invoice Populator
+     * Usage: window.populateInvoice(invoiceDataObject);
+     */
+    window.populateInvoice = function(data) {
+      if (!data) return;
+
+      function getPath(obj, path) {
+        return path.split('.').reduce((acc, key) => (acc && acc[key] !== undefined) ? acc[key] : '', obj);
+      }
+
+      // Populate text fields with data-bind attribute
+      document.querySelectorAll('[data-bind]').forEach(el => {
+        const key = el.getAttribute('data-bind');
+        const val = getPath(data, key);
+        if (val !== undefined && val !== null) {
+          el.textContent = val;
+        }
+      });
+
+      // Handle customer phone & gstin conditional wrappers
+      const phoneVal = getPath(data, 'customer.phone');
+      const contactWrapper = document.getElementById('customer-contact-wrapper');
+      if (contactWrapper) {
+        contactWrapper.style.display = phoneVal ? 'block' : 'none';
+      }
+
+      const gstinVal = getPath(data, 'customer.gstin');
+      const gstinWrapper = document.getElementById('customer-gstin-wrapper');
+      if (gstinWrapper) {
+        gstinWrapper.style.display = gstinVal ? 'block' : 'none';
+      }
+
+      // Populate line items if provided
+      if (Array.isArray(data.items)) {
+        const tbody = document.getElementById('items-tbody');
+        const rowsHtml = data.items.map((item, idx) => `
+          <tr class="item-row">
+            <td class="col-sl">${item.sl_no || (idx + 1)}</td>
+            <td class="col-desc">${item.description || ''}</td>
+            <td class="col-hsn">${item.hsn_sac || ''}</td>
+            <td class="col-qum">${item.qum || ''}</td>
+            <td class="col-qty">${item.qty || ''}</td>
+            <td class="col-rate">${item.rate || ''}</td>
+            <td class="col-amount">${item.amount || ''}</td>
+          </tr>
+        `).join('');
+
+        const spacerHtml = `
+          <tr class="item-spacer-row">
+            <td class="col-sl"></td>
+            <td class="col-desc"></td>
+            <td class="col-hsn"></td>
+            <td class="col-qum"></td>
+            <td class="col-qty"></td>
+            <td class="col-rate"></td>
+            <td class="col-amount"></td>
+          </tr>
+        `;
+
+        tbody.innerHTML = rowsHtml + spacerHtml;
+      }
+
+      // Handle dynamic terms
+      if (Array.isArray(data.terms)) {
+        const termsContainer = document.getElementById('terms-content');
+        if (termsContainer) {
+          termsContainer.innerHTML = '';
+          data.terms.forEach(t => {
+            const div = document.createElement('div');
+            div.className = 'terms-item';
+            div.textContent = t;
+            termsContainer.appendChild(div);
+          });
+        }
+      }
+
+      // Handle conditional due date & customer state wrappers
+      const dueVal = getPath(data, 'invoice.due_date');
+      const dueWrapper = document.getElementById('due-date-wrapper');
+      if (dueWrapper) {
+        dueWrapper.style.display = dueVal ? 'inline-block' : 'none';
+      }
+
+      const stateVal = getPath(data, 'customer.state') || getPath(data, 'customer.state_code');
+      const stateWrapper = document.getElementById('customer-state-wrapper');
+      if (stateWrapper) {
+        stateWrapper.style.display = stateVal ? 'inline-block' : 'none';
+      }
+
+      // Handle optional rows
+      if (data.totals) {
+        const discountRow = document.getElementById('discount-row');
+        if (discountRow) {
+          discountRow.style.display = data.totals.discount ? 'flex' : 'none';
+        }
+        const igstRow = document.getElementById('igst-row');
+        if (igstRow) {
+          igstRow.style.display = (data.totals.igst_amount || data.totals.igst_rate) ? 'flex' : 'none';
+        }
+        const cgstRow = document.getElementById('cgst-row');
+        if (cgstRow) {
+          cgstRow.style.display = (data.totals.cgst_amount || data.totals.cgst_rate) ? 'flex' : (data.totals.igst_amount ? 'none' : 'flex');
+        }
+        const sgstRow = document.getElementById('sgst-row');
+        if (sgstRow) {
+          sgstRow.style.display = (data.totals.sgst_amount || data.totals.sgst_rate) ? 'flex' : (data.totals.igst_amount ? 'none' : 'flex');
+        }
+      }
+    };
+  </script>
+</body>
+</html>

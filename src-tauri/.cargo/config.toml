@@ -1,0 +1,12 @@
+# Pin the Rust linker to the WinLibs GCC toolchain.
+# The system has multiple MinGW toolchains that conflict:
+#   - C:\MinGW\bin: Legacy 32-bit MinGW (dlltool is 32-bit, breaks 64-bit builds)
+#   - LLVM-MinGW (MartinStorsjo): Clang wrapper that uses lld, missing libgcc_eh/libgcc
+#   - WinLibs GCC (BrechtSanders): Real GCC 16.1.0 with proper ld and dlltool
+#
+# IMPORTANT: When building from a terminal, you must also ensure C:\MinGW\bin
+# and LLVM-MinGW are NOT in PATH. Use:
+#   $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*C:\MinGW*' -and $_ -notlike '*MartinStorsjo*' }) -join ';'
+# Or remove C:\MinGW\bin from System PATH permanently (requires admin).
+[target.x86_64-pc-windows-gnu]
+linker = "C:\\Users\\Asus\\AppData\\Local\\Microsoft\\WinGet\\Packages\\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\\mingw64\\bin\\x86_64-w64-mingw32-gcc.exe"

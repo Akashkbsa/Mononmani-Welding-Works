@@ -1,0 +1,124 @@
+use super::models::{
+    DuplicateInvoiceCheckResult, InvoiceCreateInput, InvoiceFilterInput, InvoiceListItem,
+    InvoiceUpdateInput, InvoiceWithItems,
+};
+use super::repository::InvoiceRepository;
+use crate::pdf::{CopyType, PdfRenderer};
+use crate::util::parse_date;
+use crate::AppState;
+use chrono::Datelike;
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+#[tauri::command]
+pub fn list_invoices(
+    filter: Option<InvoiceFilterInput>,
+    state: State<'_, AppState>,
+) -> Result<Vec<InvoiceListItem>, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::find_all(&conn, filter.unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn get_invoice(id: i64, state: State<'_, AppState>) -> Result<Option<InvoiceWithItems>, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::find_by_id(&conn, id)
+}
+
+#[tauri::command]
+pub fn get_next_invoice_number(state: State<'_, AppState>) -> Result<String, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::get_next_invoice_number(&conn)
+}
+
+#[tauri::command]
+pub fn check_duplicate_invoice_number(
+    invoice_number: String,
+    exclude_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<DuplicateInvoiceCheckResult, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::check_duplicate_number(&conn, &invoice_number, exclude_id)
+}
+
+#[tauri::command]
+pub fn create_invoice(input: InvoiceCreateInput, state: State<'_, AppState>) -> Result<InvoiceWithItems, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::create(&conn, input)
+}
+
+#[tauri::command]
+pub fn update_invoice(
+    id: i64,
+    input: InvoiceUpdateInput,
+    state: State<'_, AppState>,
+) -> Result<InvoiceWithItems, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::update(&conn, id, input)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvoiceDeletionSafetyResult {
+    pub can_delete: bool,
+    pub allocated_amount: f64,
+    pub payments_count: i64,
+}
+
+#[tauri::command]
+pub fn check_invoice_deletion_safety(
+    id: i64,
+    state: State<'_, AppState>,
+) -> Result<InvoiceDeletionSafetyResult, String> {
+    let conn = state.db.get_connection()?;
+    let (can_delete, allocated_amount, payments_count) = InvoiceRepository::check_deletion_safety(&conn, id)?;
+    Ok(InvoiceDeletionSafetyResult {
+        can_delete,
+        allocated_amount,
+        payments_count,
+    })
+}
+
+#[tauri::command]
+pub fn delete_invoice(id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::delete(&conn, id)
+}
+
+/// Render one copy of an invoice to PDF and return its path. Runs off the UI thread
+/// because the browser print can take a few seconds.
+#[tauri::command]
+pub async fn generate_invoice_pdf_by_id(
+    id: i64,
+    copy_type: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let copy = CopyType::parse(copy_type.as_deref());
+    let invoice = {
+        let conn = state.db.get_connection()?;
+        InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))?
+    };
+
+    let year = parse_date(&invoice.invoice.invoice_date)
+        .map(|d| d.year())
+        .unwrap_or_else(|| crate::util::today().year())
+        .to_string();
+    let filename = format!(
+        "{}_{}.pdf",
+        invoice.invoice.invoice_number.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_"),
+        copy.file_suffix()
+    );
+    let target_path = state.storage.prepare_invoice_save_path(&year, &filename)?;
+
+    let generated = tauri::async_runtime::spawn_blocking(move || {
+        PdfRenderer::generate_pdf_from_invoice(&invoice, copy, &target_path)
+    })
+    .await
+    .map_err(|e| format!("PDF generation stopped unexpectedly: {}", e))??;
+
+    let path = generated.to_string_lossy().to_string();
+    if copy == CopyType::Original {
+        let conn = state.db.get_connection()?;
+        InvoiceRepository::update_pdf_path(&conn, id, &path)?;
+    }
+    Ok(path)
+}

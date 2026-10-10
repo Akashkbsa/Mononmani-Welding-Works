@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build)",
+      "Bash(npx tsc --noEmit -p .)",
+      "Bash(cargo check --manifest-path src-tauri/Cargo.toml)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(~/AppData/Roaming/com.manonmani.app/Database/**)"
+    ]
+  }
+}
