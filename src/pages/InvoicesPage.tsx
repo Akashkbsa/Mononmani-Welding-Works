@@ -7,12 +7,11 @@ import { Alert, Button, Card, EmptyState, inputClass, Loading, PageHeader, Statu
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 
-type Tab = "all" | "due" | "overdue" | "paid" | "draft" | "cancelled";
+type Tab = "all" | "due" | "paid" | "draft" | "cancelled";
 
 const TABS: { id: Tab; label: string; match: (i: InvoiceListItem) => boolean }[] = [
   { id: "all", label: "All", match: () => true },
-  { id: "due", label: "Awaiting payment", match: (i) => ["UNPAID", "PARTIALLY PAID", "OVERDUE"].includes(i.payment_status) },
-  { id: "overdue", label: "Overdue", match: (i) => i.payment_status === "OVERDUE" },
+  { id: "due", label: "Awaiting payment", match: (i) => ["UNPAID", "PARTIALLY PAID"].includes(i.payment_status) },
   { id: "paid", label: "Paid", match: (i) => i.payment_status === "PAID" },
   { id: "draft", label: "Drafts", match: (i) => i.status === "DRAFT" },
   { id: "cancelled", label: "Cancelled", match: (i) => i.status === "CANCELLED" },
@@ -117,7 +116,6 @@ export default function InvoicesPage() {
                   <th className="py-2.5 px-4 font-medium">Invoice</th>
                   <th className="py-2.5 pr-4 font-medium">Date</th>
                   <th className="py-2.5 pr-4 font-medium">Customer</th>
-                  <th className="py-2.5 pr-4 font-medium">Due</th>
                   <th className="py-2.5 pr-4 font-medium text-right">Amount</th>
                   <th className="py-2.5 pr-4 font-medium text-right">Balance</th>
                   <th className="py-2.5 px-4 font-medium text-right">Status</th>
@@ -129,9 +127,6 @@ export default function InvoicesPage() {
                     <td className="py-3 px-4 font-medium text-slate-900 whitespace-nowrap">{inv.invoice_number}</td>
                     <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
                     <td className="py-3 pr-4">{inv.customer_name}</td>
-                    <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">
-                      {inv.status === "ISSUED" ? formatDate(inv.due_date) : "—"}
-                    </td>
                     <td className="py-3 pr-4 text-right tabular">{formatMoney(inv.total_amount)}</td>
                     <td className="py-3 pr-4 text-right tabular">
                       {inv.status === "ISSUED" && inv.outstanding_amount > 0 ? formatMoney(inv.outstanding_amount) : "—"}

@@ -273,7 +273,157 @@ const MIGRATIONS: &[Migration] = &[
             UPDATE payments SET excess_action = 'NONE' WHERE excess_amount <= 0;
         "#,
     },
+    Migration {
+        version: 6,
+        name: "006_customer_bank_details",
+        sql: r#"
+            ALTER TABLE customers ADD COLUMN bank_name TEXT NULL;
+            ALTER TABLE customers ADD COLUMN bank_branch TEXT NULL;
+            ALTER TABLE customers ADD COLUMN bank_account_no TEXT NULL;
+            ALTER TABLE customers ADD COLUMN bank_ifsc TEXT NULL;
+        "#,
+    },
+    Migration {
+        version: 7,
+        name: "007_tds_recognized",
+        sql: r#"
+            -- 1 = TDS counts towards the invoices; 0 = recorded only (e.g. no certificate yet).
+            ALTER TABLE payments ADD COLUMN tds_recognized INTEGER NOT NULL DEFAULT 1;
+        "#,
+    },
+    Migration {
+        version: 8,
+        name: "008_backup_change_log",
+        sql: r#"
+            -- Every insert, edit and delete is recorded so a backup knows what changed since the last good one.
+            CREATE TABLE IF NOT EXISTS change_log (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name TEXT NOT NULL,
+                row_id INTEGER NOT NULL,
+                op TEXT NOT NULL,
+                changed_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS backup_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                change_seq_upto INTEGER NOT NULL DEFAULT 0,
+                drive_file_id TEXT NULL,
+                file_name TEXT NULL,
+                size_bytes INTEGER NULL,
+                sha256 TEXT NULL,
+                md5 TEXT NULL,
+                schema_version INTEGER NULL,
+                summary_json TEXT NULL,
+                error TEXT NULL
+            );
+
+            CREATE TRIGGER IF NOT EXISTS trg_customers_insert_log AFTER INSERT ON customers
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('customers', NEW.id, 'INSERT', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_customers_update_log AFTER UPDATE ON customers
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('customers', NEW.id, 'UPDATE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_customers_delete_log AFTER DELETE ON customers
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('customers', OLD.id, 'DELETE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_invoices_insert_log AFTER INSERT ON invoices
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('invoices', NEW.id, 'INSERT', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_invoices_update_log AFTER UPDATE ON invoices
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('invoices', NEW.id, 'UPDATE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_invoices_delete_log AFTER DELETE ON invoices
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('invoices', OLD.id, 'DELETE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_invoice_items_insert_log AFTER INSERT ON invoice_items
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('invoice_items', NEW.id, 'INSERT', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_invoice_items_update_log AFTER UPDATE ON invoice_items
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('invoice_items', NEW.id, 'UPDATE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_invoice_items_delete_log AFTER DELETE ON invoice_items
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('invoice_items', OLD.id, 'DELETE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_payments_insert_log AFTER INSERT ON payments
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('payments', NEW.id, 'INSERT', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_payments_update_log AFTER UPDATE ON payments
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('payments', NEW.id, 'UPDATE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_payments_delete_log AFTER DELETE ON payments
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('payments', OLD.id, 'DELETE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_payment_allocations_insert_log AFTER INSERT ON payment_allocations
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('payment_allocations', NEW.id, 'INSERT', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_payment_allocations_update_log AFTER UPDATE ON payment_allocations
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('payment_allocations', NEW.id, 'UPDATE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_payment_allocations_delete_log AFTER DELETE ON payment_allocations
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('payment_allocations', OLD.id, 'DELETE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_customer_credits_insert_log AFTER INSERT ON customer_credits
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('customer_credits', NEW.id, 'INSERT', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_customer_credits_update_log AFTER UPDATE ON customer_credits
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('customer_credits', NEW.id, 'UPDATE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_customer_credits_delete_log AFTER DELETE ON customer_credits
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('customer_credits', OLD.id, 'DELETE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_credit_applications_insert_log AFTER INSERT ON credit_applications
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('credit_applications', NEW.id, 'INSERT', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_credit_applications_update_log AFTER UPDATE ON credit_applications
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('credit_applications', NEW.id, 'UPDATE', datetime('now'));
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_credit_applications_delete_log AFTER DELETE ON credit_applications
+            BEGIN
+                INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('credit_applications', OLD.id, 'DELETE', datetime('now'));
+            END;
+        "#,
+    },
+    Migration {
+        version: 9,
+        name: "009_app_settings",
+        sql: r#"
+            -- The owner's own details (business, bank, tax rates, terms), editable in Settings.
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        "#,
+    },
 ];
+
+/// Highest migration version this build knows; a backup from a newer build can't be restored.
+pub fn latest_version() -> i32 {
+    MIGRATIONS.iter().map(|m| m.version).max().unwrap_or(0)
+}
 
 pub struct DatabaseManager {
     db_path: String,

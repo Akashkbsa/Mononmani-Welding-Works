@@ -12,7 +12,9 @@ export interface Payment {
   bank_name: string | null;
   amount_received: number;
   tds_amount: number;
-  /** Money received plus TDS. */
+  /** Whether the TDS counts towards the invoices. */
+  tds_recognized: boolean;
+  /** Money received plus recognized TDS. */
   total_settled: number;
   /** Earlier advance used by this payment. */
   credit_applied: number;
@@ -50,6 +52,7 @@ export interface PaymentListItem {
   reference_number: string | null;
   amount_received: number;
   tds_amount: number;
+  tds_recognized: boolean;
   total_settled: number;
   credit_applied: number;
   excess_amount: number;
@@ -67,6 +70,7 @@ export interface PaymentInput {
   bank_name: string | null;
   amount_received: number;
   tds_amount: number;
+  tds_recognized: boolean;
   credit_to_apply: number;
   is_verified: boolean;
   remarks: string | null;
@@ -95,12 +99,10 @@ export interface UnpaidInvoice {
   invoice_id: number;
   invoice_number: string;
   invoice_date: string;
-  due_date: string | null;
   total_amount: number;
   /** Already settled by other payments. */
   total_settled: number;
   outstanding_amount: number;
-  is_overdue: boolean;
 }
 
 export interface InvoicePaymentItem {
@@ -119,8 +121,6 @@ export interface InvoicePaymentSummary {
   total_settled: number;
   outstanding_amount: number;
   payment_status: string;
-  due_date: string | null;
-  is_overdue: boolean;
   payments: InvoicePaymentItem[];
 }
 
@@ -129,8 +129,6 @@ export interface PaymentsSummary {
   total_tds: number;
   total_outstanding: number;
   unpaid_invoices_count: number;
-  overdue_invoices_count: number;
-  overdue_invoices_value: number;
   unverified_count: number;
   advances_held: number;
   received_this_month: number;

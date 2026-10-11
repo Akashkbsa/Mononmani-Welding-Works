@@ -4,7 +4,7 @@ use super::models::{
     UnpaidInvoiceSummary,
 };
 use crate::invoices::repository::InvoiceRepository;
-use crate::util::{rupees, financial_year_label, is_past, normalize_date, parse_date, round2, today};
+use crate::util::{rupees, financial_year_label, normalize_date, parse_date, round2, today};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
@@ -139,7 +139,8 @@ impl PaymentRepository {
         if amount_received < 0.0 || tds_amount < 0.0 {
             return Err("Amounts cannot be negative.".to_string());
         }
-        let total_settled = round2(amount_received + tds_amount);
+        let tds_recognized = input.tds_recognized && tds_amount > 0.0;
+        let total_settled = round2(amount_received + if tds_recognized { tds_amount } else { 0.0 });
 
         // Check every allocation against the invoice's current balance.
         let mut seen = HashSet::new();
@@ -213,14 +214,14 @@ impl PaymentRepository {
                         payment_number, customer_id, customer_name, payment_date, payment_method,
                         reference_number, bank_name, amount_received, tds_deducted, total_settled,
                         credit_applied, excess_amount, excess_action, is_verified, is_important,
-                        remarks, created_at, updated_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, ?15, ?16, ?16)
+                        remarks, created_at, updated_at, tds_recognized
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, ?15, ?16, ?16, ?17)
                     "#,
                     params![
                         payment_number, customer_id, customer_name, payment_date, method,
                         clean(&input.reference_number), clean(&input.bank_name), amount_received, tds_amount,
                         total_settled, credit_needed, excess_amount, excess_action, input.is_verified as i32,
-                        clean(&input.remarks), now,
+                        clean(&input.remarks), now, tds_recognized as i32,
                     ],
                 )
                 .map_err(|e| format!("Failed to save payment: {}", e))?;
@@ -233,13 +234,13 @@ impl PaymentRepository {
                         customer_name = ?1, payment_date = ?2, payment_method = ?3, reference_number = ?4,
                         bank_name = ?5, amount_received = ?6, tds_deducted = ?7, total_settled = ?8,
                         credit_applied = ?9, excess_amount = ?10, excess_action = ?11, is_verified = ?12,
-                        remarks = ?13, updated_at = ?14
-                    WHERE id = ?15
+                        remarks = ?13, updated_at = ?14, tds_recognized = ?15
+                    WHERE id = ?16
                     "#,
                     params![
                         customer_name, payment_date, method, clean(&input.reference_number),
                         clean(&input.bank_name), amount_received, tds_amount, total_settled, credit_needed,
-                        excess_amount, excess_action, input.is_verified as i32, clean(&input.remarks), now, pid,
+                        excess_amount, excess_action, input.is_verified as i32, clean(&input.remarks), now, tds_recognized as i32, pid,
                     ],
                 )
                 .map_err(|e| format!("Failed to save payment: {}", e))?;
@@ -413,7 +414,8 @@ impl PaymentRepository {
                 r#"
                 SELECT id, payment_number, customer_id, customer_name, payment_date, payment_method,
                        reference_number, bank_name, amount_received, tds_deducted, total_settled,
-                       credit_applied, excess_amount, excess_action, is_verified, remarks, created_at, updated_at
+                       credit_applied, excess_amount, excess_action, is_verified, remarks, created_at, updated_at,
+                       tds_recognized
                 FROM payments WHERE id = ?1
                 "#,
                 params![id],
@@ -438,6 +440,7 @@ impl PaymentRepository {
                         remarks: r.get(15)?,
                         created_at: r.get(16)?,
                         updated_at: r.get(17)?,
+                        tds_recognized: r.get::<_, i32>(18)? != 0,
                     })
                 },
             )
@@ -484,7 +487,8 @@ impl PaymentRepository {
                    p.reference_number, p.amount_received, p.tds_deducted, p.total_settled, p.credit_applied,
                    p.excess_amount, p.excess_action, p.is_verified,
                    (SELECT GROUP_CONCAT(i.invoice_number, ', ') FROM payment_allocations pa
-                    JOIN invoices i ON i.id = pa.invoice_id WHERE pa.payment_id = p.id)
+                    JOIN invoices i ON i.id = pa.invoice_id WHERE pa.payment_id = p.id),
+                   p.tds_recognized
             FROM payments p
             WHERE 1=1
             "#,
@@ -538,6 +542,7 @@ impl PaymentRepository {
                     reference_number: r.get(6)?,
                     amount_received: r.get(7)?,
                     tds_amount: r.get(8)?,
+                    tds_recognized: r.get::<_, i32>(15)? != 0,
                     total_settled: r.get(9)?,
                     credit_applied: r.get(10)?,
                     excess_amount: r.get(11)?,
@@ -565,7 +570,7 @@ impl PaymentRepository {
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.total_amount,
+                SELECT i.id, i.invoice_number, i.invoice_date, i.total_amount,
                        COALESCE(SUM(CASE WHEN pa.payment_id != ?2 THEN pa.amount_allocated + pa.tds_allocated END), 0.0),
                        MAX(CASE WHEN pa.payment_id = ?2 THEN 1 ELSE 0 END)
                 FROM invoices i
@@ -579,22 +584,18 @@ impl PaymentRepository {
 
         let rows = stmt
             .query_map(params![customer_id, exclude], |r| {
-                let due_date: Option<String> = r.get(3)?;
-                let total_amount: f64 = r.get(4)?;
-                let total_settled = round2(r.get::<_, f64>(5)?);
-                let has_own: i32 = r.get::<_, Option<i32>>(6)?.unwrap_or(0);
-                let is_overdue = due_date.as_deref().map(is_past).unwrap_or(false);
+                let total_amount: f64 = r.get(3)?;
+                let total_settled = round2(r.get::<_, f64>(4)?);
+                let has_own: i32 = r.get::<_, Option<i32>>(5)?.unwrap_or(0);
                 Ok((
                     has_own == 1,
                     UnpaidInvoiceSummary {
                         invoice_id: r.get(0)?,
                         invoice_number: r.get(1)?,
                         invoice_date: r.get(2)?,
-                        due_date,
                         total_amount,
                         total_settled,
                         outstanding_amount: round2(total_amount - total_settled).max(0.0),
-                        is_overdue,
                     },
                 ))
             })
@@ -611,11 +612,11 @@ impl PaymentRepository {
     }
 
     pub fn get_invoice_payment_summary(conn: &Connection, invoice_id: i64) -> Result<InvoicePaymentSummary, String> {
-        let (total_amount, due_date, status): (f64, Option<String>, String) = conn
+        let (total_amount, status): (f64, String) = conn
             .query_row(
-                "SELECT total_amount, due_date, status FROM invoices WHERE id = ?1",
+                "SELECT total_amount, status FROM invoices WHERE id = ?1",
                 params![invoice_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(|e| format!("Invoice {} was not found: {}", invoice_id, e))?;
 
@@ -649,16 +650,13 @@ impl PaymentRepository {
 
         let total_settled = round2(payments.iter().map(|p| p.amount).sum());
         let outstanding_amount = round2(total_amount - total_settled).max(0.0);
-        let is_overdue = due_date.as_deref().map(is_past).unwrap_or(false);
 
         Ok(InvoicePaymentSummary {
             invoice_id,
             total_amount,
             total_settled,
             outstanding_amount,
-            payment_status: InvoiceRepository::payment_status(&status, total_settled, outstanding_amount, due_date.as_deref()),
-            due_date,
-            is_overdue,
+            payment_status: InvoiceRepository::payment_status(&status, total_settled, outstanding_amount),
             payments,
         })
     }
@@ -694,7 +692,7 @@ impl PaymentRepository {
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT i.total_amount, i.due_date,
+                SELECT i.total_amount,
                        COALESCE(SUM(pa.amount_allocated + pa.tds_allocated), 0.0)
                 FROM invoices i
                 LEFT JOIN payment_allocations pa ON pa.invoice_id = i.id
@@ -704,23 +702,17 @@ impl PaymentRepository {
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, f64>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, f64>(2)?)))
+            .query_map([], |r| Ok((r.get::<_, f64>(0)?, r.get::<_, f64>(1)?)))
             .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
             .map_err(|e| e.to_string())?;
 
         let mut total_outstanding = 0.0;
         let mut unpaid_invoices_count = 0;
-        let mut overdue_invoices_count = 0;
-        let mut overdue_invoices_value = 0.0;
-        for (total, due_date, settled) in rows {
+        for (total, settled) in rows {
             let outstanding = round2(total - settled).max(0.0);
             if outstanding > 0.01 {
                 total_outstanding += outstanding;
                 unpaid_invoices_count += 1;
-                if due_date.as_deref().map(is_past).unwrap_or(false) {
-                    overdue_invoices_count += 1;
-                    overdue_invoices_value += outstanding;
-                }
             }
         }
 
@@ -729,8 +721,6 @@ impl PaymentRepository {
             total_tds: round2(total_tds),
             total_outstanding: round2(total_outstanding),
             unpaid_invoices_count,
-            overdue_invoices_count,
-            overdue_invoices_value: round2(overdue_invoices_value),
             unverified_count,
             advances_held: round2(advances_held),
             received_this_month: round2(received_this_month),
@@ -880,6 +870,7 @@ mod tests {
             bank_name: Some("SBI".to_string()),
             amount_received: received,
             tds_amount: 0.0,
+            tds_recognized: true,
             credit_to_apply: credit,
             is_verified: true,
             remarks: None,
@@ -1000,5 +991,79 @@ mod tests {
         let c = customer(&conn, "A");
         invoice(&conn, c, "T/1", 1000.0);
         assert!(CustomerRepository::delete(&conn, c).is_err());
+    }
+
+    fn outstanding(conn: &Connection, inv: i64) -> f64 {
+        PaymentRepository::get_invoice_payment_summary(conn, inv).unwrap().outstanding_amount
+    }
+
+    #[test]
+    fn recognized_tds_settles_the_invoice() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "T/1", 50000.0);
+        let mut input = payment(c, 48000.0, &[(inv, 50000.0)], 0.0, "CREDIT");
+        input.tds_amount = 2000.0;
+        let p = PaymentRepository::create_payment(&conn, input).unwrap();
+        assert_eq!(p.payment.amount_received, 48000.0);
+        assert_eq!(p.payment.total_settled, 50000.0);
+        let summary = PaymentRepository::get_invoice_payment_summary(&conn, inv).unwrap();
+        assert_eq!(summary.outstanding_amount, 0.0);
+        assert_eq!(summary.payment_status, "PAID");
+    }
+
+    #[test]
+    fn unrecognized_tds_leaves_balance_outstanding() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "T/1", 50000.0);
+        let mut input = payment(c, 48000.0, &[(inv, 48000.0)], 0.0, "CREDIT");
+        input.tds_amount = 2000.0;
+        input.tds_recognized = false;
+        let p = PaymentRepository::create_payment(&conn, input).unwrap();
+        assert_eq!(p.payment.total_settled, 48000.0);
+        assert!(!p.payment.tds_recognized);
+        assert_eq!(outstanding(&conn, inv), 2000.0);
+
+        // The unrecognised TDS cannot be allocated.
+        let mut too_much = payment(c, 48000.0, &[(inv, 50000.0)], 0.0, "CREDIT");
+        too_much.tds_amount = 2000.0;
+        too_much.tds_recognized = false;
+        assert!(PaymentRepository::create_payment(&conn, too_much).is_err());
+    }
+
+    #[test]
+    fn three_payments_edit_and_delete_recalculate_balance() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "T/1", 50000.0);
+        PaymentRepository::create_payment(&conn, payment(c, 20000.0, &[(inv, 20000.0)], 0.0, "CREDIT")).unwrap();
+        assert_eq!(outstanding(&conn, inv), 30000.0);
+        let p2 = PaymentRepository::create_payment(&conn, payment(c, 15000.0, &[(inv, 15000.0)], 0.0, "CREDIT")).unwrap();
+        assert_eq!(outstanding(&conn, inv), 15000.0);
+        PaymentRepository::create_payment(&conn, payment(c, 15000.0, &[(inv, 15000.0)], 0.0, "CREDIT")).unwrap();
+        assert_eq!(outstanding(&conn, inv), 0.0);
+        assert_eq!(PaymentRepository::get_invoice_payment_summary(&conn, inv).unwrap().payment_status, "PAID");
+
+        PaymentRepository::update_payment(&conn, p2.payment.id, payment(c, 10000.0, &[(inv, 10000.0)], 0.0, "CREDIT")).unwrap();
+        assert_eq!(outstanding(&conn, inv), 5000.0);
+        PaymentRepository::delete_payment(&conn, p2.payment.id).unwrap();
+        assert_eq!(outstanding(&conn, inv), 15000.0);
+        let orphans: i64 = conn
+            .query_row("SELECT COUNT(*) FROM payment_allocations WHERE payment_id = ?1", params![p2.payment.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orphans, 0);
+    }
+
+    #[test]
+    fn one_payment_can_cover_two_invoices() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let a = invoice(&conn, c, "T/1", 30000.0);
+        let b = invoice(&conn, c, "T/2", 20000.0);
+        let p = PaymentRepository::create_payment(&conn, payment(c, 50000.0, &[(a, 30000.0), (b, 20000.0)], 0.0, "CREDIT")).unwrap();
+        assert_eq!(p.allocations.len(), 2);
+        assert_eq!(outstanding(&conn, a), 0.0);
+        assert_eq!(outstanding(&conn, b), 0.0);
     }
 }

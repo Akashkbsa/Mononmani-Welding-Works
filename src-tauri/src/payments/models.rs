@@ -12,7 +12,9 @@ pub struct Payment {
     pub bank_name: Option<String>,
     pub amount_received: f64,
     pub tds_amount: f64,
-    /// Money received plus TDS.
+    /// Whether the TDS counts towards the invoices.
+    pub tds_recognized: bool,
+    /// Money received plus recognized TDS.
     pub total_settled: f64,
     /// Earlier advances used by this payment.
     pub credit_applied: f64,
@@ -54,6 +56,7 @@ pub struct PaymentListItem {
     pub reference_number: Option<String>,
     pub amount_received: f64,
     pub tds_amount: f64,
+    pub tds_recognized: bool,
     pub total_settled: f64,
     pub credit_applied: f64,
     pub excess_amount: f64,
@@ -80,6 +83,8 @@ pub struct PaymentInput {
     pub amount_received: f64,
     #[serde(default)]
     pub tds_amount: f64,
+    #[serde(default = "default_true")]
+    pub tds_recognized: bool,
     /// Most of the customer's advance this payment may use; only what the allocations need is taken.
     #[serde(default)]
     pub credit_to_apply: f64,
@@ -118,12 +123,10 @@ pub struct UnpaidInvoiceSummary {
     pub invoice_id: i64,
     pub invoice_number: String,
     pub invoice_date: String,
-    pub due_date: Option<String>,
     pub total_amount: f64,
     /// Settled by other payments.
     pub total_settled: f64,
     pub outstanding_amount: f64,
-    pub is_overdue: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,8 +147,6 @@ pub struct InvoicePaymentSummary {
     pub total_settled: f64,
     pub outstanding_amount: f64,
     pub payment_status: String,
-    pub due_date: Option<String>,
-    pub is_overdue: bool,
     pub payments: Vec<InvoicePaymentItem>,
 }
 
@@ -155,10 +156,12 @@ pub struct PaymentsKpiSummary {
     pub total_tds: f64,
     pub total_outstanding: f64,
     pub unpaid_invoices_count: i64,
-    pub overdue_invoices_count: i64,
-    pub overdue_invoices_value: f64,
     pub unverified_count: i64,
     pub advances_held: f64,
     pub received_this_month: f64,
     pub invoiced_this_month: f64,
+}
+
+fn default_true() -> bool {
+    true
 }

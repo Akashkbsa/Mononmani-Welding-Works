@@ -1,8 +1,10 @@
+mod backup;
 mod customers;
 mod db;
 pub mod invoices;
 pub mod payments;
 mod pdf;
+mod settings;
 mod storage;
 mod util;
 
@@ -99,7 +101,15 @@ pub fn run() {
             payments::get_unpaid_invoices_for_customer,
             payments::get_invoice_payment_summary,
             payments::get_payments_kpi_summary,
-            payments::get_customer_credits
+            payments::get_customer_credits,
+            backup::backup_status,
+            backup::connect_drive,
+            backup::disconnect_drive,
+            backup::run_backup,
+            backup::list_drive_backups,
+            backup::restore_drive_backup,
+            settings::get_settings,
+            settings::save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

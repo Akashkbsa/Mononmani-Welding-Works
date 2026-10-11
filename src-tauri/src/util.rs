@@ -53,10 +53,6 @@ pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
 
-pub fn is_past(date: &str) -> bool {
-    parse_date(date).map(|d| today() > d).unwrap_or(false)
-}
-
 /// Indian financial year label for today, e.g. "26-27" (April to March).
 pub fn financial_year_label() -> String {
     let now = today();

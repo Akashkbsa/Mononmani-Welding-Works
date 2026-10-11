@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getBackupStatus } from "./services/api";
 import { CreditCard, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
@@ -22,11 +23,13 @@ function NavButton({
   onClick,
   icon: Icon,
   label,
+  badge,
 }: {
   active: boolean;
   onClick: () => void;
   icon: typeof FileText;
   label: string;
+  badge?: boolean;
 }) {
   return (
     <button
@@ -40,12 +43,21 @@ function NavButton({
     >
       <Icon className={`w-4 h-4 ${active ? "text-orange-700" : "text-slate-500"}`} />
       {label}
+      {badge && <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Backup due" />}
     </button>
   );
 }
 
 function App() {
   const [page, setPage] = useState<Page>("dashboard");
+  const [backupDue, setBackupDue] = useState(false);
+
+  // Reminds the user (a dot on Settings) when something is not backed up yet.
+  useEffect(() => {
+    getBackupStatus()
+      .then((s) => setBackupDue(s.connected && (s.pending.any || !s.last_success)))
+      .catch(() => setBackupDue(false));
+  }, [page]);
 
   return (
     <ToastProvider>
@@ -77,6 +89,7 @@ function App() {
               onClick={() => setPage("settings")}
               icon={Settings}
               label="Settings"
+              badge={backupDue}
             />
           </div>
         </aside>

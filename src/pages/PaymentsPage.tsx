@@ -140,7 +140,7 @@ export default function PaymentsPage() {
                   <td className="py-3 px-4 text-right tabular font-medium">
                     {formatMoney(p.amount_received)}
                     {p.tds_amount > 0 && (
-                      <div className="text-xs font-normal text-slate-500">+ {formatMoney(p.tds_amount)} TDS</div>
+                      <div className="text-xs font-normal text-slate-500">{p.tds_recognized ? "+ " : "TDS not counted: "}{formatMoney(p.tds_amount)}{p.tds_recognized ? " TDS" : ""}</div>
                     )}
                   </td>
                 </tr>

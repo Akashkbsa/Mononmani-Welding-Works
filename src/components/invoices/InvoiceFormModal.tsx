@@ -6,11 +6,12 @@ import {
   checkDuplicateInvoiceNumber,
   createInvoice,
   getNextInvoiceNumber,
+  getSettings,
   listCustomers,
   updateInvoice,
 } from "../../services/api";
 import { GST_STATES, HOME_STATE, stateCodeFor, stateName, taxTypeFor } from "../../lib/gst";
-import { addDaysISO, errorMessage, formatDate, formatMoney, round2, todayISO } from "../../lib/format";
+import { errorMessage, formatDate, formatMoney, round2, todayISO } from "../../lib/format";
 import { Alert, Button, Field, inputClass, Modal, textareaClass } from "../ui";
 import CustomerFormModal from "../customers/CustomerFormModal";
 
@@ -33,7 +34,8 @@ function initialForm(invoice?: InvoiceWithItems | null): InvoiceInput {
     const inv = invoice.invoice;
     return {
       ...inv,
-      due_date: inv.due_date,
+      // Let the backend recompute the due date (used only by the PDF) from the invoice date.
+      due_date: undefined,
       items: invoice.items.map((i) => ({
         description: i.description,
         hsn_sac: i.hsn_sac,
@@ -47,8 +49,6 @@ function initialForm(invoice?: InvoiceWithItems | null): InvoiceInput {
   return {
     invoice_number: "",
     invoice_date: today,
-    due_date: addDaysISO(today, 60),
-    payment_terms_days: 60,
     invoice_state: HOME_STATE.name,
     customer_id: null,
     customer_name: "",
@@ -136,6 +136,22 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
       getNextInvoiceNumber()
         .then((n) => setForm((f) => ({ ...f, invoice_number: f.invoice_number || n })))
         .catch((err) => setError(errorMessage(err)));
+      // Bank details, terms and tax rates always come from Settings.
+      getSettings()
+        .then((s) =>
+          setForm((f) => ({
+            ...f,
+            bank_name: s.bank_name,
+            bank_branch: s.bank_branch,
+            bank_account_no: s.bank_account_no,
+            bank_ifsc: s.bank_ifsc,
+            terms_and_conditions: s.terms_and_conditions,
+            cgst_rate: s.cgst_rate,
+            sgst_rate: s.sgst_rate,
+            igst_rate: s.igst_rate,
+          })),
+        )
+        .catch((err) => setError(errorMessage(err)));
     }
   }, [invoice]);
 
@@ -143,14 +159,6 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
 
   const update = <K extends keyof InvoiceInput>(key: K, value: InvoiceInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
-
-  const setDates = (invoiceDate: string, terms: number) =>
-    setForm((f) => ({
-      ...f,
-      invoice_date: invoiceDate,
-      payment_terms_days: terms,
-      due_date: invoiceDate ? addDaysISO(invoiceDate, terms) : f.due_date,
-    }));
 
   /** Copies the customer's current details onto the invoice and picks the right tax. */
   const selectCustomer = (c: Customer) => {
@@ -216,7 +224,6 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
       your_dc_number_and_date: clean(form.your_dc_number_and_date),
       terms_and_conditions: clean(form.terms_and_conditions),
       notes: clean(form.notes),
-      payment_terms_days: Number(form.payment_terms_days) || 0,
       discount: Number(form.discount) || 0,
       cgst_rate: Number(form.cgst_rate) || 0,
       sgst_rate: Number(form.sgst_rate) || 0,
@@ -350,25 +357,14 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                   onBlur={checkNumber}
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Invoice date" required>
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={form.invoice_date}
-                    onChange={(e) => setDates(e.target.value, form.payment_terms_days)}
-                  />
-                </Field>
-                <Field label="Pay within (days)" hint={`Due ${formatDate(form.due_date)}`}>
-                  <input
-                    type="number"
-                    min={0}
-                    className={inputClass}
-                    value={form.payment_terms_days}
-                    onChange={(e) => setDates(form.invoice_date, Math.max(0, Number(e.target.value) || 0))}
-                  />
-                </Field>
-              </div>
+              <Field label="Invoice date" required>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={form.invoice_date}
+                  onChange={(e) => update("invoice_date", e.target.value)}
+                />
+              </Field>
               <Field label="Status" hint={form.status === "DRAFT" ? "Drafts don't count as money owed." : undefined}>
                 <select
                   className={inputClass}
@@ -499,14 +495,14 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     <option value="CGST_SGST">CGST + SGST (within state)</option>
                     <option value="IGST">IGST (other state)</option>
                   </select>
-                  {form.tax_type === "IGST" ? (
-                    <RateInput value={form.igst_rate} onChange={(v) => update("igst_rate", v)} label="IGST %" />
-                  ) : (
-                    <>
-                      <RateInput value={form.cgst_rate} onChange={(v) => update("cgst_rate", v)} label="CGST %" />
-                      <RateInput value={form.sgst_rate} onChange={(v) => update("sgst_rate", v)} label="SGST %" />
-                    </>
-                  )}
+                  <div
+                    className="shrink-0 h-9 px-3 inline-flex items-center rounded-md bg-slate-100 text-sm text-slate-700 tabular"
+                    title="Tax rates are set in Settings"
+                  >
+                    {form.tax_type === "IGST"
+                      ? `IGST ${form.igst_rate}%`
+                      : `CGST ${form.cgst_rate}% + SGST ${form.sgst_rate}%`}
+                  </div>
                 </div>
               </Field>
               <Field label="Discount (₹)">
@@ -561,22 +557,10 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
             </div>
           </Collapsible>
 
-          <Collapsible title="Bank details and terms">
-            <div className="grid grid-cols-4 gap-4 mb-4">
-              <TextField label="Bank" value={form.bank_name} onChange={(v) => update("bank_name", v ?? "")} />
-              <TextField label="Branch" value={form.bank_branch} onChange={(v) => update("bank_branch", v ?? "")} />
-              <TextField label="Account number" value={form.bank_account_no} onChange={(v) => update("bank_account_no", v ?? "")} />
-              <TextField label="IFSC" value={form.bank_ifsc} onChange={(v) => update("bank_ifsc", v ?? "")} />
-            </div>
-            <Field label="Terms & conditions" hint="One per line, printed on the invoice.">
-              <textarea
-                className={textareaClass}
-                rows={3}
-                value={form.terms_and_conditions ?? ""}
-                onChange={(e) => update("terms_and_conditions", e.target.value)}
-              />
-            </Field>
-          </Collapsible>
+          <p className="text-xs text-slate-500">
+            Printed bank details ({form.bank_name}, A/c {form.bank_account_no}), terms and tax rates come from
+            Settings.
+          </p>
 
           <Field label="Internal note" hint="Only you see this. It isn't printed.">
             <textarea
@@ -608,23 +592,6 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between text-slate-600">
       <dt>{label}</dt>
       <dd className="text-slate-900">{value}</dd>
-    </div>
-  );
-}
-
-function RateInput({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
-  return (
-    <div className="w-20 shrink-0">
-      <input
-        type="number"
-        min={0}
-        step="0.01"
-        aria-label={label}
-        title={label}
-        className={`${inputClass} text-right tabular`}
-        value={value}
-        onChange={(e) => onChange(e.target.value as unknown as number)}
-      />
     </div>
   );
 }

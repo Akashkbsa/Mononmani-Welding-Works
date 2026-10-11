@@ -245,7 +245,6 @@ const paymentStatusTone: Record<string, Tone> = {
   PAID: "green",
   "PARTIALLY PAID": "blue",
   UNPAID: "amber",
-  OVERDUE: "red",
   DRAFT: "neutral",
   CANCELLED: "neutral",
 };
@@ -254,7 +253,6 @@ const paymentStatusLabel: Record<string, string> = {
   PAID: "Paid",
   "PARTIALLY PAID": "Part paid",
   UNPAID: "Unpaid",
-  OVERDUE: "Overdue",
   DRAFT: "Draft",
   CANCELLED: "Cancelled",
 };

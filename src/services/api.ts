@@ -19,6 +19,8 @@ import {
   UnpaidInvoice,
 } from "../types/payment";
 import { StorageInfo } from "../types/storage";
+import { BusinessSettings } from "../types/settings";
+import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
 
 /** Calls a Rust command and turns its error string into an Error with a readable message. */
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -85,3 +87,16 @@ export const getCustomerCredits = (customerId: number, excludePaymentId?: number
 export const getInvoicePayments = (invoiceId: number) =>
   call<InvoicePaymentSummary>("get_invoice_payment_summary", { invoiceId });
 export const getPaymentsSummary = () => call<PaymentsSummary>("get_payments_kpi_summary");
+
+// Google Drive backup
+export const getBackupStatus = () => call<BackupStatus>("backup_status");
+export const connectDrive = (clientId: string, clientSecret: string) =>
+  call<string | null>("connect_drive", { clientId, clientSecret });
+export const disconnectDrive = () => call<void>("disconnect_drive");
+export const runBackup = () => call<BackupResult>("run_backup");
+export const listDriveBackups = () => call<DriveBackupList>("list_drive_backups");
+export const restoreDriveBackup = (fileId: string) => call<string>("restore_drive_backup", { fileId });
+
+// Business settings
+export const getSettings = () => call<BusinessSettings>("get_settings");
+export const saveSettings = (settings: BusinessSettings) => call<BusinessSettings>("save_settings", { settings });

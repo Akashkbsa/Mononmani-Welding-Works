@@ -5,6 +5,8 @@ import { DbStatusInfo } from "../types/db";
 import { getDbStatus, getStorageInfo, openDataFolder } from "../services/api";
 import { errorMessage } from "../lib/format";
 import { Alert, Button, Card, Loading, PageHeader, useToast } from "../components/ui";
+import BackupCard from "../components/BackupCard";
+import BusinessSettingsCard from "../components/BusinessSettingsCard";
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -32,7 +34,7 @@ export default function SettingsPage() {
         <Card className="p-6 max-w-3xl space-y-5">
           <p className="text-sm text-slate-600">
             All invoices, customers and payments are stored on this computer and work without internet. Copy the
-            data folder to a USB drive or cloud folder regularly to keep a backup.
+            data folder to a USB drive regularly, or use Google Drive backup below.
           </p>
 
           <dl className="space-y-3 text-sm">
@@ -52,6 +54,11 @@ export default function SettingsPage() {
           </div>
         </Card>
       )}
+
+      <div className="mt-6 space-y-6">
+        <BusinessSettingsCard />
+        <BackupCard />
+      </div>
     </>
   );
 }

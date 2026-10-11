@@ -51,7 +51,7 @@ html, body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 24px 10px;
+  padding: 36px 10px 24px 10px;
   min-height: 100vh;
 }
 
@@ -93,17 +93,50 @@ html, body {
   flex-direction: column;
 }
 
-.header-top-row {
+.invoice-sheet {
+  position: relative;
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 7px 14px 4px 14px;
+  flex-direction: column;
+  width: var(--invoice-width);
+}
+
+.sheet-badge-bar {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  margin-bottom: 2px;
+}
+
+.header-copy-type {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #4a4a4a;
+  border: 1px solid #5a5a5a;
+  padding: 1px 5px;
+  line-height: 1.2;
+}
+
+.header-copy-type:empty {
+  visibility: hidden;
+}
+
+.header-top-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 7px 14px 2px 14px;
 }
 
 .header-gstin {
-  font-size: 14.5px;
+  font-size: 11.6px;
   font-weight: 600;
   letter-spacing: 0.2px;
+  justify-self: start;
 }
 
 .header-title-container {
@@ -111,6 +144,8 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  justify-self: center;
+  text-align: center;
 }
 
 .header-title {
@@ -120,39 +155,18 @@ html, body {
   letter-spacing: 0.8px;
 }
 
-.header-right-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.header-copy-type {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: #111111;
-  border: 1px solid #111111;
-  padding: 1px 7px;
-  margin-bottom: 3px;
-  line-height: 1.2;
-}
-
-.header-copy-type:empty {
-  display: none;
-}
-
 .header-cell {
-  font-size: 14.5px;
+  font-size: 11.6px;
   font-weight: 600;
   text-align: right;
   letter-spacing: 0.2px;
+  justify-self: end;
 }
 
 .company-brand {
   text-align: center;
-  padding: 2px 10px 4px 10px;
+  padding: 1px 10px 6px 10px;
+  margin-top: -3px;
 }
 
 .company-name {
@@ -203,7 +217,7 @@ html, body {
 .invoice-meta-section {
   display: flex;
   border-bottom: var(--border-thick);
-  height: 156px;
+  height: 220px;
 }
 
 /* Left: Meta details & Receiver (47% = 893/1900) */
@@ -215,11 +229,11 @@ html, body {
 }
 
 .invoice-meta-info {
-  padding: 5px 14px;
+  padding: 8px 14px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  height: 56px;
+  gap: 5px;
+  height: 65px;
   justify-content: center;
 }
 
@@ -231,7 +245,7 @@ html, body {
 }
 
 .meta-label {
-  width: 76px;
+  width: 84px;
 }
 
 .meta-colon {
@@ -245,38 +259,45 @@ html, body {
 }
 
 .receiver-bar {
-  height: 24px;
+  height: 25px;
   padding: 0 14px;
   border-top: var(--border-thick);
   border-bottom: var(--border-thick);
+  font-size: 12.4px;
 }
 
 .receiver-details-area {
   flex: 1;
-  padding: 5px 14px;
+  padding: 9px 14px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .receiver-content {
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 11.9px;
+  line-height: 1.48;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
 .customer-name {
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  margin-bottom: 2px;
 }
 
 .customer-address {
   font-weight: 500;
   word-break: break-word;
+  line-height: 1.45;
 }
 
 .customer-contact, .customer-gstin {
   font-weight: 500;
+  line-height: 1.45;
 }
 
 /* Right: Reference & Delivery Details (53% = 1007/1900) */
@@ -288,7 +309,7 @@ html, body {
 
 .delivery-bar {
   background-color: var(--color-bg-delivery-header);
-  height: 24px;
+  height: 25px;
   border-bottom: var(--border-thick);
   justify-content: center;
   text-transform: uppercase;
@@ -313,7 +334,7 @@ html, body {
 
 .delivery-cell {
   flex: 1;
-  padding: 4px 10px 3px 10px;
+  padding: 6px 12px 5px 12px;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -327,18 +348,18 @@ html, body {
 .delivery-label {
   font-size: 10.5px;
   font-weight: 600;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
   color: var(--color-black);
 }
 
 .delivery-underline {
   width: 100%;
   border-bottom: var(--border-underline);
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .delivery-val {
-  font-size: 10.5px;
+  font-size: 11px;
   flex: 1;
   min-height: 10px;
   font-weight: 500;
@@ -405,12 +426,12 @@ html, body {
 }
 
 .col-qty {
-  width: 6.316%;
+  width: 6.132%;
   text-align: center;
 }
 
 .col-rate {
-  width: 12.105%;
+  width: 12.289%;
   text-align: right;
 }
 
@@ -424,6 +445,7 @@ html, body {
   border-right: var(--border-thick);
   padding: 8px 8px;
   vertical-align: top;
+  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.35;
@@ -435,13 +457,13 @@ html, body {
 }
 
 .items-table tbody td.col-desc {
-  font-size: 14px;
+  font-size: 15.4px;
   font-weight: 500;
 }
 
 .items-table tbody td.col-rate,
 .items-table tbody td.col-amount {
-  font-size: 14px;
+  font-size: 15.4px;
   font-weight: 500;
   letter-spacing: 0.2px;
   text-align: right;
@@ -601,7 +623,7 @@ html, body {
 .row-after-tax {
   height: 32px;
   align-items: center;
-  border-top: var(--border-thick);
+  border-top: none;
 }
 
 /* Left portion of totals box: 66.25% (530 / 800) */
@@ -609,7 +631,7 @@ html, body {
   width: 66.25%;
   padding-left: 8px;
   font-size: 10.5px;
-  font-weight: 500;
+  font-weight: 400;
   border-right: var(--border-thick);
   height: 100%;
   display: flex;
@@ -620,7 +642,7 @@ html, body {
   width: 66.25%;
   padding: 0 8px;
   font-size: 10.5px;
-  font-weight: 500;
+  font-weight: 400;
   border-right: var(--border-thick);
   height: 100%;
   display: flex;
@@ -629,11 +651,11 @@ html, body {
 }
 
 .tax-name {
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .tax-rate {
-  font-weight: 500;
+  font-weight: 400;
   padding-right: 4px;
 }
 
@@ -642,8 +664,8 @@ html, body {
   width: 33.75%;
   padding-right: 8px;
   text-align: right;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 400;
   height: 100%;
   display: flex;
   align-items: center;
@@ -652,13 +674,13 @@ html, body {
 }
 
 .bold-label {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .bold-value {
-  font-size: 14px;
-  font-weight: 800;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
 /* Signature Box */
@@ -693,7 +715,7 @@ html, body {
    -------------------------------------------------------------------------- */
 @page {
   size: A4 portrait;
-  margin: 5mm;
+  margin: 0;
 }
 
 @media print {
@@ -701,17 +723,42 @@ html, body {
     background: none;
     margin: 0;
     padding: 0;
-    width: 200mm;
-    height: 287mm;
+    width: 210mm;
+    height: 297mm;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
   .page-container {
     padding: 0;
-    margin: 0;
-    display: block;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 4.5mm;
+    width: 210mm;
+    height: 297mm;
     min-height: auto;
+    box-sizing: border-box;
+  }
+
+  .invoice-sheet {
+    position: relative;
+    width: 200mm;
+    height: 287mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .sheet-badge-bar {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-end;
+    margin-bottom: 2px;
   }
 
   .invoice-box {
@@ -729,7 +776,7 @@ html, body {
    -------------------------------------------------------------------------- */
 @media screen and (max-width: 820px) {
   .page-container {
-    padding: 6px;
+    padding: 30px 6px 6px 6px;
   }
 
   .invoice-box {
@@ -752,13 +799,10 @@ html, body {
   gap: 16px;
   align-items: center;
   width: 100%;
+  line-height: 1.45;
 }
 
 .customer-state {
   font-weight: 500;
-}
-
-.meta-due {
-  margin-left: 18px;
-  font-weight: 500;
+  line-height: 1.45;
 }

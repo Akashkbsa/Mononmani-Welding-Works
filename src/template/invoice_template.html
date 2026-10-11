@@ -11,7 +11,11 @@
 </head>
 <body>
   <div class="page-container">
-    <div class="invoice-box">
+    <div class="invoice-sheet">
+      <div class="sheet-badge-bar">
+        <div class="header-copy-type" data-bind="invoice.copy_type"></div>
+      </div>
+      <div class="invoice-box">
       
       <!-- 1. HEADER SECTION (Static / Seller Info) -->
       <header class="invoice-header">
@@ -20,10 +24,7 @@
           <div class="header-title-container">
             <div class="header-title">TAX INVOICE</div>
           </div>
-          <div class="header-right-group">
-            <div class="header-copy-type" data-bind="invoice.copy_type"></div>
-            <div class="header-cell">Cell : <span class="field-val" data-bind="seller.phone">94432 94052</span></div>
-          </div>
+          <div class="header-cell">Cell : <span class="field-val" data-bind="seller.phone">94432 94052</span></div>
         </div>
 
         <div class="company-brand">
@@ -55,7 +56,6 @@
               <span class="meta-label">Invoice Date</span>
               <span class="meta-colon">:</span>
               <span class="meta-val field-val" data-bind="invoice.date">21-09-2024</span>
-              <span class="meta-due" id="due-date-wrapper" style="display: none;">Due : <span class="field-val" data-bind="invoice.due_date">20-11-2024</span></span>
             </div>
             <div class="meta-field">
               <span class="meta-label">Invoice State</span>
@@ -281,7 +281,7 @@
             </div>
 
             <div class="totals-row row-after-tax">
-              <div class="totals-label bold-label">Total Amount After Tax :</div>
+              <div class="totals-label">Total Amount After Tax :</div>
               <div class="totals-value bold-value field-val" data-bind="totals.total_amount">₹66,080.00</div>
             </div>
           </div>
@@ -296,6 +296,7 @@
         </div>
       </footer>
 
+    </div>
     </div>
   </div>
 
@@ -376,13 +377,6 @@
             termsContainer.appendChild(div);
           });
         }
-      }
-
-      // Handle conditional due date & customer state wrappers
-      const dueVal = getPath(data, 'invoice.due_date');
-      const dueWrapper = document.getElementById('due-date-wrapper');
-      if (dueWrapper) {
-        dueWrapper.style.display = dueVal ? 'inline-block' : 'none';
       }
 
       const stateVal = getPath(data, 'customer.state') || getPath(data, 'customer.state_code');

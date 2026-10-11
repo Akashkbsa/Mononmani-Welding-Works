@@ -93,9 +93,11 @@ pub async fn generate_invoice_pdf_by_id(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let copy = CopyType::parse(copy_type.as_deref());
-    let invoice = {
+    let (invoice, seller) = {
         let conn = state.db.get_connection()?;
-        InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))?
+        let invoice =
+            InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))?;
+        (invoice, crate::settings::repository::SettingsRepository::get(&conn)?)
     };
 
     let year = parse_date(&invoice.invoice.invoice_date)
@@ -110,7 +112,7 @@ pub async fn generate_invoice_pdf_by_id(
     let target_path = state.storage.prepare_invoice_save_path(&year, &filename)?;
 
     let generated = tauri::async_runtime::spawn_blocking(move || {
-        PdfRenderer::generate_pdf_from_invoice(&invoice, copy, &target_path)
+        PdfRenderer::generate_pdf_from_invoice(&invoice, copy, &target_path, &seller)
     })
     .await
     .map_err(|e| format!("PDF generation stopped unexpectedly: {}", e))??;

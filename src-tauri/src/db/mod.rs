@@ -1,3 +1,3 @@
 pub mod migrations;
 
-pub use migrations::{DatabaseManager, DbStatusInfo};
+pub use migrations::{latest_version, DatabaseManager, DbStatusInfo};

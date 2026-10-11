@@ -1,5 +1,6 @@
 use crate::invoices::models::InvoiceWithItems;
 use crate::invoices::repository::{InvoiceRepository, DEFAULT_TERMS};
+use crate::settings::models::BusinessSettings;
 use crate::util::{display_date, indian_number};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -62,7 +63,7 @@ impl PdfRenderer {
             .ok_or_else(|| "Microsoft Edge or Google Chrome is needed to create PDFs, but neither was found.".to_string())
     }
 
-    pub fn render_html_from_invoice(inv_data: &InvoiceWithItems, copy: CopyType) -> String {
+    pub fn render_html_from_invoice(inv_data: &InvoiceWithItems, copy: CopyType, seller: &BusinessSettings) -> String {
         let template = include_str!("../../../src/template/invoice_template.html");
         let css = include_str!("../../../src/template/invoice_styles.css");
         let inv = &inv_data.invoice;
@@ -100,13 +101,13 @@ impl PdfRenderer {
 
         let payload = serde_json::json!({
             "seller": {
-                "name": "MONONMANI WELDING WORKS",
-                "subtitle": "(FABRICATIONS)",
-                "gstin": "34AIRPV5028N1ZG",
-                "phone": "94432 94052",
-                "services_banner": "Silver Brazing, Gas, Plasma Cutting, ARK, S.S. & Aluminium, Tig & Mic Welding, Shed Work",
-                "address": "# 468, Vazhudavur Road, Muthirapalayam, Pondicherry - 605 009.",
-                "email": "mononmani80@gmail.com"
+                "name": seller.business_name,
+                "subtitle": seller.business_subtitle,
+                "gstin": seller.gstin,
+                "phone": seller.phone,
+                "services_banner": seller.services_banner,
+                "address": seller.address,
+                "email": seller.email
             },
             "invoice": {
                 "number": inv.invoice_number,
@@ -177,9 +178,10 @@ impl PdfRenderer {
         inv: &InvoiceWithItems,
         copy: CopyType,
         output_path: &Path,
+        seller: &BusinessSettings,
     ) -> Result<PathBuf, String> {
         let browser = Self::find_chromium_binary()?;
-        let html = Self::render_html_from_invoice(inv, copy);
+        let html = Self::render_html_from_invoice(inv, copy, seller);
 
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)

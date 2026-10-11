@@ -126,7 +126,7 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
             <StatusBadge status={payments.payment_status} />
           </span>
         }
-        subtitle={`${formatDate(inv.invoice_date)} · Due ${formatDate(inv.due_date)}`}
+        subtitle={formatDate(inv.invoice_date)}
         onClose={onClose}
         size="lg"
         headerActions={<PrintMenu onPrint={print} busy={printing} />}

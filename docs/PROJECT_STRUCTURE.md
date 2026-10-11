@@ -59,3 +59,11 @@ PDF creation needs Microsoft Edge (installed with Windows) or Google Chrome.
 Rust unit tests live next to the code (`customers/repository.rs`, `invoices/repository.rs`, `payments/repository.rs`, `util.rs`, `pdf/renderer.rs`). They cover tax maths, number-to-words, migrations, allocation limits, advances, and the delete/edit guards.
 
 On this machine `cargo test` builds but the test executable cannot start (`STATUS_ENTRYPOINT_NOT_FOUND`): the MinGW linker can't merge Tauri's Windows manifest into test binaries. The tests pass when the data-layer modules are compiled on their own without Tauri.
+
+## Google Drive backup
+
+- `src-tauri/src/backup/`: `snapshot.rs` (VACUUM INTO copy, integrity check, gzip, hashes), `repository.rs` (change log summary, run history), `drive.rs` (OAuth with PKCE, Credential Manager storage, Drive calls), `commands.rs`.
+- Migration 8 adds `change_log` (filled by triggers on every record table) and `backup_runs`. A backup is skipped when nothing changed after the last successful run; the change number only advances after the upload is verified (size and MD5), so interrupted backups lose nothing.
+- Every backup is a complete compressed copy and is never overwritten, so earlier versions stay restorable. Restore keeps a `before-restore-*.db` copy in the Backups folder.
+- The Google Client ID/secret and refresh token live in Windows Credential Manager, not in the database.
+- To run the data-layer tests despite the Tauri test-exe problem, compile `db`, `util`, and the `models.rs`/`repository.rs` files of customers, invoices, payments and backup (plus `backup/snapshot.rs`) in a small crate using `#[path]` modules, then `cargo test` there.

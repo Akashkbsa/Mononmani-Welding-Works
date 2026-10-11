@@ -2,7 +2,7 @@ use super::models::{
     DuplicateInvoiceCheckResult, Invoice, InvoiceCreateInput, InvoiceFilterInput, InvoiceItem,
     InvoiceItemInput, InvoiceListItem, InvoiceWithItems,
 };
-use crate::util::{rupees, financial_year_label, is_past, normalize_date, parse_date, round2};
+use crate::util::{rupees, financial_year_label, normalize_date, parse_date, round2};
 use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -37,15 +37,13 @@ impl InvoiceRepository {
     }
 
     /// Payment status shown across the app, derived from the invoice status and money received.
-    pub fn payment_status(status: &str, total_settled: f64, outstanding: f64, due_date: Option<&str>) -> String {
+    pub fn payment_status(status: &str, total_settled: f64, outstanding: f64) -> String {
         if status.eq_ignore_ascii_case("CANCELLED") {
             "CANCELLED"
         } else if status.eq_ignore_ascii_case("DRAFT") {
             "DRAFT"
         } else if outstanding <= 0.01 {
             "PAID"
-        } else if due_date.map(is_past).unwrap_or(false) {
-            "OVERDUE"
         } else if total_settled > 0.01 {
             "PARTIALLY PAID"
         } else {
@@ -586,8 +584,7 @@ impl InvoiceRepository {
 
                 let total_settled = round2(paid_amount + tds_amount);
                 let outstanding_amount = round2(total_amount - total_settled).max(0.0);
-                let payment_status =
-                    Self::payment_status(&status, total_settled, outstanding_amount, due_date.as_deref());
+                let payment_status = Self::payment_status(&status, total_settled, outstanding_amount);
 
                 Ok(InvoiceListItem {
                     id: row.get(0)?,

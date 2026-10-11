@@ -16,7 +16,7 @@ import {
   updatePayment,
 } from "../../services/api";
 import { errorMessage, formatDate, formatMoney, round2, todayISO } from "../../lib/format";
-import { Alert, Badge, Button, Checkbox, Field, inputClass, Loading, Modal, textareaClass } from "../ui";
+import { Alert, Button, Checkbox, Field, inputClass, Loading, Modal, textareaClass } from "../ui";
 
 interface Props {
   payment?: PaymentWithAllocations | null;
@@ -43,6 +43,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
   const [method, setMethod] = useState(existing?.payment_method ?? "Bank Transfer");
   const [reference, setReference] = useState(existing?.reference_number ?? "");
   const [bankName, setBankName] = useState(existing?.bank_name ?? "");
+  const [tdsRecognized, setTdsRecognized] = useState(existing?.tds_recognized ?? true);
   const [hasTds, setHasTds] = useState((existing?.tds_amount ?? 0) > 0);
   const [tds, setTds] = useState(existing && existing.tds_amount > 0 ? String(existing.tds_amount) : "");
   const [verified, setVerified] = useState(existing?.is_verified ?? true);
@@ -100,7 +101,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
     };
   }, [customerId, existing?.id, isEdit, initialInvoiceId, initialCustomerId]);
 
-  const settled = round2(num(amount) + (hasTds ? num(tds) : 0));
+  const settled = round2(num(amount) + (hasTds && tdsRecognized ? num(tds) : 0));
   const allocated = round2(Object.values(allocations).reduce((s, v) => s + num(v), 0));
   const advanceUsed = useAdvance ? round2(Math.min(advanceAvailable, Math.max(0, allocated - settled))) : 0;
   const leftover = round2(Math.max(0, settled - allocated));
@@ -162,6 +163,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
       bank_name: bankName.trim() || null,
       amount_received: num(amount),
       tds_amount: hasTds ? num(tds) : 0,
+      tds_recognized: tdsRecognized,
       credit_to_apply: useAdvance ? advanceAvailable : 0,
       is_verified: verified,
       remarks: remarks.trim() || null,
@@ -265,7 +267,10 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
             <Checkbox checked={hasTds} onChange={setHasTds} label="TDS was deducted" />
           </div>
           {hasTds && (
-            <Field label="TDS amount (₹)" hint="Counts towards the invoices as paid.">
+            <Field
+              label="TDS amount (₹)"
+              hint={tdsRecognized ? "Counts towards the invoices as paid." : "Recorded only; the invoices stay unpaid by this amount."}
+            >
               <input
                 type="number"
                 min={0}
@@ -275,6 +280,16 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                 onChange={(e) => setTds(e.target.value)}
               />
             </Field>
+          )}
+          {hasTds && (
+            <div className="col-span-2">
+              <Checkbox
+                checked={tdsRecognized}
+                onChange={setTdsRecognized}
+                label="Recognise TDS"
+                description="Turn off until the TDS certificate arrives; the amount then stays outstanding."
+              />
+            </div>
           )}
         </div>
 
@@ -301,7 +316,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                 <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
                   <th className="w-8" />
                   <th className="py-2 font-medium">Invoice</th>
-                  <th className="py-2 font-medium">Due</th>
+                  <th className="py-2 font-medium">Date</th>
                   <th className="py-2 font-medium text-right">Balance</th>
                   <th className="py-2 font-medium text-right w-40">Apply (₹)</th>
                 </tr>
@@ -323,7 +338,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                       </td>
                       <td className="py-2 font-medium">{inv.invoice_number}</td>
                       <td className="py-2 text-slate-600">
-                        {formatDate(inv.due_date)} {inv.is_overdue && <Badge tone="red">Overdue</Badge>}
+                        {formatDate(inv.invoice_date)}
                       </td>
                       <td className="py-2 text-right tabular">{formatMoney(inv.outstanding_amount)}</td>
                       <td className="py-1.5 text-right">
@@ -362,7 +377,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
         {/* Summary */}
         <div className="rounded-md border border-slate-200 p-4 text-sm tabular space-y-1.5">
           <SummaryRow label="Received" value={num(amount)} />
-          {hasTds && <SummaryRow label="TDS" value={num(tds)} />}
+          {hasTds && <SummaryRow label={tdsRecognized ? "TDS" : "TDS (not recognised)"} value={num(tds)} />}
           {advanceUsed > 0 && <SummaryRow label="Advance used" value={advanceUsed} />}
           <SummaryRow label="Applied to invoices" value={allocated} />
           {shortBy > 0.005 ? (

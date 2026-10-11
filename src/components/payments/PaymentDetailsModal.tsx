@@ -72,7 +72,7 @@ export default function PaymentDetailsModal({ paymentId, onClose, onChanged }: P
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
             <Item label="Amount received" value={formatMoney(p.amount_received)} strong />
             <Item label="Method" value={[p.payment_method, p.reference_number].filter(Boolean).join(" · ")} />
-            {p.tds_amount > 0 && <Item label="TDS deducted" value={formatMoney(p.tds_amount)} />}
+            {p.tds_amount > 0 && <Item label={p.tds_recognized ? "TDS deducted" : "TDS (not recognised)"} value={formatMoney(p.tds_amount)} />}
             {p.bank_name && <Item label="Customer's bank" value={p.bank_name} />}
             {p.credit_applied > 0 && <Item label="Advance used" value={formatMoney(p.credit_applied)} />}
             {p.excess_amount > 0 && (

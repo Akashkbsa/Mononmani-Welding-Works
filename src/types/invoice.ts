@@ -1,6 +1,6 @@
 export type TaxType = "CGST_SGST" | "IGST";
 export type InvoiceStatus = "ISSUED" | "DRAFT" | "CANCELLED";
-export type PaymentStatus = "UNPAID" | "PARTIALLY PAID" | "PAID" | "OVERDUE" | "DRAFT" | "CANCELLED";
+export type PaymentStatus = "UNPAID" | "PARTIALLY PAID" | "PAID" | "DRAFT" | "CANCELLED";
 
 export interface Invoice {
   id: number;
@@ -108,8 +108,9 @@ export interface InvoiceItemInput {
 export interface InvoiceInput {
   invoice_number: string;
   invoice_date: string;
-  due_date: string | null;
-  payment_terms_days: number;
+  /** Optional: the backend fills defaults (used only by the PDF). */
+  due_date?: string | null;
+  payment_terms_days?: number;
   invoice_state: string;
 
   customer_id: number | null;

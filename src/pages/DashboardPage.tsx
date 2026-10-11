@@ -24,11 +24,11 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
     try {
       const [kpis, invoices, payments] = await Promise.all([getPaymentsSummary(), listInvoices(), listPayments()]);
       setSummary(kpis);
-      // Overdue first, then those due soonest.
+      // Oldest invoices first.
       setAwaiting(
         invoices
           .filter((i) => i.status === "ISSUED" && i.outstanding_amount > 0)
-          .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""))
+          .sort((a, b) => a.invoice_date.localeCompare(b.invoice_date))
           .slice(0, 6)
       );
       setRecentPayments(payments.slice(0, 5));
@@ -86,14 +86,7 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
         <Loading />
       ) : (
         <>
-          <div className="grid grid-cols-4 gap-4 mb-8">
-            <Stat
-              label="Overdue"
-              value={formatMoney(summary.overdue_invoices_value)}
-              note={`${summary.overdue_invoices_count} invoice${summary.overdue_invoices_count === 1 ? "" : "s"} past due`}
-              tone={summary.overdue_invoices_count > 0 ? "red" : undefined}
-              onClick={() => onNavigate("invoices")}
-            />
+          <div className="grid grid-cols-3 gap-4 mb-8">
             <Stat
               label="Balance due"
               value={formatMoney(summary.total_outstanding)}
@@ -138,7 +131,7 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
                         <td className="py-2.5">
                           <div className="font-medium text-slate-900">{inv.customer_name}</div>
                           <div className="text-xs text-slate-500">
-                            {inv.invoice_number} · due {formatDate(inv.due_date)}
+                            {inv.invoice_number} · {formatDate(inv.invoice_date)}
                           </div>
                         </td>
                         <td className="py-2.5 text-right tabular">{formatMoney(inv.outstanding_amount)}</td>
