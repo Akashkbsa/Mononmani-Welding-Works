@@ -63,9 +63,8 @@ impl PdfRenderer {
             .ok_or_else(|| "Microsoft Edge or Google Chrome is needed to create PDFs, but neither was found.".to_string())
     }
 
-    pub fn render_html_from_invoice(inv_data: &InvoiceWithItems, copy: CopyType, seller: &BusinessSettings) -> String {
-        let template = include_str!("../../../src/template/invoice_template.html");
-        let css = include_str!("../../../src/template/invoice_styles.css");
+    /// The values the invoice template fills one page with.
+    fn invoice_payload(inv_data: &InvoiceWithItems, copy: CopyType, seller: &BusinessSettings) -> serde_json::Value {
         let inv = &inv_data.invoice;
         let is_igst = inv.tax_type.eq_ignore_ascii_case("IGST");
         let money = |v: f64| format!("₹{}", indian_number(v));
@@ -99,7 +98,7 @@ impl PdfRenderer {
 
         let dash = |v: &Option<String>| v.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "—".to_string());
 
-        let payload = serde_json::json!({
+        serde_json::json!({
             "seller": {
                 "name": seller.business_name,
                 "subtitle": seller.business_subtitle,
@@ -153,11 +152,21 @@ impl PdfRenderer {
                 "account_no": inv.bank_account_no,
                 "ifsc": inv.bank_ifsc
             }
-        });
+        })
+    }
+
+    pub fn render_html_from_invoice(inv_data: &InvoiceWithItems, copy: CopyType, seller: &BusinessSettings) -> String {
+        Self::render_html_for_pages(&[Self::invoice_payload(inv_data, copy, seller)])
+    }
+
+    /// One A4 page per payload, in order, in a single HTML document.
+    fn render_html_for_pages(pages: &[serde_json::Value]) -> String {
+        let template = include_str!("../../../src/template/invoice_template.html");
+        let css = include_str!("../../../src/template/invoice_styles.css");
 
         // Escape '<' so text such as "</script>" in a description cannot end the script block.
-        let json = serde_json::to_string(&payload)
-            .unwrap_or_else(|_| "{}".to_string())
+        let json = serde_json::to_string(pages)
+            .unwrap_or_else(|_| "[]".to_string())
             .replace('<', "\\u003c");
 
         template
@@ -168,7 +177,7 @@ impl PdfRenderer {
             .replace(
                 "</body>",
                 &format!(
-                    "<script>window.populateInvoice({});</script>\n</body>",
+                    "<script>window.populateMany({});</script>\n</body>",
                     json
                 ),
             )
@@ -180,8 +189,40 @@ impl PdfRenderer {
         output_path: &Path,
         seller: &BusinessSettings,
     ) -> Result<PathBuf, String> {
+        Self::print_html_to_pdf(Self::render_html_from_invoice(inv, copy, seller), output_path)
+    }
+
+    /// All three copies of one invoice (original, duplicate, triplicate) as pages of one PDF.
+    pub fn generate_all_copies_pdf(
+        inv: &InvoiceWithItems,
+        output_path: &Path,
+        seller: &BusinessSettings,
+    ) -> Result<PathBuf, String> {
+        let pages: Vec<serde_json::Value> = [CopyType::Original, CopyType::Duplicate, CopyType::Triplicate]
+            .into_iter()
+            .map(|copy| Self::invoice_payload(inv, copy, seller))
+            .collect();
+        Self::print_html_to_pdf(Self::render_html_for_pages(&pages), output_path)
+    }
+
+    /// One page per invoice (original copy), in the order given, as a single PDF.
+    pub fn generate_batch_pdf(
+        invoices: &[InvoiceWithItems],
+        output_path: &Path,
+        seller: &BusinessSettings,
+    ) -> Result<PathBuf, String> {
+        if invoices.is_empty() {
+            return Err("There are no invoices to print.".to_string());
+        }
+        let pages: Vec<serde_json::Value> = invoices
+            .iter()
+            .map(|inv| Self::invoice_payload(inv, CopyType::Original, seller))
+            .collect();
+        Self::print_html_to_pdf(Self::render_html_for_pages(&pages), output_path)
+    }
+
+    fn print_html_to_pdf(html: String, output_path: &Path) -> Result<PathBuf, String> {
         let browser = Self::find_chromium_binary()?;
-        let html = Self::render_html_from_invoice(inv, copy, seller);
 
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)

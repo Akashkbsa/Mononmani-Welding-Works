@@ -69,6 +69,22 @@ export async function printInvoice(id: number, copy: CopyType = "Original"): Pro
   await openInvoicePdf(path);
 }
 
+/** One PDF with the original, duplicate and triplicate copies, opened for the user. */
+export async function printAllCopies(id: number): Promise<void> {
+  const path = await call<string>("generate_invoice_all_copies_pdf", { id });
+  await openInvoicePdf(path);
+}
+
+/** One PDF with every issued invoice of a month (for the accountant). `month` is 1 to 12. */
+export async function downloadMonthInvoices(
+  year: number,
+  month: number
+): Promise<{ path: string; invoice_count: number }> {
+  const result = await call<{ path: string; invoice_count: number }>("generate_month_invoices_pdf", { year, month });
+  await openInvoicePdf(result.path);
+  return result;
+}
+
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });
 export const getPayment = (id: number) => call<PaymentWithAllocations | null>("get_payment", { id });

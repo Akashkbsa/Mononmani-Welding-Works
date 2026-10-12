@@ -306,7 +306,8 @@
      * Programmatic Invoice Populator
      * Usage: window.populateInvoice(invoiceDataObject);
      */
-    window.populateInvoice = function(data) {
+    window.populateInvoice = function(data, root) {
+      root = root || document;
       if (!data) return;
 
       function getPath(obj, path) {
@@ -314,7 +315,7 @@
       }
 
       // Populate text fields with data-bind attribute
-      document.querySelectorAll('[data-bind]').forEach(el => {
+      root.querySelectorAll('[data-bind]').forEach(el => {
         const key = el.getAttribute('data-bind');
         const val = getPath(data, key);
         if (val !== undefined && val !== null) {
@@ -324,20 +325,20 @@
 
       // Handle customer phone & gstin conditional wrappers
       const phoneVal = getPath(data, 'customer.phone');
-      const contactWrapper = document.getElementById('customer-contact-wrapper');
+      const contactWrapper = root.querySelector('#customer-contact-wrapper');
       if (contactWrapper) {
         contactWrapper.style.display = phoneVal ? 'block' : 'none';
       }
 
       const gstinVal = getPath(data, 'customer.gstin');
-      const gstinWrapper = document.getElementById('customer-gstin-wrapper');
+      const gstinWrapper = root.querySelector('#customer-gstin-wrapper');
       if (gstinWrapper) {
         gstinWrapper.style.display = gstinVal ? 'block' : 'none';
       }
 
       // Populate line items if provided
       if (Array.isArray(data.items)) {
-        const tbody = document.getElementById('items-tbody');
+        const tbody = root.querySelector('#items-tbody');
         const rowsHtml = data.items.map((item, idx) => `
           <tr class="item-row">
             <td class="col-sl">${item.sl_no || (idx + 1)}</td>
@@ -367,7 +368,7 @@
 
       // Handle dynamic terms
       if (Array.isArray(data.terms)) {
-        const termsContainer = document.getElementById('terms-content');
+        const termsContainer = root.querySelector('#terms-content');
         if (termsContainer) {
           termsContainer.innerHTML = '';
           data.terms.forEach(t => {
@@ -380,30 +381,47 @@
       }
 
       const stateVal = getPath(data, 'customer.state') || getPath(data, 'customer.state_code');
-      const stateWrapper = document.getElementById('customer-state-wrapper');
+      const stateWrapper = root.querySelector('#customer-state-wrapper');
       if (stateWrapper) {
         stateWrapper.style.display = stateVal ? 'inline-block' : 'none';
       }
 
       // Handle optional rows
       if (data.totals) {
-        const discountRow = document.getElementById('discount-row');
+        const discountRow = root.querySelector('#discount-row');
         if (discountRow) {
           discountRow.style.display = data.totals.discount ? 'flex' : 'none';
         }
-        const igstRow = document.getElementById('igst-row');
+        const igstRow = root.querySelector('#igst-row');
         if (igstRow) {
           igstRow.style.display = (data.totals.igst_amount || data.totals.igst_rate) ? 'flex' : 'none';
         }
-        const cgstRow = document.getElementById('cgst-row');
+        const cgstRow = root.querySelector('#cgst-row');
         if (cgstRow) {
           cgstRow.style.display = (data.totals.cgst_amount || data.totals.cgst_rate) ? 'flex' : (data.totals.igst_amount ? 'none' : 'flex');
         }
-        const sgstRow = document.getElementById('sgst-row');
+        const sgstRow = root.querySelector('#sgst-row');
         if (sgstRow) {
           sgstRow.style.display = (data.totals.sgst_amount || data.totals.sgst_rate) ? 'flex' : (data.totals.igst_amount ? 'none' : 'flex');
         }
       }
+    };
+    /**
+     * Fills one page per entry of `list`, in order, by cloning the first page.
+     * Used for all three copies of one invoice, or a month of invoices, in one PDF.
+     */
+    window.populateMany = function(list) {
+      const first = document.querySelector('.page-container');
+      if (!first || !Array.isArray(list) || list.length === 0) return;
+      const proto = first.cloneNode(true);
+      list.forEach((data, i) => {
+        let page = first;
+        if (i > 0) {
+          page = proto.cloneNode(true);
+          first.parentNode.appendChild(page);
+        }
+        window.populateInvoice(data, page);
+      });
     };
   </script>
 </body>

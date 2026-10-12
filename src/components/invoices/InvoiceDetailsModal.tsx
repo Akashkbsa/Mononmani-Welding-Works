@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Printer } from "lucide-react";
+import { ChevronDown, Files, Printer } from "lucide-react";
 import { CopyType, InvoiceWithItems } from "../../types/invoice";
 import { InvoicePaymentSummary } from "../../types/payment";
-import { deleteInvoice, getInvoice, getInvoicePayments, printInvoice } from "../../services/api";
+import { deleteInvoice, getInvoice, getInvoicePayments, printAllCopies, printInvoice } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { Alert, Badge, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge, useToast } from "../ui";
 import InvoiceFormModal from "./InvoiceFormModal";
@@ -21,7 +21,15 @@ const COPIES: { copy: CopyType; label: string }[] = [
   { copy: "Triplicate", label: "Triplicate for supplier" },
 ];
 
-function PrintMenu({ onPrint, busy }: { onPrint: (copy: CopyType) => void; busy: boolean }) {
+function PrintMenu({
+  onPrint,
+  onPrintAll,
+  busy,
+}: {
+  onPrint: (copy: CopyType) => void;
+  onPrintAll: () => void;
+  busy: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -45,7 +53,18 @@ function PrintMenu({ onPrint, busy }: { onPrint: (copy: CopyType) => void; busy:
         <ChevronDown className="w-3.5 h-3.5 -mr-1" />
       </Button>
       {open && (
-        <div className="absolute right-0 mt-1 w-56 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10">
+        <div className="absolute right-0 mt-1 w-60 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10">
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-900 hover:bg-slate-50"
+            onClick={() => {
+              setOpen(false);
+              onPrintAll();
+            }}
+          >
+            <Files className="h-4 w-4 text-slate-500" />
+            All 3 copies in one file
+          </button>
+          <div className="my-1 border-t border-slate-100" />
           {COPIES.map(({ copy, label }) => (
             <button
               key={copy}
@@ -100,6 +119,17 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
     }
   };
 
+  const printAll = async () => {
+    setPrinting(true);
+    try {
+      await printAllCopies(invoiceId);
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   const refresh = () => {
     load();
     onChanged();
@@ -129,7 +159,7 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
         subtitle={formatDate(inv.invoice_date)}
         onClose={onClose}
         size="lg"
-        headerActions={<PrintMenu onPrint={print} busy={printing} />}
+        headerActions={<PrintMenu onPrint={print} onPrintAll={printAll} busy={printing} />}
         footer={
           <>
             <Button

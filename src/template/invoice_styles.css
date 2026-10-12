@@ -806,3 +806,11 @@ html, body {
   font-weight: 500;
   line-height: 1.45;
 }
+
+/* One invoice per A4 page when several are printed into a single PDF. */
+@media print {
+  .page-container + .page-container {
+    break-before: page;
+    page-break-before: always;
+  }
+}

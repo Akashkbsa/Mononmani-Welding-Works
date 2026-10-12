@@ -91,6 +91,8 @@ pub fn run() {
             invoices::update_invoice,
             invoices::delete_invoice,
             invoices::generate_invoice_pdf_by_id,
+            invoices::generate_invoice_all_copies_pdf,
+            invoices::generate_month_invoices_pdf,
             invoices::check_invoice_deletion_safety,
             payments::list_payments,
             payments::get_payment,
