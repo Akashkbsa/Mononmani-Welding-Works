@@ -195,14 +195,18 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
                           <div className="truncate font-medium text-slate-900" title={inv.customer_name}>
                             {inv.customer_name}
                           </div>
-                          <div className="text-xs text-slate-500">
-                            {inv.invoice_number} · {formatDate(inv.invoice_date)} ·{" "}
-                            <span className={daysSince(inv.invoice_date) > 30 ? "font-medium text-amber-700" : ""}>
-                              {ageLabel(inv.invoice_date)}
-                            </span>
+                          <div className="truncate text-xs text-slate-500">
+                            {inv.invoice_number} · {formatDate(inv.invoice_date)}
                           </div>
                         </td>
-                        <td className="py-2.5 text-right tabular">{formatMoney(inv.outstanding_amount)}</td>
+                        <td className="py-2.5 pl-3 text-right tabular whitespace-nowrap">
+                          <div>{formatMoney(inv.outstanding_amount)}</div>
+                          <div
+                            className={`text-xs ${daysSince(inv.invoice_date) > 30 ? "font-medium text-amber-700" : "text-slate-500"}`}
+                          >
+                            {ageLabel(inv.invoice_date)}
+                          </div>
+                        </td>
                         <td className="py-2.5 pl-3 text-right w-24">
                           <StatusBadge status={inv.payment_status} />
                         </td>

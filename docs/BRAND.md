@@ -33,7 +33,9 @@ Status colours stay universal and are never used for decoration: green for paid,
 
 ## Type
 
-Segoe UI, the system font (the app is offline and does not load web fonts). Page titles 20px semibold with slightly tight tracking; section titles 14px semibold; table headings 12px semibold; body 14px. All money uses tabular digits and is right-aligned. No all-caps labels.
+**IBM Plex Sans**, an engineering typeface with clear digits and a proper rupee sign, bundled in `src/assets/fonts/` (SIL Open Font License, licence text alongside) so the app stays fully offline. Segoe UI is the fallback. Weights used: 400 body, 500 emphasis and labels, 600 titles.
+
+Page titles 20px semibold with slightly tight tracking; section titles 14px semibold; table headings 12px semibold; body 14px. All money uses tabular digits and is right-aligned. No all-caps labels. Plex is a little wider than Segoe UI, so give rows room or truncate with a tooltip.
 
 ## Shape and depth
 
