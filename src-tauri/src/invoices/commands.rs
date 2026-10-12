@@ -171,7 +171,7 @@ pub struct MonthlyPdfResult {
     pub invoice_count: usize,
 }
 
-/// One PDF with every issued invoice dated in the given month (original copy, one per page),
+/// One PDF with every issued invoice dated in the given month (triplicate copy, one per page),
 /// oldest first, for sending to the accountant. Cancelled invoices are included (stamped
 /// CANCELLED) so the number sequence is complete; drafts are left out.
 #[tauri::command]

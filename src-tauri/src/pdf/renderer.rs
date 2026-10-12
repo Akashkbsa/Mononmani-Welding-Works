@@ -206,7 +206,7 @@ impl PdfRenderer {
         Self::print_html_to_pdf(Self::render_html_for_pages(&pages), output_path)
     }
 
-    /// One page per invoice (original copy), in the order given, as a single PDF.
+    /// One page per invoice (triplicate copy, the one kept by the supplier), in the order given, as a single PDF.
     pub fn generate_batch_pdf(
         invoices: &[InvoiceWithItems],
         output_path: &Path,
@@ -217,7 +217,7 @@ impl PdfRenderer {
         }
         let pages: Vec<serde_json::Value> = invoices
             .iter()
-            .map(|inv| Self::invoice_payload(inv, CopyType::Original, seller))
+            .map(|inv| Self::invoice_payload(inv, CopyType::Triplicate, seller))
             .collect();
         Self::print_html_to_pdf(Self::render_html_for_pages(&pages), output_path)
     }
