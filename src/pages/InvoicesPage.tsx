@@ -81,7 +81,7 @@ export default function InvoicesPage() {
   const visible = useMemo(() => inMonth.filter(TABS.find((t) => t.id === tab)!.match), [inMonth, tab]);
   const visibleDue = visible.reduce((s, i) => s + (i.status === "ISSUED" ? i.outstanding_amount : 0), 0);
   const visibleTotal = visible.reduce((s, i) => s + (i.status === "ISSUED" ? i.total_amount : 0), 0);
-  const monthIssuedCount = inMonth.filter((i) => i.status === "ISSUED").length;
+  const monthPdfCount = inMonth.filter((i) => i.status === "ISSUED" || i.status === "CANCELLED").length;
 
   const exportMonth = async () => {
     const [y, m] = month.split("-").map(Number);
@@ -155,14 +155,14 @@ export default function InvoicesPage() {
             <Button
               icon={<Download className="w-4 h-4" />}
               loading={exporting}
-              disabled={monthIssuedCount === 0}
-              title="One PDF with every issued invoice of this month, to send to the accountant"
+              disabled={monthPdfCount === 0}
+              title="One PDF with every invoice of this month, to send to the accountant"
               onClick={exportMonth}
             >
               Download {monthLabel(month)} (PDF)
             </Button>
             <span className="text-xs text-slate-500">
-              {monthIssuedCount} issued invoice{monthIssuedCount === 1 ? "" : "s"}; drafts and cancelled are left out
+              {monthPdfCount} invoice{monthPdfCount === 1 ? "" : "s"} in the PDF, cancelled ones marked; drafts are left out
             </span>
           </>
         )}

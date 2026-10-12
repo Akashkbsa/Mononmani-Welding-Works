@@ -113,7 +113,8 @@ impl PdfRenderer {
                 "date": display_date(&inv.invoice_date),
                 "due_date": inv.due_date.as_deref().map(display_date).unwrap_or_default(),
                 "state": inv.invoice_state,
-                "copy_type": copy.label()
+                "copy_type": copy.label(),
+                "cancelled": inv.status.eq_ignore_ascii_case("CANCELLED")
             },
             "customer": {
                 "name": inv.customer_name,

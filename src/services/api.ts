@@ -62,6 +62,9 @@ export const createInvoice = (input: InvoiceInput) => call<InvoiceWithItems>("cr
 export const updateInvoice = (id: number, input: InvoiceInput) =>
   call<InvoiceWithItems>("update_invoice", { id, input });
 export const deleteInvoice = (id: number) => call<void>("delete_invoice", { id });
+/** Cancel an invoice (it stays on record), or restore a cancelled one to Issued. */
+export const setInvoiceCancelled = (id: number, cancelled: boolean) =>
+  call<InvoiceWithItems>("set_invoice_cancelled", { id, cancelled });
 
 /** Creates the PDF for one copy of the invoice and opens it. */
 export async function printInvoice(id: number, copy: CopyType = "Original"): Promise<void> {

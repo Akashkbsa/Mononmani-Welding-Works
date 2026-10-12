@@ -459,6 +459,37 @@ impl InvoiceRepository {
         Ok((count == 0, round2(allocated), count))
     }
 
+    /// Cancel an invoice, or restore a cancelled one to Issued. A cancelled invoice keeps its
+    /// number and stays on record, but counts nowhere: no balance due, no payments against it.
+    pub fn set_cancelled(conn: &Connection, id: i64, cancelled: bool) -> Result<(), String> {
+        let current: String = conn
+            .query_row("SELECT status FROM invoices WHERE id = ?1", params![id], |r| r.get(0))
+            .map_err(|_| format!("Invoice {} was not found.", id))?;
+
+        if cancelled {
+            if current.eq_ignore_ascii_case("CANCELLED") {
+                return Ok(());
+            }
+            let (_, allocated, count) = Self::check_deletion_safety(conn, id)?;
+            if count > 0 {
+                return Err(format!(
+                    "This invoice has {} in recorded payments, so it cannot be cancelled. Remove those payments first.",
+                    rupees(allocated)
+                ));
+            }
+        } else if !current.eq_ignore_ascii_case("CANCELLED") {
+            return Ok(());
+        }
+
+        let status = if cancelled { "CANCELLED" } else { "ISSUED" };
+        conn.execute(
+            "UPDATE invoices SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![status, Utc::now().to_rfc3339(), id],
+        )
+        .map_err(|e| format!("Failed to update the invoice: {}", e))?;
+        Ok(())
+    }
+
     pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
         let (safe, allocated, count) = Self::check_deletion_safety(conn, id)?;
         if !safe {

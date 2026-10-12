@@ -57,6 +57,18 @@ pub fn update_invoice(
     InvoiceRepository::update(&conn, id, input)
 }
 
+/// Cancel an invoice (`cancelled` true) or restore it to Issued (false).
+#[tauri::command]
+pub fn set_invoice_cancelled(
+    id: i64,
+    cancelled: bool,
+    state: State<'_, AppState>,
+) -> Result<InvoiceWithItems, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::set_cancelled(&conn, id, cancelled)?;
+    InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvoiceDeletionSafetyResult {
     pub can_delete: bool,
@@ -160,7 +172,8 @@ pub struct MonthlyPdfResult {
 }
 
 /// One PDF with every issued invoice dated in the given month (original copy, one per page),
-/// oldest first, for sending to the accountant. Drafts and cancelled invoices are left out.
+/// oldest first, for sending to the accountant. Cancelled invoices are included (stamped
+/// CANCELLED) so the number sequence is complete; drafts are left out.
 #[tauri::command]
 pub async fn generate_month_invoices_pdf(
     year: i32,
@@ -186,7 +199,7 @@ pub async fn generate_month_invoices_pdf(
                 ..Default::default()
             },
         )?;
-        list.retain(|i| i.status == "ISSUED");
+        list.retain(|i| i.status == "ISSUED" || i.status == "CANCELLED");
         // Oldest first, so the pages follow invoice order.
         list.sort_by(|a, b| a.invoice_date.cmp(&b.invoice_date).then(a.id.cmp(&b.id)));
         let mut full = Vec::with_capacity(list.len());
@@ -199,7 +212,7 @@ pub async fn generate_month_invoices_pdf(
     };
 
     if invoices.is_empty() {
-        return Err(format!("No issued invoices are dated {}.", first.format("%B %Y")));
+        return Err(format!("No issued or cancelled invoices are dated {}.", first.format("%B %Y")));
     }
     let invoice_count = invoices.len();
 

@@ -324,6 +324,9 @@
       });
 
       // Handle customer phone & gstin conditional wrappers
+      const sheet = root.querySelector('.invoice-sheet');
+      if (sheet) sheet.classList.toggle('is-cancelled', !!getPath(data, 'invoice.cancelled'));
+
       const phoneVal = getPath(data, 'customer.phone');
       const contactWrapper = root.querySelector('#customer-contact-wrapper');
       if (contactWrapper) {

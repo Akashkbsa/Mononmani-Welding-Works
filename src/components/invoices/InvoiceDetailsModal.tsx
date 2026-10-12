@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Files, Printer } from "lucide-react";
 import { CopyType, InvoiceWithItems } from "../../types/invoice";
 import { InvoicePaymentSummary } from "../../types/payment";
-import { deleteInvoice, getInvoice, getInvoicePayments, printAllCopies, printInvoice } from "../../services/api";
+import {
+  deleteInvoice,
+  getInvoice,
+  getInvoicePayments,
+  printAllCopies,
+  printInvoice,
+  setInvoiceCancelled,
+} from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { Alert, Badge, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge, useToast } from "../ui";
 import InvoiceFormModal from "./InvoiceFormModal";
@@ -92,6 +99,8 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
   const [editing, setEditing] = useState(false);
   const [recordingPayment, setRecordingPayment] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -130,6 +139,19 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
     }
   };
 
+  const restore = async () => {
+    setRestoring(true);
+    try {
+      await setInvoiceCancelled(invoiceId, false);
+      toast("Invoice restored");
+      refresh();
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const refresh = () => {
     load();
     onChanged();
@@ -145,6 +167,7 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
 
   const inv = data.invoice;
   const igst = inv.tax_type === "IGST";
+  const cancelled = inv.status === "CANCELLED";
   const canTakePayment = inv.status === "ISSUED" && payments.outstanding_amount > 0.01 && inv.customer_id !== null;
 
   return (
@@ -162,12 +185,20 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
         headerActions={<PrintMenu onPrint={print} onPrintAll={printAll} busy={printing} />}
         footer={
           <>
-            <Button
-              variant="dangerText" className="mr-auto"
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete
-            </Button>
+            <div className="mr-auto flex items-center gap-1">
+              <Button variant="dangerText" onClick={() => setConfirmDelete(true)}>
+                Delete
+              </Button>
+              {cancelled ? (
+                <Button variant="ghost" loading={restoring} onClick={restore}>
+                  Restore invoice
+                </Button>
+              ) : (
+                <Button variant="dangerText" onClick={() => setConfirmCancel(true)}>
+                  Cancel invoice
+                </Button>
+              )}
+            </div>
             <Button onClick={() => setEditing(true)}>Edit</Button>
             {canTakePayment && (
               <Button variant="primary" onClick={() => setRecordingPayment(true)}>
@@ -179,6 +210,12 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
       >
         <div className="space-y-6 text-sm">
           {error && <Alert>{error}</Alert>}
+          {cancelled && (
+            <Alert tone="info">
+              This invoice is cancelled. It stays on record and in the monthly PDF, but it is not counted in balance
+              due or totals, and no payment can be recorded against it.
+            </Alert>
+          )}
 
           <div className="grid grid-cols-2 gap-6">
             <div>
@@ -322,13 +359,32 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
         />
       )}
 
+      {confirmCancel && (
+        <ConfirmDialog
+          title={`Cancel invoice ${inv.invoice_number}?`}
+          message={
+            payments.payments.length > 0
+              ? "This invoice has payments recorded against it. Delete those payments first, then cancel it."
+              : "The invoice stays on record marked Cancelled, and is still included in the monthly PDF. Its amount is removed from balance due, the dashboard and the payment screen. You can restore it later."
+          }
+          confirmLabel="Cancel invoice"
+          cancelLabel="Keep invoice"
+          onConfirm={async () => {
+            await setInvoiceCancelled(inv.id, true);
+            toast("Invoice cancelled");
+            refresh();
+          }}
+          onClose={() => setConfirmCancel(false)}
+        />
+      )}
+
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete invoice ${inv.invoice_number}?`}
           message={
             payments.payments.length > 0
-              ? "This invoice has payments recorded against it. Delete those payments first, or mark the invoice as cancelled instead."
-              : "The invoice will be removed permanently. If it was already sent to the customer, consider marking it as cancelled instead."
+              ? "This invoice has payments recorded against it. Delete those payments first."
+              : "The invoice will be removed permanently and its number will be gone from your records. If it was already sent to the customer, use Cancel invoice instead."
           }
           confirmLabel="Delete invoice"
           onConfirm={async () => {
