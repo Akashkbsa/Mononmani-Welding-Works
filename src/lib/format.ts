@@ -30,6 +30,22 @@ export function addDaysISO(iso: string, days: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Whole days from a YYYY-MM-DD date to today (0 for today or a future date). */
+export function daysSince(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return 0;
+  const then = new Date(y, m - 1, d).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.max(0, Math.round((today - then) / 86_400_000));
+}
+
+/** "Today", "1 day old", "45 days old": how long an invoice has been waiting. */
+export function ageLabel(iso: string): string {
+  const n = daysSince(iso);
+  return n === 0 ? "Today" : `${n} day${n === 1 ? "" : "s"} old`;
+}
+
 /** Stored dates are YYYY-MM-DD; show them the Indian way, DD-MM-YYYY. */
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";

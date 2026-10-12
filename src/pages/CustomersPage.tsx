@@ -3,7 +3,7 @@ import { Plus, Search, Star } from "lucide-react";
 import { Customer } from "../types/customer";
 import { listCustomers, searchCustomers, setCustomerFavorite } from "../services/api";
 import { errorMessage } from "../lib/format";
-import { Alert, Button, Card, EmptyState, inputClass, Loading, PageHeader, useToast } from "../components/ui";
+import { Alert, Button, Card, EmptyState, inputClass, Loading, PageHeader, RowChevron, rowClass, theadClass, useToast } from "../components/ui";
 import CustomerFormModal from "../components/customers/CustomerFormModal";
 import CustomerDetailsModal from "../components/customers/CustomerDetailsModal";
 
@@ -77,18 +77,19 @@ export default function CustomersPage() {
           />
         ) : (
           <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+            <thead className={theadClass}>
+              <tr>
                 <th className="w-10" />
-                <th className="py-2.5 pr-4 font-medium">Name</th>
-                <th className="py-2.5 pr-4 font-medium">Phone</th>
-                <th className="py-2.5 pr-4 font-medium">GSTIN</th>
-                <th className="py-2.5 pr-4 font-medium">Location</th>
+                <th className="py-2.5 pr-4 font-semibold">Name</th>
+                <th className="py-2.5 pr-4 font-semibold">Phone</th>
+                <th className="py-2.5 pr-4 font-semibold">GSTIN</th>
+                <th className="py-2.5 pr-4 font-semibold">Location</th>
+                <th className="w-8" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {customers.map((c) => (
-                <tr key={c.id} onClick={() => setViewing(c)} className="cursor-pointer hover:bg-slate-50">
+                <tr key={c.id} onClick={() => setViewing(c)} className={rowClass}>
                   <td className="pl-3">
                     <button
                       aria-label={c.is_favorite ? "Remove from frequent customers" : "Mark as frequent customer"}
@@ -105,6 +106,7 @@ export default function CustomersPage() {
                   <td className="py-3 pr-4 text-slate-600">{c.phone || "—"}</td>
                   <td className="py-3 pr-4 text-slate-600 font-mono text-xs">{c.gstin || "—"}</td>
                   <td className="py-3 pr-4 text-slate-600">{[c.city, c.state].filter(Boolean).join(", ") || "—"}</td>
+                  <RowChevron />
                 </tr>
               ))}
             </tbody>

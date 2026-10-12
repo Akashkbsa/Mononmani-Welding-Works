@@ -3,7 +3,7 @@ import { Plus, Search } from "lucide-react";
 import { PAYMENT_METHODS, PaymentListItem, PaymentsSummary } from "../types/payment";
 import { getPaymentsSummary, listPayments } from "../services/api";
 import { errorMessage, formatDate, formatMoney } from "../lib/format";
-import { Alert, Badge, Button, Card, EmptyState, inputClass, Loading, PageHeader, Stat, useToast } from "../components/ui";
+import { Alert, Badge, Button, Card, EmptyState, inputClass, Loading, PageHeader, RowChevron, rowClass, Stat, StatStrip, theadClass, useToast } from "../components/ui";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 import PaymentDetailsModal from "../components/payments/PaymentDetailsModal";
 
@@ -56,7 +56,8 @@ export default function PaymentsPage() {
       />
 
       {summary && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="mb-5">
+          <StatStrip cols={4}>
           <Stat label="Received this month" value={formatMoney(summary.received_this_month)} />
           <Stat label="Received in total" value={formatMoney(summary.total_received)} />
           <Stat label="Advances held" value={formatMoney(summary.advances_held)} />
@@ -64,6 +65,7 @@ export default function PaymentsPage() {
             label="Not yet cleared"
             value={`${summary.unverified_count} payment${summary.unverified_count === 1 ? "" : "s"}`}
           />
+          </StatStrip>
         </div>
       )}
 
@@ -88,12 +90,25 @@ export default function PaymentsPage() {
         <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
           <input
             type="checkbox"
-            className="h-4 w-4 accent-slate-900"
+            className="h-4 w-4 accent-brand-600"
             checked={unclearedOnly}
             onChange={(e) => setUnclearedOnly(e.target.checked)}
           />
           Not yet cleared
         </label>
+        {filtered && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setQuery("");
+              setMethod("");
+              setUnclearedOnly(false);
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -112,19 +127,20 @@ export default function PaymentsPage() {
           />
         ) : (
           <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                <th className="py-2.5 px-4 font-medium">Payment</th>
-                <th className="py-2.5 pr-4 font-medium">Date</th>
-                <th className="py-2.5 pr-4 font-medium">Customer</th>
-                <th className="py-2.5 pr-4 font-medium">Method</th>
-                <th className="py-2.5 pr-4 font-medium">Invoices</th>
-                <th className="py-2.5 px-4 font-medium text-right">Amount</th>
+            <thead className={theadClass}>
+              <tr>
+                <th className="py-2.5 px-4 font-semibold">Payment</th>
+                <th className="py-2.5 pr-4 font-semibold">Date</th>
+                <th className="py-2.5 pr-4 font-semibold">Customer</th>
+                <th className="py-2.5 pr-4 font-semibold">Method</th>
+                <th className="py-2.5 pr-4 font-semibold">Invoices</th>
+                <th className="py-2.5 px-4 font-semibold text-right">Amount</th>
+                <th className="w-8" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {payments.map((p) => (
-                <tr key={p.id} onClick={() => setViewingId(p.id)} className="cursor-pointer hover:bg-slate-50">
+                <tr key={p.id} onClick={() => setViewingId(p.id)} className={rowClass}>
                   <td className="py-3 px-4 font-medium text-slate-900">{p.payment_number}</td>
                   <td className="py-3 pr-4 text-slate-600">{formatDate(p.payment_date)}</td>
                   <td className="py-3 pr-4">{p.customer_name}</td>
@@ -143,6 +159,7 @@ export default function PaymentsPage() {
                       <div className="text-xs font-normal text-slate-500">{p.tds_recognized ? "+ " : "TDS not counted: "}{formatMoney(p.tds_amount)}{p.tds_recognized ? " TDS" : ""}</div>
                     )}
                   </td>
+                  <RowChevron />
                 </tr>
               ))}
             </tbody>

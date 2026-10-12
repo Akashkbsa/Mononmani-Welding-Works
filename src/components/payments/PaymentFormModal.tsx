@@ -331,7 +331,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                         <input
                           type="checkbox"
                           aria-label={`Apply to ${inv.invoice_number}`}
-                          className="h-4 w-4 accent-slate-900"
+                          className="h-4 w-4 accent-brand-600"
                           checked={selected}
                           onChange={() => toggleInvoice(inv)}
                         />
@@ -439,7 +439,7 @@ function SummaryRow({ label, value }: { label: string; value: number }) {
 function Radio({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
   return (
     <label className="flex items-center gap-2 cursor-pointer text-slate-700">
-      <input type="radio" className="accent-slate-900" checked={checked} onChange={onChange} />
+      <input type="radio" className="accent-brand-600" checked={checked} onChange={onChange} />
       {label}
     </label>
   );

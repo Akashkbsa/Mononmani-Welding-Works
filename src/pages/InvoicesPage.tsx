@@ -1,9 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { InvoiceListItem } from "../types/invoice";
 import { listInvoices, printInvoice } from "../services/api";
 import { errorMessage, formatDate, formatMoney } from "../lib/format";
-import { Alert, Button, Card, EmptyState, inputClass, Loading, PageHeader, StatusBadge, useToast } from "../components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  EmptyState,
+  inputClass,
+  Loading,
+  PageHeader,
+  RowChevron,
+  rowClass,
+  StatusBadge,
+  theadClass,
+  useToast,
+} from "../components/ui";
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 
@@ -25,6 +38,19 @@ export default function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewingId, setViewingId] = useState<number | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // "/" jumps to search, unless the user is already typing somewhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -59,28 +85,32 @@ export default function InvoicesPage() {
         }
       />
 
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <div className="flex gap-1 rounded-md bg-slate-100 p-1">
+      <div className="flex items-end justify-between gap-4 mb-4 border-b border-slate-200">
+        <div className="flex gap-1">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`px-3 h-7 rounded text-[13px] transition-colors ${
-                tab === t.id ? "bg-white shadow-sm text-slate-900 font-medium" : "text-slate-600 hover:text-slate-900"
+              aria-current={tab === t.id ? "true" : undefined}
+              className={`px-3 h-9 -mb-px border-b-2 text-sm transition-colors ${
+                tab === t.id
+                  ? "border-brand-600 text-brand-700 font-medium"
+                  : "border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300"
               }`}
             >
               {t.label}
               {invoices && t.id !== "all" && counts[t.id] > 0 && (
-                <span className="ml-1.5 text-slate-400">{counts[t.id]}</span>
+                <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600 tabular">{counts[t.id]}</span>
               )}
             </button>
           ))}
         </div>
-        <div className="relative w-72">
+        <div className="relative w-72 mb-2">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
+            ref={searchRef}
             className={`${inputClass} pl-9`}
-            placeholder="Search number, customer, GSTIN, PO"
+            placeholder="Search number, customer, GSTIN, PO   ( / )"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -99,7 +129,11 @@ export default function InvoicesPage() {
         ) : visible.length === 0 ? (
           <EmptyState
             title={invoices.length === 0 && !query ? "No invoices yet" : "No invoices here"}
-            description={invoices.length === 0 && !query ? "Create your first invoice to get started." : undefined}
+            description={
+              invoices.length === 0 && !query
+                ? "Create your first invoice to get started."
+                : "Try another tab, or clear the search box."
+            }
             action={
               invoices.length === 0 && !query ? (
                 <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)}>
@@ -111,19 +145,20 @@ export default function InvoicesPage() {
         ) : (
           <>
             <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                  <th className="py-2.5 px-4 font-medium">Invoice</th>
-                  <th className="py-2.5 pr-4 font-medium">Date</th>
-                  <th className="py-2.5 pr-4 font-medium">Customer</th>
-                  <th className="py-2.5 pr-4 font-medium text-right">Amount</th>
-                  <th className="py-2.5 pr-4 font-medium text-right">Balance</th>
-                  <th className="py-2.5 px-4 font-medium text-right">Status</th>
+              <thead className={theadClass}>
+                <tr>
+                  <th className="py-2.5 px-4 font-semibold">Invoice</th>
+                  <th className="py-2.5 pr-4 font-semibold">Date</th>
+                  <th className="py-2.5 pr-4 font-semibold">Customer</th>
+                  <th className="py-2.5 pr-4 font-semibold text-right">Amount</th>
+                  <th className="py-2.5 pr-4 font-semibold text-right">Balance</th>
+                  <th className="py-2.5 px-4 font-semibold text-right">Status</th>
+                  <th className="w-8" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {visible.map((inv) => (
-                  <tr key={inv.id} onClick={() => setViewingId(inv.id)} className="cursor-pointer hover:bg-slate-50">
+                  <tr key={inv.id} onClick={() => setViewingId(inv.id)} className={rowClass}>
                     <td className="py-3 px-4 font-medium text-slate-900 whitespace-nowrap">{inv.invoice_number}</td>
                     <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
                     <td className="py-3 pr-4">{inv.customer_name}</td>
@@ -134,11 +169,12 @@ export default function InvoicesPage() {
                     <td className="py-3 px-4 text-right">
                       <StatusBadge status={inv.payment_status} />
                     </td>
+                    <RowChevron />
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="flex justify-between px-4 py-3 border-t border-slate-200 text-sm text-slate-600">
+            <div className="flex justify-between px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg text-sm text-slate-600">
               <span>
                 {visible.length} invoice{visible.length === 1 ? "" : "s"}
               </span>

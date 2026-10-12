@@ -2,6 +2,27 @@
 
 @theme {
   --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* Steel blue: primary actions, selection, focus. */
+  --color-brand-50: #eef3f8;
+  --color-brand-100: #dce6f0;
+  --color-brand-200: #bccfe2;
+  --color-brand-500: #3b6c9e;
+  --color-brand-600: #2f5d8a;
+  --color-brand-700: #254a6e;
+  --color-brand-800: #1c3852;
+
+  /* Ink navy: sidebar. */
+  --color-ink-700: #243447;
+  --color-ink-800: #1b2938;
+  --color-ink-900: #16212e;
+
+  /* Weld orange: logo mark only. */
+  --color-arc: #e8731a;
+
+  --color-canvas: #f3f5f8;
+
+  --shadow-card: 0 1px 2px rgb(16 33 46 / 0.05);
 }
 
 @layer base {
@@ -12,7 +33,7 @@
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 antialiased overflow-hidden;
+    @apply bg-canvas text-slate-900 antialiased overflow-hidden;
     font-size: 14px;
   }
 
@@ -23,5 +44,18 @@
 
   input[type="number"]::-webkit-inner-spin-button {
     opacity: 0.4;
+  }
+
+  /* One visible focus style for anything keyboard-reachable. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
   }
 }

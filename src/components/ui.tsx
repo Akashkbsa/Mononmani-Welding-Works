@@ -1,14 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Loader2, X } from "lucide-react";
 
 /* ---------- Buttons ---------- */
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "dangerText";
 
 const buttonStyles: Record<ButtonVariant, string> = {
-  primary: "bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-400",
-  secondary: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 disabled:text-slate-400",
-  ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:text-slate-300",
+  primary: "bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800 disabled:bg-slate-300 disabled:shadow-none",
+  secondary: "bg-white text-slate-700 border border-slate-300 shadow-sm hover:bg-slate-50 hover:border-slate-400 disabled:text-slate-400 disabled:shadow-none",
+  ghost: "text-brand-700 hover:bg-brand-50 disabled:text-slate-300",
   danger: "bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300",
   dangerText: "text-red-600 hover:bg-red-50 hover:text-red-700",
 };
@@ -36,7 +36,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center rounded-md font-medium whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed ${sizing} ${buttonStyles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center rounded-md font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed ${sizing} ${buttonStyles[variant]} ${className}`}
       {...rest}
     >
       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : icon}
@@ -48,10 +48,10 @@ export function Button({
 /* ---------- Form fields ---------- */
 
 export const inputClass =
-  "w-full h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100 disabled:text-slate-500";
+  "w-full h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100 disabled:text-slate-500";
 
 export const textareaClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200";
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100";
 
 interface FieldProps {
   label: string;
@@ -97,7 +97,7 @@ export function Checkbox({
     <label className={`flex items-start gap-2.5 ${disabled ? "opacity-60" : "cursor-pointer"}`}>
       <input
         type="checkbox"
-        className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-slate-900"
+        className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
@@ -122,9 +122,9 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-end justify-between gap-4 mb-6">
+    <div className="flex items-end justify-between gap-4 mb-5 pb-4 border-b border-slate-200">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
+        <h1 className="text-xl font-semibold text-slate-900 tracking-tight">{title}</h1>
         {description && <p className="text-sm text-slate-500 mt-1">{description}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -133,44 +133,51 @@ export function PageHeader({
 }
 
 export function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`bg-white border border-slate-200 rounded-lg ${className}`}>{children}</div>;
+  return <div className={`bg-white border border-slate-200 rounded-lg shadow-card ${className}`}>{children}</div>;
+}
+
+/** A row of key figures in one card, divided by hairlines. */
+export function StatStrip({ children, cols }: { children: React.ReactNode; cols: 3 | 4 }) {
+  return (
+    <Card className={`grid ${cols === 4 ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-200 overflow-hidden`}>
+      {children}
+    </Card>
+  );
 }
 
 export function Stat({
   label,
   value,
   note,
-  tone,
+  icon: Icon,
   onClick,
 }: {
   label: string;
   value: string;
   note?: string;
-  tone?: "red";
+  icon?: React.ComponentType<{ className?: string }>;
   onClick?: () => void;
 }) {
   const body = (
-    <>
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={`text-lg font-semibold tabular mt-0.5 ${tone === "red" ? "text-red-700" : "text-slate-900"}`}>
-        {value}
+    <div className="flex items-start gap-3">
+      {Icon && (
+        <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-600">
+          <Icon className="h-4 w-4" />
+        </span>
+      )}
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-slate-600">{label}</div>
+        <div className="mt-0.5 text-xl font-semibold tabular text-slate-900">{value}</div>
+        {note && <div className="mt-0.5 text-xs text-slate-500">{note}</div>}
       </div>
-      {note && <div className="text-xs text-slate-500 mt-0.5">{note}</div>}
-    </>
+    </div>
   );
   return onClick ? (
-    <button
-      onClick={onClick}
-      className={`text-left border rounded-lg px-4 py-3 ${
-        tone === "red"
-          ? "bg-red-50 border-red-200 hover:bg-red-100 hover:border-red-300"
-          : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-      }`}
-    >
+    <button onClick={onClick} className="px-5 py-4 text-left transition-colors hover:bg-brand-50/60">
       {body}
     </button>
   ) : (
-    <div className="bg-white border border-slate-200 rounded-lg px-4 py-3">{body}</div>
+    <div className="px-5 py-4">{body}</div>
   );
 }
 
@@ -221,33 +228,42 @@ export function Alert({ children, tone = "error" }: { children: React.ReactNode;
   );
 }
 
+/* ---------- Tables ---------- */
+
+/** Header row: tinted and sticky so column names stay visible while scrolling. */
+export const theadClass = "sticky top-0 bg-slate-50 text-left text-xs font-semibold text-slate-600 border-b border-slate-200";
+
+/** Clickable body row; the chevron cell darkens on hover to show it opens. */
+export const rowClass = "group cursor-pointer transition-colors hover:bg-brand-50/60";
+
+export function RowChevron() {
+  return (
+    <td className="w-8 pr-3 text-right">
+      <ChevronRight className="inline h-4 w-4 text-slate-300 transition-colors group-hover:text-brand-600" />
+    </td>
+  );
+}
+
 /* ---------- Badges ---------- */
 
 type Tone = "neutral" | "green" | "amber" | "red" | "blue";
 
 const toneStyles: Record<Tone, string> = {
   neutral: "bg-slate-100 text-slate-700",
-  green: "bg-emerald-50 text-emerald-700",
-  amber: "bg-amber-50 text-amber-800",
-  red: "bg-red-50 text-red-700",
-  blue: "bg-sky-50 text-sky-700",
+  green: "bg-emerald-100 text-emerald-900",
+  amber: "bg-amber-100 text-amber-900",
+  red: "bg-red-100 text-red-800",
+  blue: "bg-brand-100 text-brand-800",
 };
 
+/** Flat label for things that need a second look. */
 export function Badge({ tone = "neutral", children }: { tone?: Tone; children: React.ReactNode }) {
   return (
-    <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium whitespace-nowrap ${toneStyles[tone]}`}>
+    <span className={`inline-block rounded-sm px-1.5 py-0.5 text-xs font-medium whitespace-nowrap ${toneStyles[tone]}`}>
       {children}
     </span>
   );
 }
-
-const paymentStatusTone: Record<string, Tone> = {
-  PAID: "green",
-  "PARTIALLY PAID": "blue",
-  UNPAID: "amber",
-  DRAFT: "neutral",
-  CANCELLED: "neutral",
-};
 
 const paymentStatusLabel: Record<string, string> = {
   PAID: "Paid",
@@ -257,8 +273,23 @@ const paymentStatusLabel: Record<string, string> = {
   CANCELLED: "Cancelled",
 };
 
+/**
+ * Paid is finished work, so it reads as quiet text with a tick. Unpaid and part paid
+ * are the ones to act on, so they get a flat colour block. Draft and cancelled stay muted.
+ */
 export function StatusBadge({ status }: { status: string }) {
-  return <Badge tone={paymentStatusTone[status] ?? "neutral"}>{paymentStatusLabel[status] ?? status}</Badge>;
+  const label = paymentStatusLabel[status] ?? status;
+  if (status === "PAID") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+        <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+        {label}
+      </span>
+    );
+  }
+  if (status === "UNPAID") return <Badge tone="amber">{label}</Badge>;
+  if (status === "PARTIALLY PAID") return <Badge tone="blue">{label}</Badge>;
+  return <span className="text-xs text-slate-500">{label}</span>;
 }
 
 /* ---------- Modal ---------- */
@@ -325,7 +356,7 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
   }, [id]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-6">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink-900/50 p-6">
       <div
         ref={dialogRef}
         tabIndex={-1}
@@ -335,7 +366,7 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
       >
         <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-200">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-slate-900 truncate">{title}</h2>
+            <h2 className="text-base font-semibold text-slate-900 truncate tracking-tight">{title}</h2>
             {subtitle && <div className="text-sm text-slate-500 mt-0.5">{subtitle}</div>}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -344,7 +375,7 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="p-1.5 -mr-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+              className="p-1.5 -mr-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100"
             >
               <X className="w-5 h-5" />
             </button>
@@ -438,7 +469,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         <div className="fixed bottom-5 right-5 z-50 max-w-sm">
           <div
             className={`flex items-start gap-2 rounded-md px-4 py-3 text-sm shadow-lg ${
-              toast.tone === "success" ? "bg-slate-900 text-white" : "bg-red-600 text-white"
+              toast.tone === "success" ? "bg-ink-800 text-white" : "bg-red-600 text-white"
             }`}
           >
             {toast.tone === "success" ? (

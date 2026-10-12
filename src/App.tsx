@@ -35,17 +35,23 @@ function NavButton({
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-colors border-l-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 ${
+      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-colors ${
         active
-          ? "border-orange-600 bg-orange-50 text-slate-900 font-medium"
-          : "border-transparent text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+          ? "bg-white/10 text-white font-medium shadow-[inset_3px_0_0_var(--color-brand-200)]"
+          : "text-slate-300 hover:bg-white/5 hover:text-white"
       }`}
     >
-      <Icon className={`w-4 h-4 ${active ? "text-orange-700" : "text-slate-500"}`} />
+      <Icon className={`w-4 h-4 ${active ? "text-brand-200" : "text-slate-400"}`} />
       {label}
       {badge && <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Backup due" />}
     </button>
   );
+}
+
+/** Indian financial year (April to March), the same one used in invoice numbers, e.g. "26-27". */
+function financialYear(now = new Date()): string {
+  const start = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${String(start).slice(2)}-${String(start + 1).slice(2)}`;
 }
 
 function App() {
@@ -62,14 +68,14 @@ function App() {
   return (
     <ToastProvider>
       <div className="h-full flex">
-        <aside className="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col">
-          <div className="px-4 py-4 mb-3 border-b border-slate-200 flex items-center gap-2.5">
-            <div className="h-8 w-8 shrink-0 rounded-md bg-orange-600 text-white grid place-items-center text-xs font-bold">
+        <aside className="w-60 shrink-0 bg-ink-900 flex flex-col">
+          <div className="px-4 py-5 mb-3 border-b border-white/10 flex items-center gap-3">
+            <div className="h-9 w-9 shrink-0 rounded-md bg-arc text-white grid place-items-center text-sm font-bold">
               MW
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-900 leading-tight">Mononmani</div>
-              <div className="text-xs text-slate-600">Welding Works</div>
+              <div className="text-sm font-semibold text-white leading-tight">Mononmani</div>
+              <div className="text-xs text-slate-400">Welding Works</div>
             </div>
           </div>
           <nav className="flex-1 px-3 space-y-0.5">
@@ -83,7 +89,7 @@ function App() {
               />
             ))}
           </nav>
-          <div className="px-3 pb-4">
+          <div className="px-3 pb-3">
             <NavButton
               active={page === "settings"}
               onClick={() => setPage("settings")}
@@ -92,10 +98,14 @@ function App() {
               badge={backupDue}
             />
           </div>
+          <div className="px-5 py-3 border-t border-white/10 text-xs text-slate-400 flex justify-between">
+            <span>Financial year</span>
+            <span className="tabular text-slate-200">{financialYear()}</span>
+          </div>
         </aside>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-6xl mx-auto px-8 py-8">
+          <div className="max-w-6xl mx-auto px-8 py-6">
             <ErrorBoundary key={page}>
               {page === "dashboard" && <DashboardPage onNavigate={setPage} />}
               {page === "invoices" && <InvoicesPage />}
