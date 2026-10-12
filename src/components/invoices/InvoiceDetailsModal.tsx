@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Files, Printer } from "lucide-react";
+import { ChevronDown, Printer } from "lucide-react";
 import { CopyType, InvoiceWithItems } from "../../types/invoice";
 import { InvoicePaymentSummary } from "../../types/payment";
 import {
@@ -27,6 +27,8 @@ const COPIES: { copy: CopyType; label: string }[] = [
   { copy: "Duplicate", label: "Duplicate for transporter" },
   { copy: "Triplicate", label: "Triplicate for supplier" },
 ];
+
+const menuItemClass = "block w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50";
 
 function PrintMenu({
   onPrint,
@@ -60,32 +62,27 @@ function PrintMenu({
         <ChevronDown className="w-3.5 h-3.5 -mr-1" />
       </Button>
       {open && (
-        <div className="absolute right-0 mt-1 w-60 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10">
-          <button
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-900 hover:bg-slate-50"
-            onClick={() => {
-              setOpen(false);
-              onPrintCopies(["Original", "Duplicate", "Triplicate"]);
-            }}
-          >
-            <Files className="h-4 w-4 text-slate-500" />
-            All 3 copies in one file
-          </button>
-          <button
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-900 hover:bg-slate-50"
-            onClick={() => {
-              setOpen(false);
-              onPrintCopies(["Original", "Duplicate"]);
-            }}
-          >
-            <Files className="h-4 w-4 text-slate-500" />
-            Original + Duplicate in one file
-          </button>
+        <div className="absolute right-0 mt-1 w-64 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10">
+          {[
+            { label: "All 3 copies (one file)", copies: ["Original", "Duplicate", "Triplicate"] as CopyType[] },
+            { label: "Original + Duplicate (one file)", copies: ["Original", "Duplicate"] as CopyType[] },
+          ].map(({ label, copies }) => (
+            <button
+              key={label}
+              className={menuItemClass}
+              onClick={() => {
+                setOpen(false);
+                onPrintCopies(copies);
+              }}
+            >
+              {label}
+            </button>
+          ))}
           <div className="my-1 border-t border-slate-100" />
           {COPIES.map(({ copy, label }) => (
             <button
               key={copy}
-              className="block w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              className={menuItemClass}
               onClick={() => {
                 setOpen(false);
                 onPrint(copy);
