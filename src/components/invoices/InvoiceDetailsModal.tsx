@@ -64,8 +64,8 @@ function PrintMenu({
       {open && (
         <div className="absolute right-0 mt-1 w-64 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10">
           {[
-            { label: "All 3 copies (one file)", copies: ["Original", "Duplicate", "Triplicate"] as CopyType[] },
-            { label: "Original + Duplicate (one file)", copies: ["Original", "Duplicate"] as CopyType[] },
+            { label: "All 3 copies", copies: ["Original", "Duplicate", "Triplicate"] as CopyType[] },
+            { label: "Original + Duplicate", copies: ["Original", "Duplicate"] as CopyType[] },
           ].map(({ label, copies }) => (
             <button
               key={label}
