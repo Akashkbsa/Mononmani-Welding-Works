@@ -817,8 +817,8 @@ html, body {
   font-size: 96px;
   font-weight: 800;
   letter-spacing: 8px;
-  color: rgba(185, 28, 28, 0.63);
-  border: 6px solid rgba(185, 28, 28, 0.63);
+  color: rgba(185, 28, 28, 0.7);
+  border: 6px solid rgba(185, 28, 28, 0.7);
   padding: 4px 28px;
   border-radius: 8px;
   pointer-events: none;
