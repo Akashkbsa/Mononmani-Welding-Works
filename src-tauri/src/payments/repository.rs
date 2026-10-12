@@ -11,10 +11,6 @@ use std::collections::HashSet;
 
 const EPS: f64 = 0.005;
 
-/// Largest short amount that can be written off, and largest extra amount that can be kept as a
-/// round-off, in one payment. Bigger differences must be handled as real balances or advances.
-const ADJUSTMENT_LIMIT: f64 = 500.0;
-
 pub struct PaymentRepository;
 
 /// Invoice figures used when validating an allocation.
@@ -149,12 +145,6 @@ impl PaymentRepository {
         if writeoff_amount < 0.0 {
             return Err("Amounts cannot be negative.".to_string());
         }
-        if writeoff_amount > ADJUSTMENT_LIMIT + EPS {
-            return Err(format!(
-                "A write-off can be at most {}. Leave the balance due instead.",
-                rupees(ADJUSTMENT_LIMIT)
-            ));
-        }
         let money_in = round2(amount_received + if tds_recognized { tds_amount } else { 0.0 });
         let total_settled = round2(money_in + writeoff_amount);
 
@@ -219,16 +209,7 @@ impl PaymentRepository {
         let excess_action = if excess_amount > EPS {
             match input.excess_action.as_deref().map(|s| s.trim().to_ascii_uppercase()) {
                 Some(a) if a == "REFUND" => "REFUND",
-                Some(a) if a == "ROUNDOFF" => {
-                    if excess_amount > ADJUSTMENT_LIMIT + EPS {
-                        return Err(format!(
-                            "{} is too much to keep as a round-off (limit {}). Hold it as an advance or refund it.",
-                            rupees(excess_amount),
-                            rupees(ADJUSTMENT_LIMIT)
-                        ));
-                    }
-                    "ROUNDOFF"
-                }
+                Some(a) if a == "ROUNDOFF" => "ROUNDOFF",
                 _ => "CREDIT",
             }
         } else {
@@ -607,7 +588,8 @@ impl PaymentRepository {
                 r#"
                 SELECT i.id, i.invoice_number, i.invoice_date, i.total_amount,
                        COALESCE(SUM(CASE WHEN pa.payment_id != ?2 THEN pa.amount_allocated + pa.tds_allocated END), 0.0),
-                       MAX(CASE WHEN pa.payment_id = ?2 THEN 1 ELSE 0 END)
+                       MAX(CASE WHEN pa.payment_id = ?2 THEN 1 ELSE 0 END),
+                       i.subtotal - i.discount
                 FROM invoices i
                 LEFT JOIN payment_allocations pa ON pa.invoice_id = i.id
                 WHERE i.customer_id = ?1 AND i.status = 'ISSUED'
@@ -629,6 +611,7 @@ impl PaymentRepository {
                         invoice_number: r.get(1)?,
                         invoice_date: r.get(2)?,
                         total_amount,
+                        taxable_amount: round2(r.get::<_, f64>(6)?),
                         total_settled,
                         outstanding_amount: round2(total_amount - total_settled).max(0.0),
                     },
@@ -1112,13 +1095,14 @@ mod tests {
     }
 
     #[test]
-    fn round_off_above_the_limit_is_refused() {
+    fn round_off_has_no_size_limit() {
         let conn = setup();
         let c = customer(&conn, "A");
         let inv = invoice(&conn, c, "R/2", 10000.0);
-        let err = PaymentRepository::create_payment(&conn, payment(c, 10600.0, &[(inv, 10000.0)], 0.0, "ROUNDOFF"))
-            .unwrap_err();
-        assert!(err.contains("too much to keep as a round-off"), "{err}");
+        let p = PaymentRepository::create_payment(&conn, payment(c, 10600.0, &[(inv, 10000.0)], 0.0, "ROUNDOFF")).unwrap();
+        assert_eq!(p.payment.excess_amount, 600.0);
+        assert_eq!(p.payment.excess_action, "ROUNDOFF");
+        assert_eq!(advance(&conn, c), 0.0);
     }
 
     #[test]
@@ -1165,14 +1149,26 @@ mod tests {
     }
 
     #[test]
-    fn write_off_above_the_limit_is_refused() {
+    fn write_off_has_no_size_limit_but_must_match_the_shortfall() {
         let conn = setup();
         let c = customer(&conn, "A");
         let inv = invoice(&conn, c, "W/4", 10000.0);
         let mut input = payment(c, 9000.0, &[(inv, 10000.0)], 0.0, "NONE");
         input.writeoff_amount = 1000.0;
-        let err = PaymentRepository::create_payment(&conn, input).unwrap_err();
-        assert!(err.contains("at most"), "{err}");
+        let p = PaymentRepository::create_payment(&conn, input).unwrap();
+        assert_eq!(p.payment.total_settled, 10000.0);
+        assert_eq!(outstanding(&conn, inv), 0.0);
+    }
+
+    #[test]
+    fn unpaid_invoices_report_the_amount_before_gst() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        invoice(&conn, c, "U/1", 1000.0);
+        let list = PaymentRepository::get_unpaid_invoices_for_customer(&conn, c, None).unwrap();
+        assert_eq!(list.len(), 1);
+        // Taxable amount is the subtotal less discount, never more than the total.
+        assert!(list[0].taxable_amount > 0.0 && list[0].taxable_amount <= list[0].total_amount);
     }
 
     #[test]

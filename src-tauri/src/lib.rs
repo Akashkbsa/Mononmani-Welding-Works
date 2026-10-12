@@ -92,7 +92,7 @@ pub fn run() {
             invoices::delete_invoice,
             invoices::generate_invoice_pdf_by_id,
             invoices::set_invoice_cancelled,
-            invoices::generate_invoice_all_copies_pdf,
+            invoices::generate_invoice_copies_pdf,
             invoices::generate_month_invoices_pdf,
             invoices::check_invoice_deletion_safety,
             payments::list_payments,

@@ -17,14 +17,17 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 - **Numbers:** `MWW/001/26-27` for invoices, `PAY/001/26-27` for payments: running number, then the Indian financial year (April–March), local time. Numbers issued in the older `MWW/26-27/001` form keep their number and still count towards the running number.
 - **Vehicle number:** checked as an Indian registration (e.g. `TN 09 AB 1234`, `22 BH 1234 AA`) and stored in that spaced form; an older value that fails the check can stay until it is changed.
 - **PO / DC numbers** are entered as a number and a date and stored as `number & dd-mm-yyyy`; left empty they print as a dash.
+- **TDS** can be entered as a percentage (0.1, 1, 2, 5, 10 or another rate) taken on the amount before GST or on the invoice total, worked out per invoice from the part each invoice is paid; or as a rupee amount. The payment still stores one `tds_amount`.
+- **Printing** an invoice: any one copy, all three copies in one PDF, or original + duplicate in one PDF (`generate_invoice_copies_pdf`).
+- **Customers** are picked with a type-to-search box (name, city, phone, GSTIN). An invoice shows its customer's details read-only; they are fixed when the customer is created or edited.
 - **Tax state** comes from the GSTIN prefix when there is one; the forms warn when it disagrees with the state chosen.
 - **Dates** are stored as `YYYY-MM-DD` and shown as `DD-MM-YYYY`.
 - **Tax:** CGST + SGST for customers in Puducherry (state code 34), IGST otherwise. The state code comes from the GSTIN or the customer's state. Totals are exact to the paisa, with no round-off to the rupee, and the amount in words includes paise. Migration 11 brought older invoices that were not fully paid to their exact total; fully paid ones keep the total they were settled at, so they do not reopen for a few paise.
 - **Invoice edits:** an invoice with payments cannot drop below what has been paid, cannot become Draft or Cancelled, and cannot be deleted.
 - **Customers** with invoices or payments cannot be deleted.
 - **Payment allocation:** a payment can only be applied to the same customer's Issued invoices, and never more than each invoice's balance or the money available.
-- **Leftover money** is kept as an **advance**, marked **refunded**, or **kept as a round-off** (counted as received, nothing owed back, no advance). A round-off is limited to ₹500 per payment.
-- **Short payments:** the owner can accept a payment that is a little short as full payment ("Settle in full"). The shortfall is stored on the payment as `writeoff_amount` (migration 10), counts towards settling the invoices like recognised TDS, and is limited to ₹500 per payment. It must equal what is actually short after money received, TDS and any advance used. Deleting the payment reopens the invoices. Advances are used oldest-first by later payments ("Use advance" in the payment form). Deleting or editing a payment gives back any advance it used. A payment whose advance has already been used cannot be deleted until the later payment is removed.
+- **Leftover money** is kept as an **advance**, marked **refunded**, or **kept as a round-off** (counted as received, nothing owed back, no advance). There is no size limit; the owner chooses.
+- **Short payments:** the owner can accept a payment that is a little short as full payment ("Settle in full"). The shortfall is stored on the payment as `writeoff_amount` (migration 10), counts towards settling the invoices like recognised TDS, and has no size limit (the form warns above ₹100). It must equal what is actually short after money received, TDS and any advance used. Deleting the payment reopens the invoices. Advances are used oldest-first by later payments ("Use advance" in the payment form). Deleting or editing a payment gives back any advance it used. A payment whose advance has already been used cannot be deleted until the later payment is removed.
 
 ## Code layout
 

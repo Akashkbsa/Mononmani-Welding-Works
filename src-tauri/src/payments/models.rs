@@ -131,6 +131,8 @@ pub struct UnpaidInvoiceSummary {
     pub invoice_number: String,
     pub invoice_date: String,
     pub total_amount: f64,
+    /// Amount before GST (subtotal less discount); the usual base for TDS.
+    pub taxable_amount: f64,
     /// Settled by other payments.
     pub total_settled: f64,
     pub outstanding_amount: f64,

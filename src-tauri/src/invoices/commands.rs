@@ -137,9 +137,25 @@ pub async fn generate_invoice_pdf_by_id(
     Ok(path)
 }
 
-/// One PDF holding all three copies of an invoice. Returns its path.
+/// One PDF holding the chosen copies of an invoice (e.g. original and duplicate, or all three),
+/// in the order given. Returns its path.
 #[tauri::command]
-pub async fn generate_invoice_all_copies_pdf(id: i64, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn generate_invoice_copies_pdf(
+    id: i64,
+    copy_types: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let mut copies: Vec<CopyType> = Vec::new();
+    for name in &copy_types {
+        let copy = CopyType::parse(Some(name));
+        if !copies.contains(&copy) {
+            copies.push(copy);
+        }
+    }
+    if copies.is_empty() {
+        return Err("Choose at least one copy to print.".to_string());
+    }
+
     let (invoice, seller) = {
         let conn = state.db.get_connection()?;
         let invoice =
@@ -151,14 +167,20 @@ pub async fn generate_invoice_all_copies_pdf(id: i64, state: State<'_, AppState>
         .map(|d| d.year())
         .unwrap_or_else(|| crate::util::today().year())
         .to_string();
+    let suffix = if copies.len() == 3 {
+        "all-copies".to_string()
+    } else {
+        copies.iter().map(|c| c.file_suffix()).collect::<Vec<_>>().join("-")
+    };
     let filename = format!(
-        "{}_all-copies.pdf",
-        invoice.invoice.invoice_number.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+        "{}_{}.pdf",
+        invoice.invoice.invoice_number.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_"),
+        suffix
     );
     let target_path = state.storage.prepare_invoice_save_path(&year, &filename)?;
 
     let generated = tauri::async_runtime::spawn_blocking(move || {
-        PdfRenderer::generate_all_copies_pdf(&invoice, &target_path, &seller)
+        PdfRenderer::generate_copies_pdf(&invoice, &copies, &target_path, &seller)
     })
     .await
     .map_err(|e| format!("PDF generation stopped unexpectedly: {}", e))??;

@@ -193,15 +193,19 @@ impl PdfRenderer {
         Self::print_html_to_pdf(Self::render_html_from_invoice(inv, copy, seller), output_path)
     }
 
-    /// All three copies of one invoice (original, duplicate, triplicate) as pages of one PDF.
-    pub fn generate_all_copies_pdf(
+    /// The chosen copies of one invoice, in the order given, as pages of one PDF.
+    pub fn generate_copies_pdf(
         inv: &InvoiceWithItems,
+        copies: &[CopyType],
         output_path: &Path,
         seller: &BusinessSettings,
     ) -> Result<PathBuf, String> {
-        let pages: Vec<serde_json::Value> = [CopyType::Original, CopyType::Duplicate, CopyType::Triplicate]
-            .into_iter()
-            .map(|copy| Self::invoice_payload(inv, copy, seller))
+        if copies.is_empty() {
+            return Err("Choose at least one copy to print.".to_string());
+        }
+        let pages: Vec<serde_json::Value> = copies
+            .iter()
+            .map(|copy| Self::invoice_payload(inv, *copy, seller))
             .collect();
         Self::print_html_to_pdf(Self::render_html_for_pages(&pages), output_path)
     }
