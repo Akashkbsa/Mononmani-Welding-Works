@@ -365,6 +365,11 @@ html, body {
   font-weight: 500;
 }
 
+/* The "&" between a PO / DC number and its date: a touch heavier than the text around it. */
+.ref-amp {
+  font-weight: 600;
+}
+
 /* --------------------------------------------------------------------------
    3. ITEMS TABLE SECTION
    -------------------------------------------------------------------------- */

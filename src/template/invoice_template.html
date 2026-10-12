@@ -306,6 +306,12 @@
      * Programmatic Invoice Populator
      * Usage: window.populateInvoice(invoiceDataObject);
      */
+    const REF_KEYS = [
+      'delivery.po_number_and_date',
+      'delivery.our_dc_number_and_date',
+      'delivery.your_dc_number_and_date'
+    ];
+
     window.populateInvoice = function(data, root) {
       root = root || document;
       if (!data) return;
@@ -320,6 +326,17 @@
         const val = getPath(data, key);
         if (val !== undefined && val !== null) {
           el.textContent = val;
+          // PO and DC values read "number & date": give the "&" a little more weight.
+          if (REF_KEYS.indexOf(key) >= 0) {
+            const at = String(val).lastIndexOf(' & ');
+            if (at >= 0) {
+              const amp = document.createElement('span');
+              amp.className = 'ref-amp';
+              amp.textContent = '&';
+              el.textContent = '';
+              el.append(String(val).slice(0, at) + ' ', amp, ' ' + String(val).slice(at + 3));
+            }
+          }
         }
       });
 
