@@ -77,12 +77,17 @@ export default function PaymentDetailsModal({ paymentId, onClose, onChanged }: P
             {p.credit_applied > 0 && <Item label="Advance used" value={formatMoney(p.credit_applied)} />}
             {p.excess_amount > 0 && (
               <Item
-                label={p.excess_action === "REFUND" ? "Refunded" : "Kept as advance"}
+                label={
+                  p.excess_action === "REFUND" ? "Refunded" : p.excess_action === "ROUNDOFF" ? "Round-off kept" : "Kept as advance"
+                }
                 value={
                   formatMoney(p.excess_amount) +
                   (p.advance_used > 0 ? ` (${formatMoney(p.advance_used)} since used)` : "")
                 }
               />
+            )}
+            {p.writeoff_amount > 0 && (
+              <Item label="Written off (accepted as full payment)" value={formatMoney(p.writeoff_amount)} />
             )}
           </dl>
 

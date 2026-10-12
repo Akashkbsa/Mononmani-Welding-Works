@@ -136,7 +136,7 @@ impl PdfRenderer {
             "terms": terms,
             "totals": {
                 // Worked out from the total so every invoice reads the same way.
-                "amount_in_words": format!("{} ONLY", InvoiceRepository::number_to_words(inv.total_amount.round() as i64)),
+                "amount_in_words": InvoiceRepository::money_in_words(inv.total_amount),
                 "subtotal": money(inv.subtotal),
                 "discount": if inv.discount > 0.0 { money(inv.discount) } else { String::new() },
                 "cgst_rate": if is_igst { String::new() } else { rate(inv.cgst_rate) },

@@ -18,8 +18,8 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 
 ## Rules that must hold
 
-- Dates are stored `YYYY-MM-DD`, shown `DD-MM-YYYY`. Money is rounded to paise; invoice totals to the rupee.
-- Business rules live in the Rust repositories, not only the UI: allocation limits, advances (credit/refund), invoice edit/delete guards, customer delete guard.
+- Dates are stored `YYYY-MM-DD`, shown `DD-MM-YYYY`. Money is rounded to paise. Invoice totals are exact to the paisa (no round-off to the rupee); older invoices keep the totals they were saved with.
+- Business rules live in the Rust repositories, not only the UI: allocation limits, advances (credit/refund), round-off and write-off, invoice edit/delete guards, customer delete guard.
 - Puducherry (state code 34) → CGST + SGST; other states → IGST.
 - Business name is **Mononmani Welding Works**. Keep the Tauri identifier `com.manonmani.app` (it locates the user's data folder).
 - Schema changes go in a new numbered migration in `db/migrations.rs`; never edit an applied one.

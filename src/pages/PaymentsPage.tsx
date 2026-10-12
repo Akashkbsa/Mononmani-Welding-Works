@@ -139,6 +139,12 @@ export default function PaymentsPage() {
                   </td>
                   <td className="py-3 px-4 text-right tabular font-medium">
                     {formatMoney(p.amount_received)}
+                    {p.writeoff_amount > 0 && (
+                      <div className="text-xs font-normal text-slate-500">Written off {formatMoney(p.writeoff_amount)}</div>
+                    )}
+                    {p.excess_action === "ROUNDOFF" && p.excess_amount > 0 && (
+                      <div className="text-xs font-normal text-slate-500">Round-off {formatMoney(p.excess_amount)}</div>
+                    )}
                     {p.tds_amount > 0 && (
                       <div className="text-xs font-normal text-slate-500">{p.tds_recognized ? "+ " : "TDS not counted: "}{formatMoney(p.tds_amount)}{p.tds_recognized ? " TDS" : ""}</div>
                     )}

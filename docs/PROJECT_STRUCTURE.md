@@ -16,11 +16,12 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 
 - **Numbers:** `MWW/26-27/001` for invoices, `PAY/26-27/001` for payments, by Indian financial year (April–March), local time.
 - **Dates** are stored as `YYYY-MM-DD` and shown as `DD-MM-YYYY`.
-- **Tax:** CGST + SGST for customers in Puducherry (state code 34), IGST otherwise. The state code comes from the GSTIN or the customer's state. Totals are rounded to the rupee with a round-off line.
+- **Tax:** CGST + SGST for customers in Puducherry (state code 34), IGST otherwise. The state code comes from the GSTIN or the customer's state. Totals are exact to the paisa, with no round-off to the rupee, and the amount in words includes paise. Invoices saved before this change keep their rounded totals.
 - **Invoice edits:** an invoice with payments cannot drop below what has been paid, cannot become Draft or Cancelled, and cannot be deleted.
 - **Customers** with invoices or payments cannot be deleted.
 - **Payment allocation:** a payment can only be applied to the same customer's Issued invoices, and never more than each invoice's balance or the money available.
-- **Leftover money** is either kept as an **advance** or marked **refunded**. Advances are used oldest-first by later payments ("Use advance" in the payment form). Deleting or editing a payment gives back any advance it used. A payment whose advance has already been used cannot be deleted until the later payment is removed.
+- **Leftover money** is kept as an **advance**, marked **refunded**, or **kept as a round-off** (counted as received, nothing owed back, no advance). A round-off is limited to ₹500 per payment.
+- **Short payments:** the owner can accept a payment that is a little short as full payment ("Settle in full"). The shortfall is stored on the payment as `writeoff_amount` (migration 10), counts towards settling the invoices like recognised TDS, and is limited to ₹500 per payment. It must equal what is actually short after money received, TDS and any advance used. Deleting the payment reopens the invoices. Advances are used oldest-first by later payments ("Use advance" in the payment form). Deleting or editing a payment gives back any advance it used. A payment whose advance has already been used cannot be deleted until the later payment is removed.
 
 ## Code layout
 

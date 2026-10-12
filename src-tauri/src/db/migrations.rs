@@ -418,6 +418,14 @@ const MIGRATIONS: &[Migration] = &[
             );
         "#,
     },
+    Migration {
+        version: 10,
+        name: "010_payment_writeoff",
+        sql: r#"
+            -- Short amount the owner accepted as full payment (counts towards settling the invoices).
+            ALTER TABLE payments ADD COLUMN writeoff_amount REAL NOT NULL DEFAULT 0.0;
+        "#,
+    },
 ];
 
 /// Highest migration version this build knows; a backup from a newer build can't be restored.
