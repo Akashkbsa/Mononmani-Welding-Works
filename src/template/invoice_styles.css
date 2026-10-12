@@ -365,9 +365,10 @@ html, body {
   font-weight: 500;
 }
 
-/* The "&" between a PO / DC number and its date: a touch heavier than the text around it. */
+/* The "&" between a PO / DC number and its date: a touch heavier than the text around it.
+   A hairline outline gives a gentler lift than the next font weight up would. */
 .ref-amp {
-  font-weight: 600;
+  -webkit-text-stroke: 0.12px currentColor;
 }
 
 /* --------------------------------------------------------------------------
