@@ -92,7 +92,8 @@ impl InvoiceRepository {
             igst_amount: row.get(35)?,
             round_off: row.get(36)?,
             total_amount: row.get(37)?,
-            amount_in_words: row.get(38)?,
+            // Worded from the total each time, so older invoices also read in paise.
+            amount_in_words: InvoiceRepository::money_in_words(row.get::<_, f64>(37)?),
             bank_name: row.get(39)?,
             bank_branch: row.get(40)?,
             bank_account_no: row.get(41)?,

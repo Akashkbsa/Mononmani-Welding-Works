@@ -16,7 +16,7 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 
 - **Numbers:** `MWW/26-27/001` for invoices, `PAY/26-27/001` for payments, by Indian financial year (April–March), local time.
 - **Dates** are stored as `YYYY-MM-DD` and shown as `DD-MM-YYYY`.
-- **Tax:** CGST + SGST for customers in Puducherry (state code 34), IGST otherwise. The state code comes from the GSTIN or the customer's state. Totals are exact to the paisa, with no round-off to the rupee, and the amount in words includes paise. Invoices saved before this change keep their rounded totals.
+- **Tax:** CGST + SGST for customers in Puducherry (state code 34), IGST otherwise. The state code comes from the GSTIN or the customer's state. Totals are exact to the paisa, with no round-off to the rupee, and the amount in words includes paise. Migration 11 brought older invoices that were not fully paid to their exact total; fully paid ones keep the total they were settled at, so they do not reopen for a few paise.
 - **Invoice edits:** an invoice with payments cannot drop below what has been paid, cannot become Draft or Cancelled, and cannot be deleted.
 - **Customers** with invoices or payments cannot be deleted.
 - **Payment allocation:** a payment can only be applied to the same customer's Issued invoices, and never more than each invoice's balance or the money available.

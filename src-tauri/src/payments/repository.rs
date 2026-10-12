@@ -1033,6 +1033,28 @@ mod tests {
     }
 
     #[test]
+    fn older_rounded_invoices_become_exact_unless_fully_paid() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let open = invoice(&conn, c, "E/1", 3590.0);
+        let paid = invoice(&conn, c, "E/2", 3590.0);
+        PaymentRepository::create_payment(&conn, payment(c, 3590.0, &[(paid, 3590.0)], 0.0, "NONE")).unwrap();
+        // Make both look like invoices saved when totals were rounded: exact 3590.40 stored as 3590.00.
+        conn.execute("UPDATE invoices SET round_off = -0.4", []).unwrap();
+
+        conn.execute_batch(crate::db::migrations::EXACT_TOTALS_SQL).unwrap();
+
+        let total = |id: i64| -> f64 {
+            conn.query_row("SELECT total_amount FROM invoices WHERE id = ?1", params![id], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(total(open), 3590.4);
+        assert_eq!(outstanding(&conn, open), 3590.4);
+        // The paid invoice keeps its settled total, so it does not reopen for 40 paise.
+        assert_eq!(total(paid), 3590.0);
+        assert_eq!(outstanding(&conn, paid), 0.0);
+    }
+
+    #[test]
     fn extra_money_can_be_kept_as_round_off() {
         let conn = setup();
         let c = customer(&conn, "A");
