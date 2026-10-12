@@ -93,15 +93,22 @@
 }
 
 :root {
-  /* Motion. A strong ease-out gives instant feedback and a soft landing; the built-in
-     ease-out is too weak. Leaving is faster than arriving. */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --dur-press: 90ms;
-  --dur-hover: 120ms;
-  --dur-popover: 140ms;
-  --dur-dialog: 180ms;
-  --dur-highlight: 700ms;
+  /* Motion. Everything glides on a soft quint ease-out: fast off the line, long gentle landing.
+     Things that leave use a short ease-in so they accelerate away. Only transform and opacity
+     move, so the browser runs it on the GPU and it stays smooth even while the page is busy. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-press: 120ms;
+  --dur-hover: 160ms;
+  --dur-popover: 200ms;
+  --dur-dialog: 260ms;
+  --dur-toast: 280ms;
+  --dur-page: 180ms;
+  --dur-reveal: 440ms;
+  --dur-exit: 160ms;
+  --dur-slide: 300ms;
+  --dur-highlight: 900ms;
 }
 
 @layer base {
@@ -135,7 +142,7 @@
 /* ---------- Motion (see .claude/skills/mww-frontend/references/motion-spec.md) ---------- */
 
 @layer components {
-  /* Buttons: a small press, quick colour change. */
+  /* Buttons: a small, soft press and a quick colour change. */
   .mww-btn {
     transition:
       transform var(--dur-press) var(--ease-out),
@@ -148,30 +155,58 @@
     transform: scale(0.98);
   }
 
-  /* Dialogs: fade and settle from just below. Never from scale(0). Enter only. */
+  /* Dialogs: the veil fades while the dialog rises a few pixels. No scaling: scaling a card full
+     of text makes it re-sharpen at the end, which reads as a shimmer. */
   .mww-backdrop {
-    transition: opacity var(--dur-dialog) var(--ease-out);
+    animation: mww-fade var(--dur-dialog) var(--ease-out) both;
   }
   .mww-dialog {
-    transition:
-      opacity var(--dur-dialog) var(--ease-out),
-      transform var(--dur-dialog) var(--ease-out);
+    animation: mww-dialog-in var(--dur-dialog) var(--ease-out) both;
   }
 
-  /* Menus and pick lists grow from the control that opened them. */
+  /* When a dialog is removed a see-through copy stays behind for a moment and fades away, so
+     closing is as soft as opening. It cannot be clicked. */
+  .mww-ghost {
+    pointer-events: none;
+    animation: mww-fade-out var(--dur-exit) var(--ease-in) forwards;
+  }
+  .mww-ghost,
+  .mww-ghost * {
+    transition: none !important;
+  }
+  .mww-ghost .mww-dialog {
+    animation: mww-dialog-out var(--dur-exit) var(--ease-in) forwards;
+  }
+
+  /* Menus and pick lists grow from the control that opened them, and shrink back into it. */
   .mww-popover {
     transform-origin: var(--popover-origin, top left);
-    animation: mww-pop var(--dur-popover) var(--ease-out);
+    animation: mww-pop var(--dur-popover) var(--ease-out) both;
+  }
+  .mww-popover[data-state="closed"] {
+    pointer-events: none;
+    animation: mww-pop-out var(--dur-exit) var(--ease-in) forwards;
   }
 
   .mww-toast {
-    animation: mww-toast-in var(--dur-dialog) var(--ease-out);
+    animation: mww-toast-in var(--dur-toast) var(--ease-out) both;
+  }
+  .mww-toast[data-state="closed"] {
+    animation: mww-toast-out var(--dur-exit) var(--ease-in) forwards;
+  }
+
+  /* A page or a freshly loaded list fades in instead of cutting in. */
+  .mww-page {
+    animation: mww-fade var(--dur-page) ease-out both;
+  }
+  .mww-fade {
+    animation: mww-fade var(--dur-page) ease-out both;
   }
 
   /* One orchestrated moment: the first dashboard load of a session. */
   .mww-reveal {
-    animation: mww-rise var(--dur-dialog) var(--ease-out) both;
-    animation-delay: calc(var(--i, 0) * 40ms);
+    animation: mww-rise var(--dur-reveal) var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
   }
 
   /* Something just saved glows in the arc colour, then settles. */
@@ -179,43 +214,87 @@
     animation: mww-flash var(--dur-highlight) var(--ease-out);
   }
 
-  /* Loading placeholders keep the shape of what is coming, so nothing jumps. */
+  /* A marker that slides between tabs: only transform moves. */
+  .mww-slider {
+    transition: transform var(--dur-slide) var(--ease-in-out);
+  }
+
+  /* Loading placeholders keep the shape of what is coming. The light sweep is a moving layer
+     (transform), not a moving background, so it never repaints. */
   .mww-skeleton {
+    position: relative;
+    overflow: hidden;
     border-radius: 0.375rem;
-    background: linear-gradient(90deg, #e9edf2 0%, #f4f6f9 50%, #e9edf2 100%);
-    background-size: 200% 100%;
-    animation: mww-shimmer 1.6s linear infinite;
+    background: #e9edf2;
+  }
+  .mww-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.65), transparent);
+    animation: mww-shimmer 1.6s var(--ease-in-out) infinite;
   }
 }
 
-@starting-style {
-  .mww-backdrop {
+@keyframes mww-fade {
+  from {
     opacity: 0;
   }
-  .mww-dialog {
+}
+
+@keyframes mww-fade-out {
+  to {
     opacity: 0;
-    transform: translateY(6px) scale(0.97);
+  }
+}
+
+@keyframes mww-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@keyframes mww-dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
 
 @keyframes mww-pop {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: scale(0.97) translateY(-2px);
+  }
+}
+
+@keyframes mww-pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
   }
 }
 
 @keyframes mww-toast-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(12px);
+  }
+}
+
+@keyframes mww-toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
 
 @keyframes mww-rise {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(10px);
   }
 }
 
@@ -226,11 +305,8 @@
 }
 
 @keyframes mww-shimmer {
-  from {
-    background-position: 200% 0;
-  }
   to {
-    background-position: -200% 0;
+    transform: translateX(100%);
   }
 }
 
@@ -244,7 +320,7 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .mww-skeleton {
+  .mww-skeleton::after {
     animation: none;
   }
 }

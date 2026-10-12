@@ -1,124 +1,95 @@
 # Motion spec for this app
 
-The app is used all day for repetitive work, so the rule is Emil Kowalski's **frequency rule**: the more often someone does it, the less it should animate. Motion here exists to explain a change (something opened, moved, appeared, finished), never to decorate. If you cannot say what an animation communicates in one sentence, remove it.
+The goal is motion that feels **effortless**: things glide in, glide out, and never snap. Smoothness has four ingredients, and each one below is a rule, not a taste:
+
+1. **Soft curves, not sharp ones.** A long, gentle landing on arrival; a short acceleration on exit.
+2. **Both directions.** Whatever animates in also animates out. A pop-away spoils a smooth arrival.
+3. **GPU-only movement.** Only `transform` and `opacity` move. Nothing that triggers layout or paint is animated, so it stays smooth even while the page is busy loading data.
+4. **Connected states.** A marker slides between tabs; a list fades in where its placeholder was; the page fades between screens. Nothing teleports.
+
+What still stays still, because people do it hundreds of times a day: typing, tabbing, keyboard shortcuts, hovering a row beyond a colour change.
 
 Contents:
 
-1. [Frequency table](#frequency-table)
-2. [Tokens](#tokens)
-3. [Component recipes](#component-recipes)
-4. [The one orchestrated moment](#the-one-orchestrated-moment)
-5. [Loading states](#loading-states)
-6. [Reduced motion](#reduced-motion)
-7. [Rules that never bend](#rules-that-never-bend)
-8. [Checking your work](#checking-your-work)
-
-## Frequency table
-
-| What | How often | Motion |
-|---|---|---|
-| Switching sidebar pages, typing, tabbing, `/` and Ctrl+N shortcuts, keyboard row navigation | hundreds of times a day | **None.** Instant. |
-| Hover on rows, buttons, tabs | tens of times a day | Colour or background change only, 100 to 150 ms. No movement. |
-| Pressing a button | tens of times a day | `scale(0.98)` on `:active`, 80 to 100 ms. |
-| Opening a dialog, the Print menu, the customer pick list, confirm dialogs | occasional | Quick fade plus a small scale from `0.97`, origin-aware for menus. 120 to 180 ms. |
-| Toast appearing and leaving | occasional | Fade and 8 px rise; leaves faster than it arrives. |
-| Tab underline changing | occasional | Slide between tabs, 160 ms. |
-| Status or total changing after a save | occasional | A brief highlight of the changed value (background fades from a soft tint over 600 ms), no movement. |
-| First dashboard load of a session | rare | One gentle staggered reveal (see below). |
-| Backup finished, restore finished | rare | A calm confirmation; one check mark draw is acceptable. |
+1. [Tokens](#tokens)
+2. [Where motion lives](#where-motion-lives)
+3. [How exits work](#how-exits-work)
+4. [Loading and the one reveal](#loading-and-the-one-reveal)
+5. [Reduced motion](#reduced-motion)
+6. [Rules that never bend](#rules-that-never-bend)
+7. [Checking your work](#checking-your-work)
 
 ## Tokens
 
-Put these in `src/index.css` once (`@theme` for CSS variables) and reuse them everywhere. Do not invent per-component curves.
+Defined once in `src/index.css`. Reuse them; never write a one-off curve or duration.
 
-```css
-:root {
-  /* Strong ease-out: instant feedback, soft landing. Built-in `ease-out` is too weak. */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  /* For things that move on screen (tab underline, reordering). */
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --dur-press: 90ms;
-  --dur-hover: 120ms;
-  --dur-popover: 140ms;
-  --dur-dialog: 180ms;
-  --dur-exit: 110ms;      /* leaving is faster than arriving */
-  --dur-highlight: 600ms;
-}
-```
+| Token | Value | Used for |
+|---|---|---|
+| `--ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | everything arriving (soft quint: fast start, long landing) |
+| `--ease-in` | `cubic-bezier(0.5, 0, 0.75, 0)` | everything leaving (accelerates away) |
+| `--ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | things that travel across the screen (tab marker, shimmer) |
+| `--dur-press` | 120 ms | button press |
+| `--dur-hover` | 160 ms | colour and shadow on hover |
+| `--dur-popover` | 200 ms | menus and pick lists in |
+| `--dur-dialog` | 260 ms | dialogs and their veil in |
+| `--dur-toast` | 280 ms | toasts in |
+| `--dur-page` | 180 ms | page and list fade |
+| `--dur-reveal` | 440 ms | the one dashboard reveal |
+| `--dur-exit` | 160 ms | anything leaving |
+| `--dur-slide` | 300 ms | the tab marker |
+| `--dur-highlight` | 900 ms | the "just saved" glow |
 
-Never `ease-in` for UI. Never `transition: all`; name the properties. Keep everything under 300 ms except the one-time highlight and the dashboard reveal.
+Measured curves (sampled in headless Edge): a dialog reaches 91% opacity by 100 ms and settles at 200 ms; it leaves in 160 ms; the tab marker eases in and out with a 300 ms S-curve.
 
-## Component recipes
+## Where motion lives
 
-Prefer CSS transitions (interruptible) over keyframes for anything that can be toggled quickly. Use `@starting-style` for enter states so no JS is needed.
+| Piece | Class | Motion |
+|---|---|---|
+| Buttons | `.mww-btn` | `scale(0.98)` press, soft colour change |
+| Dialog veil and card | `.mww-backdrop`, `.mww-dialog` | veil fades; card fades and rises 12 px. **No scaling** (scaling a card full of text re-sharpens it at the end, which looks like a shimmer) |
+| Menus, pick list | `.mww-popover` | grows from its control (`--popover-origin`), scale 0.97 and a 2 px drop; shrinks back on close |
+| Toast | `.mww-toast` | rises 12 px and fades in; sinks and fades out |
+| Page change | `.mww-page` | fade in (180 ms), no movement |
+| Table after loading | `.mww-fade` | fades in where the skeleton was |
+| Tab underline | `.mww-slider` | one marker that slides and stretches between tabs (`translateX` + `scaleX`) |
+| Sidebar active page | transition on `box-shadow`, `background-color`, `color` | the orange marker and highlight cross-fade |
+| Saved invoice row | `.mww-flash` | arc glow that fades over 900 ms |
+| Dashboard, first load of a session | `.mww-reveal` | blocks rise and fade in with 70 ms between them, once per session |
+| Skeleton | `.mww-skeleton` | a light sweep that is a moving layer (`transform`), never a moving background |
 
-**Modal** (`ui.tsx` Modal): backdrop fades `0 → 1`; dialog enters from `opacity 0, scale 0.97, translateY(4px)` to rest, `--dur-dialog` with `--ease-out`. It never starts from `scale(0)`. It stays centred (modals are not origin-aware). Exit is `--dur-exit`. Because unmounting kills exit animations, keep a short `closing` state before calling `onClose`, or accept an enter-only animation: enter-only is fine and simpler.
+Use CSS keyframes for enter (they work on every WebView2 version) and CSS transitions only for things that toggle back and forth (buttons, tab marker).
 
-```css
-.modal-dialog {
-  transition: opacity var(--dur-dialog) var(--ease-out), transform var(--dur-dialog) var(--ease-out);
-  @starting-style { opacity: 0; transform: translateY(4px) scale(0.97); }
-}
-.modal-backdrop {
-  transition: opacity var(--dur-dialog) var(--ease-out);
-  @starting-style { opacity: 0; }
-}
-```
+## How exits work
 
-**Menus and pick lists** (Print menu, `SearchSelect` list): origin is the trigger. Right-aligned menu uses `transform-origin: top right`; the pick list `top left`. Enter from `opacity 0, scale 0.96`, `--dur-popover`. Second and later opens while one is already open in the same group: skip the animation.
+React removes things instantly, so exits need help. The app has three small tools, all in `src/components/ui.tsx`:
 
-**Toast:** enter from `opacity 0, translateY(8px)`, `--dur-dialog`; exit `--dur-exit` with `opacity` only. Replacing a toast must not stack a second animation on the first.
+- **`Modal` leaves a ghost.** When any dialog is removed, by any route (Escape, X, Cancel, Save), a see-through copy stays in `document.body` for 160 ms and fades away, then deletes itself. It cannot be clicked or focused (`inert`, `aria-hidden`, `pointer-events: none`). Nothing in the parents needs to change. It is skipped under reduced motion.
+- **`usePresence(open, ms)`** keeps a menu or list mounted for `ms` after it closes and reports `closing`; mark the element `data-state="closed"` while closing and the `.mww-popover` / `.mww-toast` classes play the exit.
+- **Toast** holds, flips to `data-state="closed"`, then unmounts 180 ms later.
 
-**Buttons:** `transition: transform var(--dur-press) var(--ease-out), background-color var(--dur-hover) ease, box-shadow var(--dur-hover) ease; :active { transform: scale(0.98) }`. Disabled buttons do not press.
+When you add something new that opens and closes, give it an exit through one of these. Do not add a new mechanism.
 
-**Table rows:** `transition: background-color var(--dur-hover) ease`. The chevron changes colour only. No row movement.
+## Loading and the one reveal
 
-**Tabs (Invoices filter):** the active underline is one absolutely positioned element that slides under the tab (`transform: translateX(...)`, `--dur-popover`, `--ease-in-out`). Counts change without animation.
-
-**Disclosure ("Delivery details"):** height animates through `grid-template-rows: 0fr → 1fr` with `opacity`, `--dur-dialog`. The chevron rotates 90 degrees in the same time.
-
-**Field errors:** appear with `opacity` and a 2 px downward settle, `--dur-hover`; no shake.
-
-**Highlight on change:** after saving, the changed row or total gets a soft brand tint that fades out over `--dur-highlight`. Implement with a CSS class added for one animation cycle; remove it on `animationend`.
-
-## The one orchestrated moment
-
-On the first dashboard load of a session only, reveal the three-figure strip and the two lists with a short stagger: each block `opacity 0 → 1` and `translateY(6px) → 0`, `--dur-dialog`, `--ease-out`, 40 ms between blocks, total under 350 ms. Guard it with a module-level flag so returning to the dashboard or reloading data after a save never replays it. Money figures do not count up: tickers delay reading and are wrong for accounts.
-
-## Loading states
-
-Replace bare "Loading…" in lists with skeleton rows that match the final row heights so nothing jumps. Shimmer is a slow `background-position` sweep on a pseudo-element (transform/opacity only where possible), paused under reduced motion. Buttons that start a long task (PDF, backup) show the spinner inside the button and keep their width.
+Lists show skeleton rows shaped like the real rows; when data arrives the table fades in (`.mww-fade`). The dashboard shows a skeleton of its strip and cards, then on the **first load of a session only** the blocks rise in with a small stagger (`dashboardRevealed` flag). Returning to the dashboard or reloading its data after a save never replays it. Money figures never count up: tickers delay reading and are wrong for accounts.
 
 ## Reduced motion
 
-Global rule, once:
-
-```css
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-```
-
-Keep state changes that carry meaning (a colour tint, a visible error) instant rather than removing them. Shimmer and highlight fades become static tints.
+One global rule in `src/index.css` collapses every animation and transition to near zero and stops the shimmer. Meaningful state changes (a colour, an error) stay visible. Note for support: Windows has a switch, **Settings > Accessibility > Visual effects > Animation effects**. When it is off, WebView2 asks the app for reduced motion and the whole app is deliberately static. If motion ever "does not work" on one computer, check that first.
 
 ## Rules that never bend
 
-- Animate only `transform` and `opacity` for movement; colours and background colours are fine for hover. Never animate `width`, `height`, `top`, `left`, `margin`. (The disclosure uses the `grid-template-rows` technique, which is the one allowed exception.)
-- Nothing starts from `scale(0)`; start at `0.95` to `0.97` with opacity.
-- Interrupting must not jump: use transitions, not keyframes, for toggled UI.
-- No parallax, no scroll hijack, no marquee, no infinite loops except the loading shimmer and spinner, no custom cursors.
-- No animation on anything triggered from the keyboard.
-- `will-change` only on elements that animate right now, and remove it after.
-- Do not add an animation library for any of the above. CSS is enough.
+- Only `transform` and `opacity` move. (Colour and shadow may change on hover. The skeleton sweep, tab marker, dialogs and menus use transform only.)
+- Never start from `scale(0)`; menus start at 0.97, dialogs do not scale.
+- Entering uses `--ease-out`; leaving uses `--ease-in`; travelling uses `--ease-in-out`. Never `transition: all`.
+- Keyboard-initiated actions and typing never animate.
+- No parallax, scroll hijack, marquee, custom cursors, or infinite loops (except the loading shimmer and spinner).
+- `will-change` only while something is animating.
+- No animation library. CSS and a few lines of React are enough.
 
 ## Checking your work
 
-1. Slow it down: temporarily set `--dur-*` to 5x and watch each animation; it should still look right.
-2. Spam it: open and close the dialog quickly, hover rapidly across rows; nothing should stack, flash or jump.
-3. Reduced motion: toggle the OS setting (or the DevTools emulation) and confirm everything is instant.
-4. Frame cost: no layout properties animating; check with the performance panel if anything feels heavy. See the `animation-performance` skill for diagnosis.
-5. Ask the "one sentence" question for every animation you added and keep the list for the report.
+1. **Read the curve, not just the picture.** Seek each animation to exact times with the Web Animations API (`el.getAnimations()`, `a.pause()`, `a.currentTime = t`) in headless Edge and read the computed `opacity` and `transform`. The values should change a little at the start, move fastest early (arrivals) or late (exits), end exactly at rest, and never jump.
+2. **Spam it.** Open and close a dialog repeatedly, scrub between tabs quickly, hover rapidly across rows. Nothing should stack, flash or jump.
+3. **Reduced motion.** Confirm everything collapses to instant.
+4. **Real hardware.** The numbers above prove the curves, not frame rate on a slow PC. Ask the user to try the heaviest dialog (new invoice) on their machine.

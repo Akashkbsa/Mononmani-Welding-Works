@@ -1,5 +1,65 @@
-import React, { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AlertCircle, Check, CheckCircle2, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
+
+/* ---------- Motion helpers ---------- */
+
+/**
+ * Keeps something mounted for a moment after it is closed, so it can animate away.
+ * Render it while `mounted` is true and mark it `data-state="closed"` while `closing` is true.
+ */
+export function usePresence(open: boolean, exitMs = 160) {
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setMounted(false), exitMs);
+    return () => window.clearTimeout(timer);
+  }, [open, exitMs]);
+  return { mounted: open || mounted, closing: !open && mounted };
+}
+
+/**
+ * When a dialog is removed, leaves a see-through copy of it behind that fades away, so closing is
+ * as soft as opening no matter how the parent closed it. The copy cannot be clicked or focused.
+ */
+function useDialogGhost(ref: React.RefObject<HTMLElement | null>) {
+  const alive = useRef(false);
+  useLayoutEffect(() => {
+    alive.current = true;
+    const node = ref.current;
+    return () => {
+      alive.current = false;
+      // In development React unmounts and remounts straight away; only a real removal stays dead.
+      queueMicrotask(() => {
+        if (alive.current || !node) return;
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const ghost = node.cloneNode(true) as HTMLElement;
+        ghost.classList.add("mww-ghost");
+        ghost.setAttribute("aria-hidden", "true");
+        ghost.setAttribute("inert", "");
+        ghost.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+        document.body.appendChild(ghost);
+        const remove = () => ghost.remove();
+        ghost.addEventListener("animationend", (e) => {
+          if (e.target === ghost) remove();
+        });
+        window.setTimeout(remove, 800);
+      });
+    };
+  }, [ref]);
+}
 
 /* ---------- Buttons ---------- */
 
@@ -174,10 +234,18 @@ export function SearchSelect({
     if (open) (listRef.current?.children[active] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
   }, [active, open]);
 
+  const { mounted, closing } = usePresence(open, 160);
+
+  // Clear what was typed only after the list has finished leaving, so it does not flicker.
+  useEffect(() => {
+    if (open) return;
+    const timer = window.setTimeout(() => setQuery(""), 180);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
   const choose = (o: SearchOption) => {
     onChange(o.id);
     setOpen(false);
-    setQuery("");
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -193,7 +261,6 @@ export function SearchSelect({
       // Close the list only; the dialog behind stays open.
       e.stopPropagation();
       setOpen(false);
-      setQuery("");
     }
   };
 
@@ -220,10 +287,11 @@ export function SearchSelect({
         onKeyDown={onKeyDown}
       />
       <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-      {open && (
+      {mounted && (
         <ul
           ref={listRef}
           role="listbox"
+          data-state={closing ? "closed" : "open"}
           className="mww-popover absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
         >
           {filtered.length === 0 ? (
@@ -529,6 +597,8 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
   closeRef.current = onClose;
   const [id] = useState(() => ++modalCounter);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useDialogGhost(rootRef);
 
   useEffect(() => {
     openModals.push(id);
@@ -570,7 +640,7 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
   }, [id]);
 
   return (
-    <div className="mww-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/50 p-6">
+    <div ref={rootRef} className="mww-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/50 p-6">
       <div
         ref={dialogRef}
         tabIndex={-1}
@@ -697,6 +767,7 @@ const ToastContext = createContext<(message: string, tone?: "success" | "error")
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [leaving, setLeaving] = useState(false);
 
   const show = useCallback((message: string, tone: "success" | "error" = "success") => {
     setToast({ id: Date.now(), message, tone });
@@ -704,8 +775,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), toast.tone === "error" ? 6000 : 3000);
-    return () => window.clearTimeout(timer);
+    setLeaving(false);
+    const hold = toast.tone === "error" ? 6000 : 3000;
+    const leave = window.setTimeout(() => setLeaving(true), hold);
+    const remove = window.setTimeout(() => setToast(null), hold + 180);
+    return () => {
+      window.clearTimeout(leave);
+      window.clearTimeout(remove);
+    };
   }, [toast]);
 
   return (
@@ -716,6 +793,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toast && (
           <div
             key={toast.id}
+            data-state={leaving ? "closed" : "open"}
             role={toast.tone === "error" ? "alert" : "status"}
             className={`mww-toast flex items-start gap-2 rounded-md px-4 py-3 text-sm shadow-lg ${
               toast.tone === "success" ? "bg-ink-800 text-white" : "bg-red-600 text-white"

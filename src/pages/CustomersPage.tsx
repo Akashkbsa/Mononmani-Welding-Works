@@ -121,7 +121,7 @@ export default function CustomersPage() {
             }
           />
         ) : (
-          <table className="w-full text-sm">
+          <table className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="w-10" />

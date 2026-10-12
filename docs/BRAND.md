@@ -43,19 +43,22 @@ One scale: controls and badges 6px, cards and dialogs 8px. One quiet card shadow
 
 ## Motion
 
-Frequency decides: the more often something is done, the less it moves. Page switches, typing and keyboard actions never animate. See `.claude/skills/mww-frontend/references/motion-spec.md`.
+Motion should feel effortless: things glide in, glide out and never snap. Soft curves, an exit for everything that has an entrance, and only transform and opacity move (so it stays smooth on any PC). Typing, tabbing and keyboard shortcuts never animate. Details and measured curves are in `.claude/skills/mww-frontend/references/motion-spec.md`.
 
 | Where | Motion |
 |---|---|
-| Buttons | tiny press (`scale(0.98)`) |
-| Dialogs | fade and settle from just below (180 ms), never from nothing |
-| Menus and pick lists | grow from the control that opened them (140 ms) |
-| Toasts | rise and fade in |
-| Lists while loading | shimmering placeholders shaped like the rows |
+| Buttons | tiny soft press |
+| Dialogs | the veil fades while the card fades and rises a few pixels (260 ms); on close a copy fades and sinks away (160 ms) |
+| Menus and pick lists | grow from the control that opened them and shrink back into it |
+| Toasts | rise in, sink out |
+| Pages and freshly loaded lists | fade in |
+| Tab underline | one marker that glides between tabs |
+| Sidebar active page | the orange marker cross-fades |
+| Lists while loading | placeholder rows with a soft light sweep |
 | Dashboard, first load of a session | one gentle staggered reveal, never again that session |
 | A just-saved invoice | a short arc glow on its row |
 
-Everything respects the system "reduce motion" setting.
+Everything respects the system "reduce motion" setting. On Windows that follows **Settings > Accessibility > Visual effects > Animation effects**: if it is off, the app is deliberately still.
 
 ## Voice
 

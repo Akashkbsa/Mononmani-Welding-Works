@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, FileText, Plus, Search } from "lucide-react";
 import { InvoiceListItem } from "../types/invoice";
 import { downloadMonthInvoices, listInvoices, printInvoice } from "../services/api";
@@ -62,6 +62,10 @@ export default function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewingId, setViewingId] = useState<number | null>(null);
+  // The underline slides between tabs instead of jumping.
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [slider, setSlider] = useState<{ x: number; w: number } | null>(null);
+  const [sliderReady, setSliderReady] = useState(false);
   // The invoice that was just saved glows briefly in the list, so the eye finds it.
   const [flashId, setFlashId] = useState<number | null>(null);
   useEffect(() => {
@@ -113,6 +117,18 @@ export default function InvoicesPage() {
     [inMonth]
   );
   const visible = useMemo(() => inMonth.filter(TABS.find((t) => t.id === tab)!.match), [inMonth, tab]);
+
+  // Measure the active tab. The first measurement is placed without animation.
+  useLayoutEffect(() => {
+    const el = tabRefs.current[tab];
+    if (el) setSlider({ x: el.offsetLeft, w: el.offsetWidth });
+  }, [tab, counts, invoices]);
+  useEffect(() => {
+    if (slider && !sliderReady) {
+      const frame = requestAnimationFrame(() => setSliderReady(true));
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [slider, sliderReady]);
   const visibleDue = visible.reduce((s, i) => s + (i.status === "ISSUED" ? i.outstanding_amount : 0), 0);
   const visibleTotal = visible.reduce((s, i) => s + (i.status === "ISSUED" ? i.total_amount : 0), 0);
   const monthPdfCount = inMonth.filter((i) => i.status === "ISSUED" || i.status === "CANCELLED").length;
@@ -143,17 +159,23 @@ export default function InvoicesPage() {
       />
 
       <div className="flex items-end justify-between gap-4 mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Invoice status" className="flex gap-1">
+        <div role="tablist" aria-label="Invoice status" className="relative flex gap-1">
+          <span
+            aria-hidden="true"
+            className={`${sliderReady ? "mww-slider" : ""} pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600`}
+            style={{ transform: slider ? `translateX(${slider.x}px) scaleX(${slider.w / 100})` : "scaleX(0)" }}
+          />
           {TABS.map((t) => (
             <button
               key={t.id}
+              ref={(el) => {
+                tabRefs.current[t.id] = el;
+              }}
               role="tab"
               aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
-              className={`px-3 h-9 -mb-px border-b-2 text-sm transition-colors ${
-                tab === t.id
-                  ? "border-brand-600 text-brand-700 font-medium"
-                  : "border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300"
+              className={`px-3 h-9 text-sm transition-colors ${
+                tab === t.id ? "text-brand-700 font-medium" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               {t.label}
@@ -236,7 +258,7 @@ export default function InvoicesPage() {
           />
         ) : (
           <>
-            <table className="w-full text-sm">
+            <table className="mww-fade w-full text-sm">
               <thead className={theadClass}>
                 <tr>
                   <th className="py-2.5 px-4 font-semibold">Invoice</th>

@@ -36,7 +36,7 @@ function NavButton({
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-colors duration-100 ${
+      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-[background-color,color,box-shadow] duration-200 ${
         active
           ? "bg-white/10 text-white font-medium shadow-[inset_3px_0_0_var(--color-arc-500)]"
           : "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -105,13 +105,15 @@ function App() {
 
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-6xl mx-auto px-8 py-6">
-            <ErrorBoundary key={page}>
-              {page === "dashboard" && <DashboardPage onNavigate={setPage} />}
-              {page === "invoices" && <InvoicesPage />}
-              {page === "payments" && <PaymentsPage />}
-              {page === "customers" && <CustomersPage />}
-              {page === "settings" && <SettingsPage />}
-            </ErrorBoundary>
+            <div key={page} className="mww-page">
+              <ErrorBoundary>
+                {page === "dashboard" && <DashboardPage onNavigate={setPage} />}
+                {page === "invoices" && <InvoicesPage />}
+                {page === "payments" && <PaymentsPage />}
+                {page === "customers" && <CustomersPage />}
+                {page === "settings" && <SettingsPage />}
+              </ErrorBoundary>
+            </div>
           </div>
         </main>
       </div>

@@ -11,7 +11,7 @@ import {
   setInvoiceCancelled,
 } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
-import { Alert, Badge, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge, useToast } from "../ui";
+import { Alert, Badge, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge, usePresence, useToast } from "../ui";
 import InvoiceFormModal from "./InvoiceFormModal";
 import PaymentFormModal from "../payments/PaymentFormModal";
 
@@ -40,6 +40,7 @@ function PrintMenu({
   busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const { mounted, closing } = usePresence(open, 160);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,9 +74,10 @@ function PrintMenu({
         Print
         <ChevronDown className="w-3.5 h-3.5 -mr-1" />
       </Button>
-      {open && (
+      {mounted && (
         <div
           role="menu"
+          data-state={closing ? "closed" : "open"}
           className="mww-popover [--popover-origin:top_right] absolute right-0 mt-1 w-64 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10"
         >
           {[

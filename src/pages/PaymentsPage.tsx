@@ -128,7 +128,7 @@ export default function PaymentsPage() {
             description={filtered ? undefined : "Record a payment when a customer pays an invoice."}
           />
         ) : (
-          <table className="w-full text-sm">
+          <table className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Payment</th>
