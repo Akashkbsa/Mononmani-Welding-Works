@@ -583,7 +583,10 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
           </div>
 
           <Collapsible title="Delivery details">
-            <div className="grid grid-cols-2 gap-4">
+            <p className="mb-3 text-xs text-slate-500">
+              Add the number first, then its date. Anything left empty prints as a dash.
+            </p>
+            <div className="grid grid-cols-2 gap-4 [&>*]:min-w-0">
               <RefDateField
                 label="PO number & date"
                 value={form.po_number_and_date}
@@ -657,9 +660,10 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * A reference number and its date as one value: "number & dd-mm-yyyy". The number box takes
- * the spare width, the "&" is fixed, and the date can only be set once a number is typed.
- * Left empty, nothing is printed for it.
+ * A reference number and its date as one value: "number & dd-mm-yyyy". Drawn as a single
+ * connected box so it reads and focuses like one field: the number takes the spare width, the
+ * "&" divider is fixed, and the date sits on the right. The date is available once a number is
+ * typed. Left empty, nothing is printed for it.
  */
 function RefDateField({
   label,
@@ -671,24 +675,29 @@ function RefDateField({
   onChange: (v: string | null) => void;
 }) {
   const { number, dateISO } = splitRefDate(value);
+  const hasNumber = !!number.trim();
   return (
     <Field label={label}>
-      <div className="flex items-center gap-2">
+      <div className="flex h-9 items-stretch overflow-hidden rounded-md border border-slate-300 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100">
         <input
-          className={`${inputClass} min-w-0 flex-1`}
+          className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
           value={number}
           placeholder="Number"
+          aria-label={`${label}: number`}
           onChange={(e) => onChange(joinRefDate(e.target.value, dateISO))}
         />
-        <span className="font-medium text-slate-500" aria-hidden="true">
+        <span
+          aria-hidden="true"
+          className="grid w-8 shrink-0 place-items-center border-x border-slate-200 bg-slate-50 text-sm font-medium text-slate-500"
+        >
           &amp;
         </span>
         <input
           type="date"
-          className={`${inputClass} w-40 shrink-0`}
+          className="h-full w-36 shrink-0 bg-transparent px-2 text-sm text-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-400"
           aria-label={`${label}: date`}
-          title={number.trim() ? undefined : "Enter the number first"}
-          disabled={!number.trim()}
+          title={hasNumber ? undefined : "Enter the number first"}
+          disabled={!hasNumber}
           value={dateISO}
           onChange={(e) => onChange(joinRefDate(number, e.target.value))}
         />
