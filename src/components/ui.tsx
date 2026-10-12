@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, CheckCircle2, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 
 /* ---------- Buttons ---------- */
@@ -36,7 +36,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center rounded-md font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed ${sizing} ${buttonStyles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center mww-btn rounded-md font-medium whitespace-nowrap disabled:cursor-not-allowed ${sizing} ${buttonStyles[variant]} ${className}`}
       {...rest}
     >
       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : icon}
@@ -224,7 +224,7 @@ export function SearchSelect({
         <ul
           ref={listRef}
           role="listbox"
-          className="absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          className="mww-popover absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
         >
           {filtered.length === 0 ? (
             <li className="px-3 py-2 text-sm text-slate-500">{emptyText}</li>
@@ -276,8 +276,20 @@ export function PageHeader({
   );
 }
 
-export function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`bg-white border border-slate-200 rounded-lg shadow-card ${className}`}>{children}</div>;
+export function Card({
+  className = "",
+  style,
+  children,
+}: {
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={style} className={`bg-white border border-slate-200 rounded-lg shadow-card ${className}`}>
+      {children}
+    </div>
+  );
 }
 
 /** A row of key figures in one card, divided by hairlines. */
@@ -294,18 +306,25 @@ export function Stat({
   value,
   note,
   icon: Icon,
+  tone = "default",
   onClick,
 }: {
   label: string;
   value: string;
   note?: string;
   icon?: React.ComponentType<{ className?: string }>;
+  /** "attention" is for money still owed: the one place the arc colour marks a figure. */
+  tone?: "default" | "attention";
   onClick?: () => void;
 }) {
   const body = (
     <div className="flex items-start gap-3">
       {Icon && (
-        <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-600">
+        <span
+          className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md ${
+            tone === "attention" ? "bg-arc-50 text-arc-600" : "bg-brand-50 text-brand-600"
+          }`}
+        >
           <Icon className="h-4 w-4" />
         </span>
       )}
@@ -338,13 +357,20 @@ export function EmptyState({
   title,
   description,
   action,
+  icon: Icon,
 }: {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
     <div className="py-14 text-center">
+      {Icon && (
+        <span className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-lg bg-brand-50 text-brand-600">
+          <Icon className="h-5 w-5" />
+        </span>
+      )}
       <p className="text-sm font-medium text-slate-800">{title}</p>
       {description && <p className="text-sm text-slate-500 mt-1">{description}</p>}
       {action && <div className="mt-4 flex justify-center">{action}</div>}
@@ -354,9 +380,31 @@ export function EmptyState({
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
-    <div className="py-14 flex items-center justify-center gap-2 text-sm text-slate-500">
+    <div role="status" className="py-14 flex items-center justify-center gap-2 text-sm text-slate-500">
       <Loader2 className="w-4 h-4 animate-spin" />
       {label}
+    </div>
+  );
+}
+
+/** A grey bar that shimmers while data loads. Give it the size of what will replace it. */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div aria-hidden="true" className={`mww-skeleton ${className}`} />;
+}
+
+/** Placeholder rows shaped like a table body, so the page does not jump when data arrives. */
+export function ListSkeleton({ rows = 6, label = "Loading" }: { rows?: number; label?: string }) {
+  return (
+    <div role="status" aria-label={label} className="divide-y divide-slate-100">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-6 px-4 py-3.5">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 flex-1 max-w-xs" />
+          <Skeleton className="ml-auto h-4 w-20" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -365,7 +413,10 @@ export function Alert({ children, tone = "error" }: { children: React.ReactNode;
   const styles =
     tone === "error" ? "bg-red-50 border-red-200 text-red-800" : "bg-slate-50 border-slate-200 text-slate-700";
   return (
-    <div className={`flex items-start gap-2 rounded-md border px-3 py-2.5 text-sm ${styles}`}>
+    <div
+      role={tone === "error" ? "alert" : "status"}
+      className={`flex items-start gap-2 rounded-md border px-3 py-2.5 text-sm ${styles}`}
+    >
       <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
       <div>{children}</div>
     </div>
@@ -378,7 +429,25 @@ export function Alert({ children, tone = "error" }: { children: React.ReactNode;
 export const theadClass = "sticky top-0 bg-slate-50 text-left text-xs font-semibold text-slate-600 border-b border-slate-200";
 
 /** Clickable body row; the chevron cell darkens on hover to show it opens. */
-export const rowClass = "group cursor-pointer transition-colors hover:bg-brand-50/60";
+export const rowClass =
+  "group cursor-pointer transition-colors hover:bg-brand-50/60 focus-visible:bg-brand-50/60 focus-visible:outline-offset-[-2px]";
+
+/**
+ * Props that make a table row open with a click or with Enter/Space when it has keyboard focus.
+ * Controls inside the row (a star, a button) keep their own keys.
+ */
+export function rowProps(onOpen: () => void) {
+  return {
+    tabIndex: 0,
+    onClick: onOpen,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+        e.preventDefault();
+        onOpen();
+      }
+    },
+  };
+}
 
 export function RowChevron() {
   return (
@@ -455,6 +524,7 @@ const openModals: number[] = [];
 let modalCounter = 0;
 
 export function Modal({ title, subtitle, onClose, size = "md", footer, headerActions, children }: ModalProps) {
+  const titleId = useId();
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const [id] = useState(() => ++modalCounter);
@@ -500,17 +570,18 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
   }, [id]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink-900/50 p-6">
+    <div className="mww-backdrop fixed inset-0 z-40 flex items-center justify-center bg-ink-900/50 p-6">
       <div
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className={`w-full ${modalWidths[size]} max-h-full flex flex-col bg-white rounded-lg shadow-xl`}
+        aria-labelledby={titleId}
+        className={`mww-dialog w-full ${modalWidths[size]} max-h-full flex flex-col bg-white rounded-lg shadow-xl`}
       >
         <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-200">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-slate-900 truncate tracking-tight">{title}</h2>
+            <h2 id={titleId} className="text-base font-semibold text-slate-900 truncate tracking-tight">{title}</h2>
             {subtitle && <div className="text-sm text-slate-500 mt-0.5">{subtitle}</div>}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -611,22 +682,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={show}>
       {children}
-      {toast && (
-        <div className="fixed bottom-5 right-5 z-50 max-w-sm">
+      {/* The live region is always present so screen readers announce what appears in it. */}
+      <div className="fixed bottom-5 right-5 z-50 max-w-sm" aria-live="polite">
+        {toast && (
           <div
-            className={`flex items-start gap-2 rounded-md px-4 py-3 text-sm shadow-lg ${
+            key={toast.id}
+            role={toast.tone === "error" ? "alert" : "status"}
+            className={`mww-toast flex items-start gap-2 rounded-md px-4 py-3 text-sm shadow-lg ${
               toast.tone === "success" ? "bg-ink-800 text-white" : "bg-red-600 text-white"
             }`}
           >
             {toast.tone === "success" ? (
-              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-arc-400" />
             ) : (
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
             )}
             <span>{toast.message}</span>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </ToastContext.Provider>
   );
 }
