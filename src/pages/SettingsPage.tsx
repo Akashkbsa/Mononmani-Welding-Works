@@ -25,7 +25,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Where your records are kept on this computer." />
+      <PageHeader title="Settings" description="Your business details, tax defaults and backups, and where your records are kept." />
 
       {error && <Alert>{error}</Alert>}
       {!storage || !db ? (

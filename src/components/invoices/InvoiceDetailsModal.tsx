@@ -47,8 +47,18 @@ function PrintMenu({
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
+    // Escape closes just the menu. Listening in the capture phase keeps the dialog behind it open.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setOpen(false);
+    };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, [open]);
 
   return (
@@ -56,19 +66,25 @@ function PrintMenu({
       <Button
         loading={busy}
         icon={<Printer className="w-4 h-4" />}
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
         Print
         <ChevronDown className="w-3.5 h-3.5 -mr-1" />
       </Button>
       {open && (
-        <div className="absolute right-0 mt-1 w-64 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10">
+        <div
+          role="menu"
+          className="mww-popover [--popover-origin:top_right] absolute right-0 mt-1 w-64 rounded-md border border-slate-200 bg-white shadow-lg py-1 z-10"
+        >
           {[
             { label: "All 3 copies", copies: ["Original", "Duplicate", "Triplicate"] as CopyType[] },
             { label: "Original + Duplicate", copies: ["Original", "Duplicate"] as CopyType[] },
           ].map(({ label, copies }) => (
             <button
               key={label}
+              role="menuitem"
               className={menuItemClass}
               onClick={() => {
                 setOpen(false);
@@ -82,6 +98,7 @@ function PrintMenu({
           {COPIES.map(({ copy, label }) => (
             <button
               key={copy}
+              role="menuitem"
               className={menuItemClass}
               onClick={() => {
                 setOpen(false);

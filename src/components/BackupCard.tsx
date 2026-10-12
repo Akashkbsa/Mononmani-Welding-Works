@@ -122,7 +122,7 @@ export default function BackupCard() {
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Back up to Google Drive</h2>
           <p className="text-sm text-slate-600 mt-1">
-            Click Back Up whenever you are online, for example at the end of the day. Every backup is a complete copy
+            Click Back up whenever you are online, for example at the end of the day. Every backup is a complete copy
             of your records, and older backups are kept so an earlier version can always be restored.
           </p>
         </div>
@@ -173,7 +173,7 @@ export default function BackupCard() {
         <div className="space-y-4">
           <div className="flex items-center gap-4">
             <Button variant="primary" icon={<CloudUpload className="w-4 h-4" />} loading={backingUp} onClick={backUp}>
-              Back Up
+              Back up
             </Button>
             <div className="text-sm">
               {backingUp ? (
@@ -184,7 +184,7 @@ export default function BackupCard() {
                   {last.size_bytes ? ` (${formatSize(last.size_bytes)})` : ""}
                 </span>
               ) : (
-                <span className="text-amber-700">No backup yet. Press Back Up to make the first one.</span>
+                <span className="text-amber-700">No backup yet. Press Back up to make the first one.</span>
               )}
             </div>
           </div>

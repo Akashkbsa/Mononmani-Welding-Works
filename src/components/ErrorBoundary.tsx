@@ -27,8 +27,8 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="max-w-md mx-auto mt-20 text-center space-y-3">
         <h2 className="text-base font-semibold text-slate-900">This screen could not be shown</h2>
-        <p className="text-sm text-slate-500">Your records are safe. Try again, or restart the app if it keeps happening.</p>
-        <p className="text-xs text-slate-400 font-mono break-words">{this.state.error.message}</p>
+        <p className="text-sm text-slate-600">Your records are safe. Try again, or restart the app if it keeps happening.</p>
+        <p className="text-xs text-slate-500 font-mono break-words">{this.state.error.message}</p>
         <Button variant="primary" onClick={() => this.setState({ error: null })}>
           Try again
         </Button>
