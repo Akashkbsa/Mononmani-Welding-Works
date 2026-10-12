@@ -10,7 +10,7 @@ import {
   listCustomers,
   updateInvoice,
 } from "../../services/api";
-import { GST_STATES, HOME_STATE, stateCodeFor, stateName, taxTypeFor } from "../../lib/gst";
+import { HOME_STATE, stateCodeFor, stateName, taxTypeFor } from "../../lib/gst";
 import {
   errorMessage,
   formatDate,
@@ -23,6 +23,7 @@ import {
 } from "../../lib/format";
 import { Alert, Button, Field, inputClass, Modal, textareaClass } from "../ui";
 import CustomerFormModal from "../customers/CustomerFormModal";
+import CustomerPicker from "../CustomerPicker";
 
 interface Props {
   invoice?: InvoiceWithItems | null;
@@ -30,12 +31,13 @@ interface Props {
   onSaved: (saved: InvoiceWithItems, print: boolean) => void;
 }
 
-const UNITS = ["NOS", "KGS", "MTR", "SQFT", "JOB", "SET", "LTRS"];
+// Units a welding shop uses most; JOB is for lump-sum work.
+const UNITS = ["NOS", "KGS", "MTR", "SQFT", "SET", "HRS", "LTRS", "JOB"];
 
 const DEFAULT_TERMS =
   "1. Goods once sold will not be taken back or Exchanged\n2. Dispute if any will be subject to Puducherry.\n3. Payment within due date else 21% p.a. interest will be charged";
 
-const emptyItem = (): InvoiceItemInput => ({ description: "", hsn_sac: "9954", qum: "NOS", quantity: 1, rate: 0 });
+const emptyItem = (): InvoiceItemInput => ({ description: "", hsn_sac: "", qum: "NOS", quantity: 1, rate: 0 });
 
 /** The form starts from the invoice being edited, or from sensible defaults for a new one. */
 function initialForm(invoice?: InvoiceWithItems | null): InvoiceInput {
@@ -197,18 +199,6 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     }));
   };
 
-  const setCustomerState = (name: string) => {
-    setStateNote(null);
-    const code = stateCodeFor(name, null);
-    setForm((f) => ({
-      ...f,
-      customer_state: name || null,
-      customer_state_code: code,
-      place_of_supply: name || f.place_of_supply,
-      tax_type: taxTypeFor(code),
-    }));
-  };
-
   const updateItem = (index: number, patch: Partial<InvoiceItemInput>) =>
     setForm((f) => ({ ...f, items: f.items.map((item, i) => (i === index ? { ...item, ...patch } : item)) }));
 
@@ -266,15 +256,6 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     }
   };
 
-  const knownCustomerState = GST_STATES.some((s) => s.name === form.customer_state);
-
-  // The GSTIN's own state versus the state chosen above; tax follows the state above.
-  const gstinCode = stateCodeFor(null, form.customer_gstin);
-  const gstinMismatch =
-    gstinCode && form.customer_state_code && gstinCode !== form.customer_state_code
-      ? `The GSTIN starts with ${gstinCode} (${stateName(gstinCode)}), but the state above is ${form.customer_state}. Tax follows the state above, so check which is right.`
-      : null;
-
   // A vehicle number saved before this check existed can stay as it is until it is changed.
   const vehicleValue = form.vehicle_number ?? "";
   const vehicleError =
@@ -310,24 +291,12 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
             <div className="col-span-3 space-y-3">
               <Field label="Bill to" required>
                 <div className="flex gap-2">
-                  <select
-                    className={inputClass}
-                    value={form.customer_id ?? ""}
-                    onChange={(e) => {
-                      const c = customers.find((x) => x.id === Number(e.target.value));
-                      if (c) selectCustomer(c);
-                    }}
-                  >
-                    <option value="" disabled>
-                      {form.customer_id === null && isEdit ? form.customer_name : "Choose a customer"}
-                    </option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                        {c.city ? ` — ${c.city}` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <CustomerPicker
+                    customers={customers}
+                    value={form.customer_id}
+                    fallbackLabel={isEdit && form.customer_id === null ? form.customer_name : undefined}
+                    onChange={selectCustomer}
+                  />
                   <Button icon={<Plus className="w-4 h-4" />} onClick={() => setAddingCustomer(true)}>
                     New
                   </Button>
@@ -335,56 +304,23 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
               </Field>
 
               {(form.customer_id !== null || isEdit) && (
-                <div className="rounded-md border border-slate-200 p-3 space-y-2">
-                  <p className="text-xs text-slate-500">
-                    As printed on this invoice. Changes here don't change the customer record.
-                  </p>
-                  <input
-                    className={inputClass}
-                    value={form.customer_name}
-                    onChange={(e) => update("customer_name", e.target.value)}
-                    placeholder="Name"
-                  />
-                  <textarea
-                    className={textareaClass}
-                    rows={2}
-                    value={form.customer_address ?? ""}
-                    onChange={(e) => update("customer_address", e.target.value)}
-                    placeholder="Address"
-                  />
-                  <div className="grid grid-cols-3 gap-2">
-                    <input
-                      className={inputClass}
-                      value={form.customer_phone ?? ""}
-                      onChange={(e) => update("customer_phone", e.target.value)}
-                      placeholder="Phone"
-                    />
-                    <input
-                      className={`${inputClass} font-mono uppercase`}
-                      value={form.customer_gstin ?? ""}
-                      maxLength={15}
-                      onChange={(e) => update("customer_gstin", e.target.value.toUpperCase())}
-                      placeholder="GSTIN"
-                    />
-                    <select
-                      className={inputClass}
-                      value={form.customer_state ?? ""}
-                      onChange={(e) => setCustomerState(e.target.value)}
-                    >
-                      <option value="">State</option>
-                      {!knownCustomerState && form.customer_state && (
-                        <option value={form.customer_state}>{form.customer_state}</option>
-                      )}
-                      {GST_STATES.map((s) => (
-                        <option key={s.code} value={s.name}>
-                          {s.name} ({s.code})
-                        </option>
-                      ))}
-                    </select>
+                <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm">
+                  <div className="font-medium text-slate-900">{form.customer_name}</div>
+                  {form.customer_address && <div className="text-slate-600">{form.customer_address}</div>}
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-600">
+                    {form.customer_phone && <span>{form.customer_phone}</span>}
+                    {form.customer_gstin && <span className="font-mono">GSTIN {form.customer_gstin}</span>}
+                    {form.customer_state && (
+                      <span>
+                        {form.customer_state}
+                        {form.customer_state_code ? ` (${form.customer_state_code})` : ""}
+                      </span>
+                    )}
                   </div>
-                  {(stateNote || gstinMismatch) && (
-                    <p className="text-xs text-amber-700">{gstinMismatch ?? stateNote}</p>
-                  )}
+                  <p className="mt-2 text-xs text-slate-500">
+                    These details come from the customer record. To change them, edit the customer.
+                  </p>
+                  {stateNote && <p className="mt-1 text-xs text-amber-700">{stateNote}</p>}
                 </div>
               )}
             </div>
@@ -453,17 +389,25 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     <td className="py-2 pr-2">
                       <input
                         className={inputClass}
-                        value={item.hsn_sac}
+                        value={item.hsn_sac ?? ""}
+                        placeholder="HSN/SAC"
                         onChange={(e) => updateItem(idx, { hsn_sac: e.target.value })}
                       />
                     </td>
                     <td className="py-2 pr-2">
-                      <input
+                      <select
                         className={inputClass}
-                        list="invoice-units"
-                        value={item.qum}
-                        onChange={(e) => updateItem(idx, { qum: e.target.value.toUpperCase() })}
-                      />
+                        aria-label={`Unit for line ${idx + 1}`}
+                        value={item.qum ?? "NOS"}
+                        onChange={(e) => updateItem(idx, { qum: e.target.value })}
+                      >
+                        {item.qum && !UNITS.includes(item.qum) && <option value={item.qum}>{item.qum}</option>}
+                        {UNITS.map((u) => (
+                          <option key={u} value={u}>
+                            {u}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="py-2 pr-2">
                       <input
@@ -501,11 +445,6 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                 ))}
               </tbody>
             </table>
-            <datalist id="invoice-units">
-              {UNITS.map((u) => (
-                <option key={u} value={u} />
-              ))}
-            </datalist>
             <Button
               size="sm"
               variant="ghost"

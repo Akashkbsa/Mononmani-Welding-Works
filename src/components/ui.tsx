@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, ChevronRight, Loader2, X } from "lucide-react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Check, CheckCircle2, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 
 /* ---------- Buttons ---------- */
 
@@ -107,6 +107,150 @@ export function Checkbox({
         {description && <span className="block text-xs text-slate-500">{description}</span>}
       </span>
     </label>
+  );
+}
+
+/* ---------- Searchable select ---------- */
+
+export interface SearchOption {
+  id: number;
+  label: string;
+  /** Second line under the label, e.g. phone and GSTIN. */
+  detail?: string;
+  /** Everything a person might type to find it. */
+  search: string;
+}
+
+/**
+ * A select you can type into. Click it (or Tab to it) and start typing; every word typed must
+ * appear somewhere in an option. Arrow keys move, Enter picks, Escape closes the list only.
+ */
+export function SearchSelect({
+  options,
+  value,
+  onChange,
+  placeholder = "Search…",
+  emptyText = "Nothing matches. Try a different word.",
+  fallbackLabel,
+  disabled,
+  ariaLabel,
+}: {
+  options: SearchOption[];
+  value: number | null;
+  onChange: (id: number) => void;
+  placeholder?: string;
+  emptyText?: string;
+  /** Shown when nothing is selected but the record still has a name (e.g. a deleted customer). */
+  fallbackLabel?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const selected = options.find((o) => o.id === value);
+
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const filtered = useMemo(
+    () => (terms.length === 0 ? options : options.filter((o) => terms.every((t) => o.search.toLowerCase().includes(t)))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [options, query]
+  );
+
+  useEffect(() => setActive(0), [query, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) (listRef.current?.children[active] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+  }, [active, open]);
+
+  const choose = (o: SearchOption) => {
+    onChange(o.id);
+    setOpen(false);
+    setQuery("");
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) return setOpen(true);
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      setActive((a) => Math.max(0, Math.min(filtered.length - 1, a + step)));
+    } else if (e.key === "Enter" && open) {
+      e.preventDefault();
+      if (filtered[active]) choose(filtered[active]);
+    } else if (e.key === "Escape" && open) {
+      // Close the list only; the dialog behind stays open.
+      e.stopPropagation();
+      setOpen(false);
+      setQuery("");
+    }
+  };
+
+  return (
+    <div ref={wrapRef} className="relative min-w-0 flex-1">
+      <input
+        role="combobox"
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        aria-autocomplete="list"
+        autoComplete="off"
+        disabled={disabled}
+        className={`${inputClass} pr-8`}
+        value={open ? query : selected?.label ?? fallbackLabel ?? ""}
+        placeholder={open && selected ? selected.label : placeholder}
+        onFocus={() => {
+          setQuery("");
+          setOpen(true);
+        }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onKeyDown={onKeyDown}
+      />
+      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      {open && (
+        <ul
+          ref={listRef}
+          role="listbox"
+          className="absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+        >
+          {filtered.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-slate-500">{emptyText}</li>
+          ) : (
+            filtered.map((o, i) => (
+              <li
+                key={o.id}
+                role="option"
+                aria-selected={o.id === value}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  choose(o);
+                }}
+                onMouseEnter={() => setActive(i)}
+                className={`cursor-pointer px-3 py-2 text-sm ${
+                  i === active ? "bg-brand-50" : ""
+                } ${o.id === value ? "font-medium text-brand-700" : "text-slate-800"}`}
+              >
+                <div>{o.label}</div>
+                {o.detail && <div className="text-xs font-normal text-slate-500">{o.detail}</div>}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
   );
 }
 

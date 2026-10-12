@@ -72,9 +72,9 @@ export async function printInvoice(id: number, copy: CopyType = "Original"): Pro
   await openInvoicePdf(path);
 }
 
-/** One PDF with the original, duplicate and triplicate copies, opened for the user. */
-export async function printAllCopies(id: number): Promise<void> {
-  const path = await call<string>("generate_invoice_all_copies_pdf", { id });
+/** One PDF holding the chosen copies of an invoice (in the order given), opened for the user. */
+export async function printCopies(id: number, copies: CopyType[]): Promise<void> {
+  const path = await call<string>("generate_invoice_copies_pdf", { id, copyTypes: copies });
   await openInvoicePdf(path);
 }
 

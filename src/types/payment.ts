@@ -106,6 +106,8 @@ export interface UnpaidInvoice {
   invoice_number: string;
   invoice_date: string;
   total_amount: number;
+  /** Amount before GST (subtotal less discount); the usual base for TDS. */
+  taxable_amount: number;
   /** Already settled by other payments. */
   total_settled: number;
   outstanding_amount: number;

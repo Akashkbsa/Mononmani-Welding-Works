@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Plus, Search } from "lucide-react";
 import { InvoiceListItem } from "../types/invoice";
 import { downloadMonthInvoices, listInvoices, printInvoice } from "../services/api";
-import { errorMessage, formatDate, formatMoney } from "../lib/format";
+import { errorMessage, formatDate, formatMoney, todayISO } from "../lib/format";
 import {
   Alert,
   Button,
@@ -56,7 +56,7 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<InvoiceListItem[] | null>(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("all");
-  const [month, setMonth] = useState(""); // "" = all months, otherwise "YYYY-MM"
+  const [month, setMonth] = useState(() => todayISO().slice(0, 7)); // this month; "" = all months, otherwise "YYYY-MM"
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);

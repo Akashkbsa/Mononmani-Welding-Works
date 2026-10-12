@@ -17,6 +17,7 @@ import {
 } from "../../services/api";
 import { errorMessage, formatDate, formatMoney, round2, todayISO } from "../../lib/format";
 import { Alert, Button, Checkbox, Field, inputClass, Loading, Modal, textareaClass } from "../ui";
+import CustomerPicker from "../CustomerPicker";
 
 interface Props {
   payment?: PaymentWithAllocations | null;
@@ -26,12 +27,16 @@ interface Props {
   onSaved: () => void;
 }
 
-// Differences up to this size can be written off (short) or kept as a round-off (extra) in one payment.
-const ADJUSTMENT_LIMIT = 500;
+// A small balance left on an invoice gets a one-click "Settle in full" suggestion up to this size.
+// It is only a suggestion: any shortfall can still be written off with the tick box.
+const SETTLE_SUGGEST_LIMIT = 500;
 // Writing off more than this shows a "check it" warning.
 const ADJUSTMENT_WARN = 100;
 // An extra amount up to this size is suggested as a round-off.
 const ADJUSTMENT_SUGGEST = 50;
+
+// Usual TDS rates for contract and professional work (as a percentage of the invoice).
+const TDS_PRESETS = ["0.1", "1", "2", "5", "10"];
 
 const num = (v: string | number | undefined) => {
   const n = typeof v === "number" ? v : parseFloat(v ?? "");
@@ -49,10 +54,14 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
   const [amount, setAmount] = useState(existing ? String(existing.amount_received) : "");
   const [method, setMethod] = useState(existing?.payment_method ?? "Bank Transfer");
   const [reference, setReference] = useState(existing?.reference_number ?? "");
-  const [bankName, setBankName] = useState(existing?.bank_name ?? "");
   const [tdsRecognized, setTdsRecognized] = useState(existing?.tds_recognized ?? true);
   const [hasTds, setHasTds] = useState((existing?.tds_amount ?? 0) > 0);
   const [tds, setTds] = useState(existing && existing.tds_amount > 0 ? String(existing.tds_amount) : "");
+  // TDS is usually a percentage of the invoice, so that is the default for a new payment.
+  const [tdsMode, setTdsMode] = useState<"percent" | "amount">(existing && existing.tds_amount > 0 ? "amount" : "percent");
+  const [tdsPreset, setTdsPreset] = useState("2");
+  const [tdsOther, setTdsOther] = useState("");
+  const [tdsBase, setTdsBase] = useState<"before_tax" | "total">("before_tax");
   const [verified, setVerified] = useState(existing?.is_verified ?? true);
   const [remarks, setRemarks] = useState(existing?.remarks ?? "");
   const [excessAction, setExcessAction] = useState<ExcessAction>(
@@ -109,8 +118,36 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
     };
   }, [customerId, existing?.id, isEdit, initialInvoiceId, initialCustomerId]);
 
+  // TDS as a percentage: worked out per invoice from the part of it this payment covers.
+  const percentMode = hasTds && tdsMode === "percent";
+  const tdsRatePct = tdsPreset === "other" ? num(tdsOther) : Number(tdsPreset);
+  const tdsOf = (inv: UnpaidInvoice, alloc: number) =>
+    inv.total_amount > 0
+      ? round2(((tdsRatePct / 100) * (tdsBase === "before_tax" ? inv.taxable_amount : inv.total_amount) * alloc) / inv.total_amount)
+      : 0;
+  // What an allocation of `alloc` rupees to this invoice costs in actual money once TDS is taken off.
+  const moneyFor = (inv: UnpaidInvoice, alloc: number) =>
+    round2(alloc - (percentMode && tdsRecognized ? tdsOf(inv, alloc) : 0));
+  /** The largest allocation (up to the balance) that `funds` of real money can pay for. */
+  const fitAllocation = (inv: UnpaidInvoice, funds: number) => {
+    const ratio = tdsBase === "before_tax" && inv.total_amount > 0 ? inv.taxable_amount / inv.total_amount : 1;
+    const factor = percentMode && tdsRecognized ? Math.max(0.05, 1 - (tdsRatePct / 100) * ratio) : 1;
+    let a = round2(Math.min(inv.outstanding_amount, funds / factor));
+    for (let i = 0; i < 3; i++) {
+      const diff = round2(funds - moneyFor(inv, a));
+      if (diff > 0.005 && a < inv.outstanding_amount - 0.005) a = round2(a + 0.01);
+      else if (diff < -0.005 && a > 0.01) a = round2(a - 0.01);
+      else break;
+    }
+    return a;
+  };
+  const tdsFromInvoices = round2(
+    (invoices ?? []).reduce((sum, inv) => sum + (inv.invoice_id in allocations ? tdsOf(inv, num(allocations[inv.invoice_id])) : 0), 0)
+  );
+  const tdsValue = !hasTds ? 0 : percentMode ? tdsFromInvoices : num(tds);
+
   // Money counted so far: received plus recognised TDS.
-  const base = round2(num(amount) + (hasTds && tdsRecognized ? num(tds) : 0));
+  const base = round2(num(amount) + (hasTds && tdsRecognized ? tdsValue : 0));
   const allocated = round2(Object.values(allocations).reduce((s, v) => s + num(v), 0));
   const advanceUsed = useAdvance ? round2(Math.min(advanceAvailable, Math.max(0, allocated - base))) : 0;
   const leftover = round2(Math.max(0, base - allocated));
@@ -127,7 +164,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
   const partials = (invoices ?? [])
     .filter((inv) => inv.invoice_id in allocations)
     .map((inv) => ({ inv, left: round2(inv.outstanding_amount - num(allocations[inv.invoice_id])) }))
-    .filter((x) => x.left > 0.005 && x.left <= ADJUSTMENT_LIMIT);
+    .filter((x) => x.left > 0.005 && x.left <= SETTLE_SUGGEST_LIMIT);
 
   const overAllocated = useMemo(
     () =>
@@ -141,10 +178,20 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
       if (inv.invoice_id in next) {
         delete next[inv.invoice_id];
       } else {
-        const used = Object.values(next).reduce((s, v) => s + num(v), 0);
-        const funds = base + (useAdvance ? advanceAvailable : 0) - used;
-        const share = funds > 0 ? Math.min(funds, inv.outstanding_amount) : inv.outstanding_amount;
-        next[inv.invoice_id] = String(round2(share));
+        if (percentMode) {
+          // Size the new line so received money plus TDS exactly pays for it.
+          const used = (invoices ?? []).reduce(
+            (sum, i) => sum + (i.invoice_id in next ? moneyFor(i, num(next[i.invoice_id])) : 0),
+            0
+          );
+          const funds = num(amount) + (useAdvance ? advanceAvailable : 0) - used;
+          next[inv.invoice_id] = String(funds > 0 ? fitAllocation(inv, funds) : inv.outstanding_amount);
+        } else {
+          const used = Object.values(next).reduce((s, v) => s + num(v), 0);
+          const funds = base + (useAdvance ? advanceAvailable : 0) - used;
+          const share = funds > 0 ? Math.min(funds, inv.outstanding_amount) : inv.outstanding_amount;
+          next[inv.invoice_id] = String(round2(share));
+        }
       }
       return next;
     });
@@ -152,13 +199,23 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
 
   /** Spread the money over the oldest invoices first. */
   const allocateOldestFirst = () => {
-    let funds = base + (useAdvance ? advanceAvailable : 0);
     const next: Record<number, string> = {};
-    for (const inv of invoices ?? []) {
-      if (funds <= 0.005) break;
-      const share = round2(Math.min(funds, inv.outstanding_amount));
-      next[inv.invoice_id] = String(share);
-      funds = round2(funds - share);
+    if (percentMode) {
+      let funds = num(amount) + (useAdvance ? advanceAvailable : 0);
+      for (const inv of invoices ?? []) {
+        if (funds <= 0.005) break;
+        const share = fitAllocation(inv, funds);
+        next[inv.invoice_id] = String(share);
+        funds = round2(funds - moneyFor(inv, share));
+      }
+    } else {
+      let funds = base + (useAdvance ? advanceAvailable : 0);
+      for (const inv of invoices ?? []) {
+        if (funds <= 0.005) break;
+        const share = round2(Math.min(funds, inv.outstanding_amount));
+        next[inv.invoice_id] = String(share);
+        funds = round2(funds - share);
+      }
     }
     setAllocations(next);
   };
@@ -167,7 +224,10 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
     setError(null);
     if (customerId === null) return setError("Choose the customer who paid.");
     if (!date) return setError("Enter the payment date.");
-    if (num(amount) < 0 || num(tds) < 0) return setError("Amounts cannot be negative.");
+    if (num(amount) < 0 || tdsValue < 0) return setError("Amounts cannot be negative.");
+    if (hasTds && tdsMode === "percent" && !(tdsRatePct > 0 && tdsRatePct < 100)) {
+      return setError("Enter a TDS rate between 0 and 100 percent.");
+    }
     if (base <= 0 && advanceUsed <= 0) return setError("Enter the amount received.");
     if (overAllocated.length) {
       return setError(`The amount for invoice ${overAllocated[0].invoice_number} is more than its balance.`);
@@ -177,12 +237,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
         `You've allocated ${formatMoney(shortBy)} more than was received. Tick "Settle in full" to write it off, or lower the amounts.`
       );
     }
-    if (writeoff > ADJUSTMENT_LIMIT) {
-      return setError(`A write-off can be at most ${formatMoney(ADJUSTMENT_LIMIT)}.`);
-    }
-    if (excessAction === "ROUNDOFF" && leftover > ADJUSTMENT_LIMIT) {
-      return setError(`${formatMoney(leftover)} is too much to keep as a round-off. Hold it as an advance or refund it.`);
-    }
+
 
     const input: PaymentInput = {
       payment_number: isEdit ? null : paymentNumber.trim() || null,
@@ -190,9 +245,9 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
       payment_date: date,
       payment_method: method,
       reference_number: reference.trim() || null,
-      bank_name: bankName.trim() || null,
+      bank_name: existing?.bank_name ?? null,
       amount_received: num(amount),
-      tds_amount: hasTds ? num(tds) : 0,
+      tds_amount: tdsValue,
       tds_recognized: tdsRecognized,
       credit_to_apply: useAdvance ? advanceAvailable : 0,
       is_verified: verified,
@@ -237,24 +292,17 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
 
         <div className="grid grid-cols-3 gap-4">
           <Field label="Customer" required className="col-span-2">
-            <select
-              className={inputClass}
-              value={customerId ?? ""}
+            <CustomerPicker
+              customers={customers}
+              value={customerId}
               disabled={isEdit}
-              onChange={(e) => {
-                setCustomerId(e.target.value ? Number(e.target.value) : null);
+              fallbackLabel={existing?.customer_name}
+              onChange={(c) => {
+                setCustomerId(c.id);
                 setAllocations({});
                 setUseAdvance(false);
               }}
-            >
-              <option value="">Choose a customer</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.city ? ` — ${c.city}` : ""}
-                </option>
-              ))}
-            </select>
+            />
           </Field>
           <Field label="Payment number">
             <input
@@ -291,38 +339,118 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
           <Field label={method === "Cheque" ? "Cheque number" : "Reference / UTR"}>
             <input className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)} />
           </Field>
-          <Field label="Customer's bank">
-            <input className={inputClass} value={bankName} onChange={(e) => setBankName(e.target.value)} />
-          </Field>
           <div className="pt-6">
             <Checkbox checked={hasTds} onChange={setHasTds} label="TDS was deducted" />
           </div>
-          {hasTds && (
-            <Field
-              label="TDS amount (₹)"
-              hint={tdsRecognized ? "Counts towards the invoices as paid." : "Recorded only; the invoices stay unpaid by this amount."}
-            >
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                className={`${inputClass} tabular`}
-                value={tds}
-                onChange={(e) => setTds(e.target.value)}
-              />
-            </Field>
-          )}
-          {hasTds && (
-            <div className="col-span-2">
-              <Checkbox
-                checked={tdsRecognized}
-                onChange={setTdsRecognized}
-                label="Recognise TDS"
-                description="Turn off until the TDS certificate arrives; the amount then stays outstanding."
-              />
-            </div>
-          )}
         </div>
+
+        {hasTds && (
+          <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-slate-800">TDS deducted</span>
+              <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 text-sm">
+                {(
+                  [
+                    ["percent", "% of invoice"],
+                    ["amount", "₹ amount"],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={tdsMode === mode}
+                    onClick={() => setTdsMode(mode)}
+                    className={`rounded px-3 py-1 transition-colors ${
+                      tdsMode === mode ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {percentMode ? (
+              <div className="grid grid-cols-3 gap-4">
+                <Field label="TDS rate">
+                  <div className="flex gap-2">
+                    <select className={inputClass} value={tdsPreset} onChange={(e) => setTdsPreset(e.target.value)}>
+                      {TDS_PRESETS.map((r) => (
+                        <option key={r} value={r}>
+                          {r}%
+                        </option>
+                      ))}
+                      <option value="other">Other…</option>
+                    </select>
+                    {tdsPreset === "other" && (
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        autoFocus
+                        aria-label="TDS rate in percent"
+                        placeholder="%"
+                        className={`${inputClass} w-24 tabular`}
+                        value={tdsOther}
+                        onChange={(e) => setTdsOther(e.target.value)}
+                      />
+                    )}
+                  </div>
+                </Field>
+                <Field label="TDS is taken on">
+                  <select
+                    className={inputClass}
+                    value={tdsBase}
+                    onChange={(e) => setTdsBase(e.target.value as "before_tax" | "total")}
+                  >
+                    <option value="before_tax">Amount before GST</option>
+                    <option value="total">Invoice total with GST</option>
+                  </select>
+                </Field>
+                <Field label="TDS amount">
+                  <div className={`${inputClass} flex items-center bg-white tabular`}>{formatMoney(tdsValue)}</div>
+                </Field>
+                <p className="col-span-3 -mt-2 text-xs text-slate-500">
+                  {Object.keys(allocations).length === 0
+                    ? "Tick the invoices below and the TDS is worked out from them."
+                    : "Worked out from the part of each ticked invoice this payment covers."}
+                </p>
+              </div>
+            ) : (
+              <Field
+                label="TDS amount (₹)"
+                hint={tdsRecognized ? "Counts towards the invoices as paid." : "Recorded only; the invoices stay unpaid by this amount."}
+              >
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className={`${inputClass} tabular max-w-xs`}
+                  value={tds}
+                  onChange={(e) => setTds(e.target.value)}
+                />
+              </Field>
+            )}
+
+            <Checkbox
+              checked={tdsRecognized}
+              onChange={setTdsRecognized}
+              label="Recognise TDS"
+              description="Turn off until the TDS certificate arrives; the amount then stays outstanding."
+            />
+            {percentMode && tdsRecognized && allocated > 0 && Math.abs(num(amount) - round2(allocated - tdsValue - advanceUsed)) > 0.005 && (
+              <div className="flex items-center justify-between gap-3 text-sm text-slate-600">
+                <span>
+                  After TDS the customer should pay {formatMoney(round2(allocated - tdsValue - advanceUsed))} for these invoices.
+                </span>
+                <Button size="sm" onClick={() => setAmount(String(round2(allocated - tdsValue - advanceUsed)))}>
+                  Set amount received
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Invoices this payment covers */}
         <div>
@@ -408,7 +536,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
         {/* Summary */}
         <div className="rounded-md border border-slate-200 p-4 text-sm tabular space-y-1.5">
           <SummaryRow label="Received" value={num(amount)} />
-          {hasTds && <SummaryRow label={tdsRecognized ? "TDS" : "TDS (not recognised)"} value={num(tds)} />}
+          {hasTds && <SummaryRow label={tdsRecognized ? "TDS" : "TDS (not recognised)"} value={tdsValue} />}
           {advanceUsed > 0 && <SummaryRow label="Advance used" value={advanceUsed} />}
           {writeoff > 0 && <SummaryRow label="Written off" value={writeoff} />}
           <SummaryRow label="Applied to invoices" value={allocated} />
@@ -418,22 +546,14 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                 <span>Short</span>
                 <span>{formatMoney(shortBy)}</span>
               </div>
-              {shortBy <= ADJUSTMENT_LIMIT ? (
-                <>
-                  <Checkbox
-                    checked={settleInFull}
-                    onChange={setSettleInFull}
-                    label={`Settle in full: write off ${formatMoney(shortBy)}`}
-                    description="The customer paid less than the invoices total and you accept it as full payment. The invoices show as paid."
-                  />
-                  {settleInFull && shortBy > ADJUSTMENT_WARN && (
-                    <p className="text-xs text-amber-700">That is a large amount to write off. Check it is right.</p>
-                  )}
-                </>
-              ) : (
-                <p className="text-xs text-slate-500">
-                  Write-offs are limited to {formatMoney(ADJUSTMENT_LIMIT)}. Lower the amounts applied instead.
-                </p>
+              <Checkbox
+                checked={settleInFull}
+                onChange={setSettleInFull}
+                label={`Settle in full: write off ${formatMoney(shortBy)}`}
+                description="The customer paid less than the invoices total and you accept it as full payment. The invoices show as paid."
+              />
+              {settleInFull && shortBy > ADJUSTMENT_WARN && (
+                <p className="text-xs text-amber-700">That is a large amount to write off. Check it is right.</p>
               )}
               {!settleInFull && (
                 <p className="text-red-600">Applied is {formatMoney(shortBy)} more than the money available.</p>
@@ -468,7 +588,6 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                 <Radio
                   checked={excessAction === "ROUNDOFF"}
                   onChange={() => setExcessAction("ROUNDOFF")}
-                  disabled={leftover > ADJUSTMENT_LIMIT}
                   label="Keep as round-off"
                 />
                 <Radio

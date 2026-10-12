@@ -6,7 +6,7 @@ import {
   deleteInvoice,
   getInvoice,
   getInvoicePayments,
-  printAllCopies,
+  printCopies,
   printInvoice,
   setInvoiceCancelled,
 } from "../../services/api";
@@ -30,11 +30,11 @@ const COPIES: { copy: CopyType; label: string }[] = [
 
 function PrintMenu({
   onPrint,
-  onPrintAll,
+  onPrintCopies,
   busy,
 }: {
   onPrint: (copy: CopyType) => void;
-  onPrintAll: () => void;
+  onPrintCopies: (copies: CopyType[]) => void;
   busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -65,11 +65,21 @@ function PrintMenu({
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-900 hover:bg-slate-50"
             onClick={() => {
               setOpen(false);
-              onPrintAll();
+              onPrintCopies(["Original", "Duplicate", "Triplicate"]);
             }}
           >
             <Files className="h-4 w-4 text-slate-500" />
             All 3 copies in one file
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-900 hover:bg-slate-50"
+            onClick={() => {
+              setOpen(false);
+              onPrintCopies(["Original", "Duplicate"]);
+            }}
+          >
+            <Files className="h-4 w-4 text-slate-500" />
+            Original + Duplicate in one file
           </button>
           <div className="my-1 border-t border-slate-100" />
           {COPIES.map(({ copy, label }) => (
@@ -128,10 +138,10 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
     }
   };
 
-  const printAll = async () => {
+  const printSelected = async (copies: CopyType[]) => {
     setPrinting(true);
     try {
-      await printAllCopies(invoiceId);
+      await printCopies(invoiceId, copies);
     } catch (err) {
       toast(errorMessage(err), "error");
     } finally {
@@ -182,7 +192,7 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
         subtitle={formatDate(inv.invoice_date)}
         onClose={onClose}
         size="lg"
-        headerActions={<PrintMenu onPrint={print} onPrintAll={printAll} busy={printing} />}
+        headerActions={<PrintMenu onPrint={print} onPrintCopies={printSelected} busy={printing} />}
         footer={
           <>
             <div className="mr-auto flex items-center gap-1">
