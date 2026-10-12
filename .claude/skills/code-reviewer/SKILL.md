@@ -28,8 +28,8 @@ Report a short **Change summary**: files grouped by area (Rust `customers/ invoi
 
 Read the full diff plus enough surrounding code to judge it. Focus on correctness over style. Check these project rules, since breaking them corrupts invoices or money:
 
-- **Business rules live in Rust repositories**, not just the UI: allocation limits, advances (credit/refund), invoice edit/delete guards, customer delete guard. Flag any rule enforced only in React.
-- **Dates** stored `YYYY-MM-DD`, shown `DD-MM-YYYY`. **Money** rounded to paise; invoice totals to the rupee.
+- **Business rules live in Rust repositories**, not just the UI: allocation limits, advances (credit/refund), round-off and write-off limits, invoice edit/delete guards, customer delete guard. Flag any rule enforced only in React.
+- **Dates** stored `YYYY-MM-DD`, shown `DD-MM-YYYY`. **Money** rounded to paise; invoice totals are exact to the paisa (no rounding to the rupee). Numbers read `MWW/009/26-27` and `PAY/004/26-27` (running number, then financial year); the older `MWW/26-27/009` form must still be understood when working out the next number.
 - **GST**: state code 34 (Puducherry) → CGST + SGST; other states → IGST.
 - **Migrations**: schema changes only as a new numbered migration in `db/migrations.rs`; an already-applied one must never be edited.
 - **Identity**: business name "Mononmani Welding Works"; Tauri identifier `com.manonmani.app` must not change.

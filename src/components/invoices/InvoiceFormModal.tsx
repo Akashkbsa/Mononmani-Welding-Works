@@ -108,7 +108,7 @@ function computeTotals(form: InvoiceInput) {
   const igstAmount = igst ? round2((taxable * (Number(form.igst_rate) || 0)) / 100) : 0;
   // Exact to the paisa: invoice totals are not rounded to the rupee.
   const total = round2(taxable + cgst + sgst + igstAmount);
-  return { amounts, subtotal, discount, cgst, sgst, igst: igstAmount, roundOff: 0, total };
+  return { amounts, subtotal, discount, cgst, sgst, igst: igstAmount, total };
 }
 
 function Collapsible({ title, children }: { title: string; children: React.ReactNode }) {
@@ -574,7 +574,6 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                   <Row label={`SGST ${form.sgst_rate}%`} value={formatMoney(totals.sgst)} />
                 </>
               )}
-              {totals.roundOff !== 0 && <Row label="Round off" value={formatMoney(totals.roundOff)} />}
               <div className="flex justify-between border-t border-slate-200 pt-2 mt-2 text-base font-semibold">
                 <dt>Total</dt>
                 <dd>{formatMoney(totals.total)}</dd>
