@@ -97,9 +97,9 @@ function computeTotals(form: InvoiceInput) {
   const cgst = igst ? 0 : round2((taxable * (Number(form.cgst_rate) || 0)) / 100);
   const sgst = igst ? 0 : round2((taxable * (Number(form.sgst_rate) || 0)) / 100);
   const igstAmount = igst ? round2((taxable * (Number(form.igst_rate) || 0)) / 100) : 0;
-  const exact = taxable + cgst + sgst + igstAmount;
-  const total = Math.round(exact);
-  return { amounts, subtotal, discount, cgst, sgst, igst: igstAmount, roundOff: round2(total - exact), total };
+  // Exact to the paisa: invoice totals are not rounded to the rupee.
+  const total = round2(taxable + cgst + sgst + igstAmount);
+  return { amounts, subtotal, discount, cgst, sgst, igst: igstAmount, roundOff: 0, total };
 }
 
 function Collapsible({ title, children }: { title: string; children: React.ReactNode }) {

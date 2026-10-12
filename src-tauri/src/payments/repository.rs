@@ -11,6 +11,10 @@ use std::collections::HashSet;
 
 const EPS: f64 = 0.005;
 
+/// Largest short amount that can be written off, and largest extra amount that can be kept as a
+/// round-off, in one payment. Bigger differences must be handled as real balances or advances.
+const ADJUSTMENT_LIMIT: f64 = 500.0;
+
 pub struct PaymentRepository;
 
 /// Invoice figures used when validating an allocation.
@@ -140,7 +144,18 @@ impl PaymentRepository {
             return Err("Amounts cannot be negative.".to_string());
         }
         let tds_recognized = input.tds_recognized && tds_amount > 0.0;
-        let total_settled = round2(amount_received + if tds_recognized { tds_amount } else { 0.0 });
+        let writeoff_amount = round2(input.writeoff_amount);
+        if writeoff_amount < 0.0 {
+            return Err("Amounts cannot be negative.".to_string());
+        }
+        if writeoff_amount > ADJUSTMENT_LIMIT + EPS {
+            return Err(format!(
+                "A write-off can be at most {}. Leave the balance due instead.",
+                rupees(ADJUSTMENT_LIMIT)
+            ));
+        }
+        let money_in = round2(amount_received + if tds_recognized { tds_amount } else { 0.0 });
+        let total_settled = round2(money_in + writeoff_amount);
 
         // Check every allocation against the invoice's current balance.
         let mut seen = HashSet::new();
@@ -174,6 +189,13 @@ impl PaymentRepository {
         let id_for_exclusion = id.unwrap_or(-1);
         let available_credit = Self::available_credit(conn, customer_id, id_for_exclusion)?;
         let credit_allowed = round2(input.credit_to_apply.max(0.0).min(available_credit));
+        if writeoff_amount > EPS && total_allocated + EPS < total_settled {
+            return Err(format!(
+                "{} written off is more than the shortfall. Only {} is short.",
+                rupees(writeoff_amount),
+                rupees((total_allocated - money_in).max(0.0))
+            ));
+        }
         let credit_needed = round2((total_allocated - total_settled).max(0.0));
         if credit_needed > credit_allowed + EPS {
             return Err(if credit_allowed > 0.0 {
@@ -196,6 +218,16 @@ impl PaymentRepository {
         let excess_action = if excess_amount > EPS {
             match input.excess_action.as_deref().map(|s| s.trim().to_ascii_uppercase()) {
                 Some(a) if a == "REFUND" => "REFUND",
+                Some(a) if a == "ROUNDOFF" => {
+                    if excess_amount > ADJUSTMENT_LIMIT + EPS {
+                        return Err(format!(
+                            "{} is too much to keep as a round-off (limit {}). Hold it as an advance or refund it.",
+                            rupees(excess_amount),
+                            rupees(ADJUSTMENT_LIMIT)
+                        ));
+                    }
+                    "ROUNDOFF"
+                }
                 _ => "CREDIT",
             }
         } else {
@@ -214,14 +246,14 @@ impl PaymentRepository {
                         payment_number, customer_id, customer_name, payment_date, payment_method,
                         reference_number, bank_name, amount_received, tds_deducted, total_settled,
                         credit_applied, excess_amount, excess_action, is_verified, is_important,
-                        remarks, created_at, updated_at, tds_recognized
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, ?15, ?16, ?16, ?17)
+                        remarks, created_at, updated_at, tds_recognized, writeoff_amount
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, ?15, ?16, ?16, ?17, ?18)
                     "#,
                     params![
                         payment_number, customer_id, customer_name, payment_date, method,
                         clean(&input.reference_number), clean(&input.bank_name), amount_received, tds_amount,
                         total_settled, credit_needed, excess_amount, excess_action, input.is_verified as i32,
-                        clean(&input.remarks), now, tds_recognized as i32,
+                        clean(&input.remarks), now, tds_recognized as i32, writeoff_amount,
                     ],
                 )
                 .map_err(|e| format!("Failed to save payment: {}", e))?;
@@ -234,13 +266,13 @@ impl PaymentRepository {
                         customer_name = ?1, payment_date = ?2, payment_method = ?3, reference_number = ?4,
                         bank_name = ?5, amount_received = ?6, tds_deducted = ?7, total_settled = ?8,
                         credit_applied = ?9, excess_amount = ?10, excess_action = ?11, is_verified = ?12,
-                        remarks = ?13, updated_at = ?14, tds_recognized = ?15
-                    WHERE id = ?16
+                        remarks = ?13, updated_at = ?14, tds_recognized = ?15, writeoff_amount = ?16
+                    WHERE id = ?17
                     "#,
                     params![
                         customer_name, payment_date, method, clean(&input.reference_number),
                         clean(&input.bank_name), amount_received, tds_amount, total_settled, credit_needed,
-                        excess_amount, excess_action, input.is_verified as i32, clean(&input.remarks), now, tds_recognized as i32, pid,
+                        excess_amount, excess_action, input.is_verified as i32, clean(&input.remarks), now, tds_recognized as i32, writeoff_amount, pid,
                     ],
                 )
                 .map_err(|e| format!("Failed to save payment: {}", e))?;
@@ -415,7 +447,7 @@ impl PaymentRepository {
                 SELECT id, payment_number, customer_id, customer_name, payment_date, payment_method,
                        reference_number, bank_name, amount_received, tds_deducted, total_settled,
                        credit_applied, excess_amount, excess_action, is_verified, remarks, created_at, updated_at,
-                       tds_recognized
+                       tds_recognized, writeoff_amount
                 FROM payments WHERE id = ?1
                 "#,
                 params![id],
@@ -441,6 +473,7 @@ impl PaymentRepository {
                         created_at: r.get(16)?,
                         updated_at: r.get(17)?,
                         tds_recognized: r.get::<_, i32>(18)? != 0,
+                        writeoff_amount: r.get(19)?,
                     })
                 },
             )
@@ -488,7 +521,7 @@ impl PaymentRepository {
                    p.excess_amount, p.excess_action, p.is_verified,
                    (SELECT GROUP_CONCAT(i.invoice_number, ', ') FROM payment_allocations pa
                     JOIN invoices i ON i.id = pa.invoice_id WHERE pa.payment_id = p.id),
-                   p.tds_recognized
+                   p.tds_recognized, p.writeoff_amount
             FROM payments p
             WHERE 1=1
             "#,
@@ -547,6 +580,7 @@ impl PaymentRepository {
                     credit_applied: r.get(10)?,
                     excess_amount: r.get(11)?,
                     excess_action: r.get(12)?,
+                    writeoff_amount: r.get(16)?,
                     is_verified: r.get::<_, i32>(13)? != 0,
                     invoices_covered: covered
                         .map(|s| s.split(", ").map(str::to_string).collect())
@@ -879,6 +913,7 @@ mod tests {
                 .map(|(invoice_id, amount)| PaymentAllocationInput { invoice_id: *invoice_id, allocated_amount: *amount })
                 .collect(),
             excess_action: Some(action.to_string()),
+            writeoff_amount: 0.0,
         }
     }
 
@@ -995,6 +1030,109 @@ mod tests {
 
     fn outstanding(conn: &Connection, inv: i64) -> f64 {
         PaymentRepository::get_invoice_payment_summary(conn, inv).unwrap().outstanding_amount
+    }
+
+    #[test]
+    fn older_rounded_invoices_become_exact_unless_fully_paid() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let open = invoice(&conn, c, "E/1", 3590.0);
+        let paid = invoice(&conn, c, "E/2", 3590.0);
+        PaymentRepository::create_payment(&conn, payment(c, 3590.0, &[(paid, 3590.0)], 0.0, "NONE")).unwrap();
+        // Make both look like invoices saved when totals were rounded: exact 3590.40 stored as 3590.00.
+        conn.execute("UPDATE invoices SET round_off = -0.4", []).unwrap();
+
+        conn.execute_batch(crate::db::migrations::EXACT_TOTALS_SQL).unwrap();
+
+        let total = |id: i64| -> f64 {
+            conn.query_row("SELECT total_amount FROM invoices WHERE id = ?1", params![id], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(total(open), 3590.4);
+        assert_eq!(outstanding(&conn, open), 3590.4);
+        // The paid invoice keeps its settled total, so it does not reopen for 40 paise.
+        assert_eq!(total(paid), 3590.0);
+        assert_eq!(outstanding(&conn, paid), 0.0);
+    }
+
+    #[test]
+    fn extra_money_can_be_kept_as_round_off() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "R/1", 3590.0);
+        let p = PaymentRepository::create_payment(&conn, payment(c, 3600.0, &[(inv, 3590.0)], 0.0, "ROUNDOFF")).unwrap();
+        assert_eq!(p.payment.amount_received, 3600.0);
+        assert_eq!(p.payment.excess_amount, 10.0);
+        assert_eq!(p.payment.excess_action, "ROUNDOFF");
+        // Nothing is held as an advance and nothing is owed back.
+        assert_eq!(advance(&conn, c), 0.0);
+        assert_eq!(PaymentRepository::get_payments_kpi_summary(&conn).unwrap().advances_held, 0.0);
+        let summary = PaymentRepository::get_invoice_payment_summary(&conn, inv).unwrap();
+        assert_eq!(summary.outstanding_amount, 0.0);
+        assert_eq!(summary.payment_status, "PAID");
+    }
+
+    #[test]
+    fn round_off_above_the_limit_is_refused() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "R/2", 10000.0);
+        let err = PaymentRepository::create_payment(&conn, payment(c, 10600.0, &[(inv, 10000.0)], 0.0, "ROUNDOFF"))
+            .unwrap_err();
+        assert!(err.contains("too much to keep as a round-off"), "{err}");
+    }
+
+    #[test]
+    fn short_payment_can_be_written_off_to_settle_the_invoice() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "W/1", 3590.0);
+        let mut input = payment(c, 3500.0, &[(inv, 3590.0)], 0.0, "NONE");
+        input.writeoff_amount = 90.0;
+        let p = PaymentRepository::create_payment(&conn, input).unwrap();
+        // The bank received 3500, but the invoice is fully settled.
+        assert_eq!(p.payment.amount_received, 3500.0);
+        assert_eq!(p.payment.writeoff_amount, 90.0);
+        assert_eq!(p.payment.total_settled, 3590.0);
+        assert_eq!(p.payment.excess_amount, 0.0);
+        let summary = PaymentRepository::get_invoice_payment_summary(&conn, inv).unwrap();
+        assert_eq!(summary.outstanding_amount, 0.0);
+        assert_eq!(summary.payment_status, "PAID");
+        assert_eq!(PaymentRepository::get_payments_kpi_summary(&conn).unwrap().total_received, 3500.0);
+
+        // Deleting the payment reopens the invoice for the full amount.
+        PaymentRepository::delete_payment(&conn, p.payment.id).unwrap();
+        assert_eq!(outstanding(&conn, inv), 3590.0);
+    }
+
+    #[test]
+    fn short_payment_without_write_off_is_still_refused() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "W/2", 3590.0);
+        assert!(PaymentRepository::create_payment(&conn, payment(c, 3500.0, &[(inv, 3590.0)], 0.0, "NONE")).is_err());
+    }
+
+    #[test]
+    fn write_off_larger_than_the_shortfall_is_refused() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "W/3", 3590.0);
+        // Only 40 is short (3550 applied against 3500 received), so a 90 write-off is too much.
+        let mut input = payment(c, 3500.0, &[(inv, 3550.0)], 0.0, "NONE");
+        input.writeoff_amount = 90.0;
+        let err = PaymentRepository::create_payment(&conn, input).unwrap_err();
+        assert!(err.contains("more than the shortfall"), "{err}");
+    }
+
+    #[test]
+    fn write_off_above_the_limit_is_refused() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let inv = invoice(&conn, c, "W/4", 10000.0);
+        let mut input = payment(c, 9000.0, &[(inv, 10000.0)], 0.0, "NONE");
+        input.writeoff_amount = 1000.0;
+        let err = PaymentRepository::create_payment(&conn, input).unwrap_err();
+        assert!(err.contains("at most"), "{err}");
     }
 
     #[test]

@@ -1,4 +1,5 @@
-export type ExcessAction = "CREDIT" | "REFUND" | "NONE";
+/** CREDIT: held as advance. REFUND: returned. ROUNDOFF: kept, nothing owed back. */
+export type ExcessAction = "CREDIT" | "REFUND" | "ROUNDOFF" | "NONE";
 
 export interface Payment {
   id: number;
@@ -21,6 +22,8 @@ export interface Payment {
   /** Part of this payment not allocated to invoices. */
   excess_amount: number;
   excess_action: ExcessAction;
+  /** Short amount accepted as full payment; counts towards settling the invoices. */
+  writeoff_amount: number;
   /** How much of this payment's advance later payments have used. */
   advance_used: number;
   is_verified: boolean;
@@ -57,6 +60,7 @@ export interface PaymentListItem {
   credit_applied: number;
   excess_amount: number;
   excess_action: ExcessAction;
+  writeoff_amount: number;
   is_verified: boolean;
   invoices_covered: string[];
 }
@@ -76,6 +80,8 @@ export interface PaymentInput {
   remarks: string | null;
   allocations: { invoice_id: number; allocated_amount: number }[];
   excess_action: ExcessAction;
+  /** Must equal what is still short after money received, recognised TDS and any advance. */
+  writeoff_amount: number;
 }
 
 export interface PaymentFilter {

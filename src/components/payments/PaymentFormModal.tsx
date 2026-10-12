@@ -26,6 +26,13 @@ interface Props {
   onSaved: () => void;
 }
 
+// Differences up to this size can be written off (short) or kept as a round-off (extra) in one payment.
+const ADJUSTMENT_LIMIT = 500;
+// Writing off more than this shows a "check it" warning.
+const ADJUSTMENT_WARN = 100;
+// An extra amount up to this size is suggested as a round-off.
+const ADJUSTMENT_SUGGEST = 50;
+
 const num = (v: string | number | undefined) => {
   const n = typeof v === "number" ? v : parseFloat(v ?? "");
   return Number.isFinite(n) ? n : 0;
@@ -49,8 +56,9 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
   const [verified, setVerified] = useState(existing?.is_verified ?? true);
   const [remarks, setRemarks] = useState(existing?.remarks ?? "");
   const [excessAction, setExcessAction] = useState<ExcessAction>(
-    existing?.excess_action === "REFUND" ? "REFUND" : "CREDIT"
+    existing?.excess_action === "REFUND" ? "REFUND" : existing?.excess_action === "ROUNDOFF" ? "ROUNDOFF" : "CREDIT"
   );
+  const [settleInFull, setSettleInFull] = useState((existing?.writeoff_amount ?? 0) > 0);
 
   const [invoices, setInvoices] = useState<UnpaidInvoice[] | null>(null);
   const [allocations, setAllocations] = useState<Record<number, string>>(() =>
@@ -101,11 +109,25 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
     };
   }, [customerId, existing?.id, isEdit, initialInvoiceId, initialCustomerId]);
 
-  const settled = round2(num(amount) + (hasTds && tdsRecognized ? num(tds) : 0));
+  // Money counted so far: received plus recognised TDS.
+  const base = round2(num(amount) + (hasTds && tdsRecognized ? num(tds) : 0));
   const allocated = round2(Object.values(allocations).reduce((s, v) => s + num(v), 0));
-  const advanceUsed = useAdvance ? round2(Math.min(advanceAvailable, Math.max(0, allocated - settled))) : 0;
-  const leftover = round2(Math.max(0, settled - allocated));
-  const shortBy = round2(allocated - settled - advanceUsed);
+  const advanceUsed = useAdvance ? round2(Math.min(advanceAvailable, Math.max(0, allocated - base))) : 0;
+  const leftover = round2(Math.max(0, base - allocated));
+  const shortBy = round2(allocated - base - advanceUsed);
+  // A short amount accepted as full payment (only while something is really short).
+  const writeoff = settleInFull && shortBy > 0.005 ? shortBy : 0;
+
+  // Forget the tick once nothing is short, so it can't silently apply to a later edit.
+  useEffect(() => {
+    if (shortBy <= 0.005) setSettleInFull(false);
+  }, [shortBy]);
+
+  // Selected invoices that would still show a small balance after this payment.
+  const partials = (invoices ?? [])
+    .filter((inv) => inv.invoice_id in allocations)
+    .map((inv) => ({ inv, left: round2(inv.outstanding_amount - num(allocations[inv.invoice_id])) }))
+    .filter((x) => x.left > 0.005 && x.left <= ADJUSTMENT_LIMIT);
 
   const overAllocated = useMemo(
     () =>
@@ -120,7 +142,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
         delete next[inv.invoice_id];
       } else {
         const used = Object.values(next).reduce((s, v) => s + num(v), 0);
-        const funds = settled + (useAdvance ? advanceAvailable : 0) - used;
+        const funds = base + (useAdvance ? advanceAvailable : 0) - used;
         const share = funds > 0 ? Math.min(funds, inv.outstanding_amount) : inv.outstanding_amount;
         next[inv.invoice_id] = String(round2(share));
       }
@@ -130,7 +152,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
 
   /** Spread the money over the oldest invoices first. */
   const allocateOldestFirst = () => {
-    let funds = settled + (useAdvance ? advanceAvailable : 0);
+    let funds = base + (useAdvance ? advanceAvailable : 0);
     const next: Record<number, string> = {};
     for (const inv of invoices ?? []) {
       if (funds <= 0.005) break;
@@ -146,12 +168,20 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
     if (customerId === null) return setError("Choose the customer who paid.");
     if (!date) return setError("Enter the payment date.");
     if (num(amount) < 0 || num(tds) < 0) return setError("Amounts cannot be negative.");
-    if (settled <= 0 && advanceUsed <= 0) return setError("Enter the amount received.");
+    if (base <= 0 && advanceUsed <= 0) return setError("Enter the amount received.");
     if (overAllocated.length) {
       return setError(`The amount for invoice ${overAllocated[0].invoice_number} is more than its balance.`);
     }
-    if (shortBy > 0.005) {
-      return setError(`You've allocated ${formatMoney(shortBy)} more than was received.`);
+    if (shortBy > 0.005 && writeoff === 0) {
+      return setError(
+        `You've allocated ${formatMoney(shortBy)} more than was received. Tick "Settle in full" to write it off, or lower the amounts.`
+      );
+    }
+    if (writeoff > ADJUSTMENT_LIMIT) {
+      return setError(`A write-off can be at most ${formatMoney(ADJUSTMENT_LIMIT)}.`);
+    }
+    if (excessAction === "ROUNDOFF" && leftover > ADJUSTMENT_LIMIT) {
+      return setError(`${formatMoney(leftover)} is too much to keep as a round-off. Hold it as an advance or refund it.`);
     }
 
     const input: PaymentInput = {
@@ -171,6 +201,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
         .map(([id, v]) => ({ invoice_id: Number(id), allocated_amount: num(v) }))
         .filter((a) => a.allocated_amount > 0),
       excess_action: leftover > 0 ? excessAction : "NONE",
+      writeoff_amount: writeoff,
     };
 
     setSaving(true);
@@ -379,16 +410,67 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
           <SummaryRow label="Received" value={num(amount)} />
           {hasTds && <SummaryRow label={tdsRecognized ? "TDS" : "TDS (not recognised)"} value={num(tds)} />}
           {advanceUsed > 0 && <SummaryRow label="Advance used" value={advanceUsed} />}
+          {writeoff > 0 && <SummaryRow label="Written off" value={writeoff} />}
           <SummaryRow label="Applied to invoices" value={allocated} />
           {shortBy > 0.005 ? (
-            <p className="text-red-600 pt-1">Applied is {formatMoney(shortBy)} more than the money available.</p>
+            <div className="border-t border-slate-200 pt-3 mt-2 space-y-2">
+              <div className="flex justify-between font-medium text-amber-800">
+                <span>Short</span>
+                <span>{formatMoney(shortBy)}</span>
+              </div>
+              {shortBy <= ADJUSTMENT_LIMIT ? (
+                <>
+                  <Checkbox
+                    checked={settleInFull}
+                    onChange={setSettleInFull}
+                    label={`Settle in full: write off ${formatMoney(shortBy)}`}
+                    description="The customer paid less than the invoices total and you accept it as full payment. The invoices show as paid."
+                  />
+                  {settleInFull && shortBy > ADJUSTMENT_WARN && (
+                    <p className="text-xs text-amber-700">That is a large amount to write off. Check it is right.</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Write-offs are limited to {formatMoney(ADJUSTMENT_LIMIT)}. Lower the amounts applied instead.
+                </p>
+              )}
+              {!settleInFull && (
+                <p className="text-red-600">Applied is {formatMoney(shortBy)} more than the money available.</p>
+              )}
+            </div>
+          ) : partials.length > 0 && leftover <= 0.005 ? (
+            <div className="border-t border-slate-200 pt-3 mt-2 space-y-1.5">
+              {partials.map(({ inv, left }) => (
+                <div key={inv.invoice_id} className="flex items-center justify-between gap-3 text-slate-600">
+                  <span>
+                    Invoice {inv.invoice_number} will still show {formatMoney(left)} due.
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setAllocations((a) => ({ ...a, [inv.invoice_id]: String(inv.outstanding_amount) }));
+                      setSettleInFull(true);
+                    }}
+                  >
+                    Settle in full
+                  </Button>
+                </div>
+              ))}
+            </div>
           ) : leftover > 0 ? (
             <div className="border-t border-slate-200 pt-3 mt-2 space-y-2">
               <div className="flex justify-between font-medium">
                 <span>Left over</span>
                 <span>{formatMoney(leftover)}</span>
               </div>
-              <div className="flex gap-6">
+              <div className="flex flex-wrap gap-x-6 gap-y-1.5">
+                <Radio
+                  checked={excessAction === "ROUNDOFF"}
+                  onChange={() => setExcessAction("ROUNDOFF")}
+                  disabled={leftover > ADJUSTMENT_LIMIT}
+                  label="Keep as round-off"
+                />
                 <Radio
                   checked={excessAction === "CREDIT"}
                   onChange={() => setExcessAction("CREDIT")}
@@ -400,6 +482,13 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                   label="Refunded to customer"
                 />
               </div>
+              {excessAction === "ROUNDOFF" ? (
+                <p className="text-xs text-slate-500">
+                  Counted as received but not held as an advance and not owed back to the customer.
+                </p>
+              ) : leftover <= ADJUSTMENT_SUGGEST ? (
+                <p className="text-xs text-slate-500">Looks like a rounded-up payment? Choose "Keep as round-off".</p>
+              ) : null}
               {isEdit && existing!.advance_used > 0 && (
                 <p className="text-xs text-slate-500">
                   {formatMoney(existing!.advance_used)} of this advance has already been used by a later payment.
@@ -436,10 +525,20 @@ function SummaryRow({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Radio({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+function Radio({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  disabled?: boolean;
+}) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer text-slate-700">
-      <input type="radio" className="accent-brand-600" checked={checked} onChange={onChange} />
+    <label className={`flex items-center gap-2 text-slate-700 ${disabled ? "opacity-50" : "cursor-pointer"}`}>
+      <input type="radio" className="accent-brand-600" checked={checked} onChange={onChange} disabled={disabled} />
       {label}
     </label>
   );

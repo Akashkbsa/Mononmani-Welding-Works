@@ -396,12 +396,14 @@ interface ConfirmProps {
   title: string;
   message: React.ReactNode;
   confirmLabel: string;
+  /** Label of the button that backs out; defaults to "Cancel". */
+  cancelLabel?: string;
   onConfirm: () => Promise<void>;
   onClose: () => void;
 }
 
 /** Asks before a destructive action and shows the backend's reason if it is refused. */
-export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onClose }: ConfirmProps) {
+export function ConfirmDialog({ title, message, confirmLabel, cancelLabel = "Cancel", onConfirm, onClose }: ConfirmProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -424,7 +426,7 @@ export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onClose
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{cancelLabel}</Button>
           <Button variant="danger" onClick={run} loading={busy}>
             {confirmLabel}
           </Button>

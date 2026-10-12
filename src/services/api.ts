@@ -62,11 +62,30 @@ export const createInvoice = (input: InvoiceInput) => call<InvoiceWithItems>("cr
 export const updateInvoice = (id: number, input: InvoiceInput) =>
   call<InvoiceWithItems>("update_invoice", { id, input });
 export const deleteInvoice = (id: number) => call<void>("delete_invoice", { id });
+/** Cancel an invoice (it stays on record), or restore a cancelled one to Issued. */
+export const setInvoiceCancelled = (id: number, cancelled: boolean) =>
+  call<InvoiceWithItems>("set_invoice_cancelled", { id, cancelled });
 
 /** Creates the PDF for one copy of the invoice and opens it. */
 export async function printInvoice(id: number, copy: CopyType = "Original"): Promise<void> {
   const path = await call<string>("generate_invoice_pdf_by_id", { id, copyType: copy });
   await openInvoicePdf(path);
+}
+
+/** One PDF with the original, duplicate and triplicate copies, opened for the user. */
+export async function printAllCopies(id: number): Promise<void> {
+  const path = await call<string>("generate_invoice_all_copies_pdf", { id });
+  await openInvoicePdf(path);
+}
+
+/** One PDF with every issued invoice of a month (for the accountant). `month` is 1 to 12. */
+export async function downloadMonthInvoices(
+  year: number,
+  month: number
+): Promise<{ path: string; invoice_count: number }> {
+  const result = await call<{ path: string; invoice_count: number }>("generate_month_invoices_pdf", { year, month });
+  await openInvoicePdf(result.path);
+  return result;
 }
 
 // Payments

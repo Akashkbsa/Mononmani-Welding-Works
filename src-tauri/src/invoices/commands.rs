@@ -57,6 +57,18 @@ pub fn update_invoice(
     InvoiceRepository::update(&conn, id, input)
 }
 
+/// Cancel an invoice (`cancelled` true) or restore it to Issued (false).
+#[tauri::command]
+pub fn set_invoice_cancelled(
+    id: i64,
+    cancelled: bool,
+    state: State<'_, AppState>,
+) -> Result<InvoiceWithItems, String> {
+    let conn = state.db.get_connection()?;
+    InvoiceRepository::set_cancelled(&conn, id, cancelled)?;
+    InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvoiceDeletionSafetyResult {
     pub can_delete: bool,
@@ -123,4 +135,98 @@ pub async fn generate_invoice_pdf_by_id(
         InvoiceRepository::update_pdf_path(&conn, id, &path)?;
     }
     Ok(path)
+}
+
+/// One PDF holding all three copies of an invoice. Returns its path.
+#[tauri::command]
+pub async fn generate_invoice_all_copies_pdf(id: i64, state: State<'_, AppState>) -> Result<String, String> {
+    let (invoice, seller) = {
+        let conn = state.db.get_connection()?;
+        let invoice =
+            InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))?;
+        (invoice, crate::settings::repository::SettingsRepository::get(&conn)?)
+    };
+
+    let year = parse_date(&invoice.invoice.invoice_date)
+        .map(|d| d.year())
+        .unwrap_or_else(|| crate::util::today().year())
+        .to_string();
+    let filename = format!(
+        "{}_all-copies.pdf",
+        invoice.invoice.invoice_number.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+    );
+    let target_path = state.storage.prepare_invoice_save_path(&year, &filename)?;
+
+    let generated = tauri::async_runtime::spawn_blocking(move || {
+        PdfRenderer::generate_all_copies_pdf(&invoice, &target_path, &seller)
+    })
+    .await
+    .map_err(|e| format!("PDF generation stopped unexpectedly: {}", e))??;
+    Ok(generated.to_string_lossy().to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonthlyPdfResult {
+    pub path: String,
+    pub invoice_count: usize,
+}
+
+/// One PDF with every issued invoice dated in the given month (triplicate copy, one per page),
+/// oldest first, for sending to the accountant. Cancelled invoices are included (stamped
+/// CANCELLED) so the number sequence is complete; drafts are left out.
+#[tauri::command]
+pub async fn generate_month_invoices_pdf(
+    year: i32,
+    month: u32,
+    state: State<'_, AppState>,
+) -> Result<MonthlyPdfResult, String> {
+    let first = chrono::NaiveDate::from_ymd_opt(year, month, 1).ok_or("Choose a valid month.")?;
+    let next_first = if month == 12 {
+        chrono::NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    } else {
+        chrono::NaiveDate::from_ymd_opt(year, month + 1, 1)
+    }
+    .ok_or("Choose a valid month.")?;
+    let last = next_first.pred_opt().ok_or("Choose a valid month.")?;
+
+    let (invoices, seller) = {
+        let conn = state.db.get_connection()?;
+        let mut list = InvoiceRepository::find_all(
+            &conn,
+            InvoiceFilterInput {
+                date_from: Some(first.format("%Y-%m-%d").to_string()),
+                date_to: Some(last.format("%Y-%m-%d").to_string()),
+                ..Default::default()
+            },
+        )?;
+        list.retain(|i| i.status == "ISSUED" || i.status == "CANCELLED");
+        // Oldest first, so the pages follow invoice order.
+        list.sort_by(|a, b| a.invoice_date.cmp(&b.invoice_date).then(a.id.cmp(&b.id)));
+        let mut full = Vec::with_capacity(list.len());
+        for item in &list {
+            if let Some(inv) = InvoiceRepository::find_by_id(&conn, item.id)? {
+                full.push(inv);
+            }
+        }
+        (full, crate::settings::repository::SettingsRepository::get(&conn)?)
+    };
+
+    if invoices.is_empty() {
+        return Err(format!("No issued or cancelled invoices are dated {}.", first.format("%B %Y")));
+    }
+    let invoice_count = invoices.len();
+
+    let filename = format!("Invoices_{}.pdf", first.format("%Y-%m"));
+    let target_path = state.storage.prepare_invoice_save_path("Monthly", &filename)?;
+
+    let generated = tauri::async_runtime::spawn_blocking(move || {
+        PdfRenderer::generate_batch_pdf(&invoices, &target_path, &seller)
+    })
+    .await
+    .map_err(|e| format!("PDF generation stopped unexpectedly: {}", e))??;
+
+    Ok(MonthlyPdfResult {
+        path: generated.to_string_lossy().to_string(),
+        invoice_count,
+    })
 }

@@ -92,7 +92,8 @@ impl InvoiceRepository {
             igst_amount: row.get(35)?,
             round_off: row.get(36)?,
             total_amount: row.get(37)?,
-            amount_in_words: row.get(38)?,
+            // Worded from the total each time, so older invoices also read in paise.
+            amount_in_words: InvoiceRepository::money_in_words(row.get::<_, f64>(37)?),
             bank_name: row.get(39)?,
             bank_branch: row.get(40)?,
             bank_account_no: row.get(41)?,
@@ -213,8 +214,8 @@ impl InvoiceRepository {
         let sgst_amount = round2(taxable * sgst_rate / 100.0);
         let igst_amount = round2(taxable * igst_rate / 100.0);
 
-        let exact_total = taxable + cgst_amount + sgst_amount + igst_amount;
-        let total_amount = exact_total.round();
+        // The total is printed exactly, to the paisa: no rounding to the rupee.
+        let total_amount = round2(taxable + cgst_amount + sgst_amount + igst_amount);
 
         Ok(InvoiceTotals {
             item_amounts,
@@ -226,9 +227,9 @@ impl InvoiceRepository {
             sgst_amount,
             igst_rate,
             igst_amount,
-            round_off: round2(total_amount - exact_total),
+            round_off: 0.0,
             total_amount,
-            amount_in_words: format!("{} ONLY", Self::number_to_words(total_amount as i64)),
+            amount_in_words: Self::money_in_words(total_amount),
         })
     }
 
@@ -459,6 +460,37 @@ impl InvoiceRepository {
         Ok((count == 0, round2(allocated), count))
     }
 
+    /// Cancel an invoice, or restore a cancelled one to Issued. A cancelled invoice keeps its
+    /// number and stays on record, but counts nowhere: no balance due, no payments against it.
+    pub fn set_cancelled(conn: &Connection, id: i64, cancelled: bool) -> Result<(), String> {
+        let current: String = conn
+            .query_row("SELECT status FROM invoices WHERE id = ?1", params![id], |r| r.get(0))
+            .map_err(|_| format!("Invoice {} was not found.", id))?;
+
+        if cancelled {
+            if current.eq_ignore_ascii_case("CANCELLED") {
+                return Ok(());
+            }
+            let (_, allocated, count) = Self::check_deletion_safety(conn, id)?;
+            if count > 0 {
+                return Err(format!(
+                    "This invoice has {} in recorded payments, so it cannot be cancelled. Remove those payments first.",
+                    rupees(allocated)
+                ));
+            }
+        } else if !current.eq_ignore_ascii_case("CANCELLED") {
+            return Ok(());
+        }
+
+        let status = if cancelled { "CANCELLED" } else { "ISSUED" };
+        conn.execute(
+            "UPDATE invoices SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![status, Utc::now().to_rfc3339(), id],
+        )
+        .map_err(|e| format!("Failed to update the invoice: {}", e))?;
+        Ok(())
+    }
+
     pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
         let (safe, allocated, count) = Self::check_deletion_safety(conn, id)?;
         if !safe {
@@ -633,6 +665,20 @@ impl InvoiceRepository {
         Ok(())
     }
 
+    /// An amount in words with paise when there are any, e.g.
+    /// "THREE THOUSAND FIVE HUNDRED NINETY RUPEES AND FIFTY PAISE ONLY".
+    pub fn money_in_words(amount: f64) -> String {
+        let total_paise = (amount.abs() * 100.0).round() as i64;
+        let (rupees, paise) = (total_paise / 100, total_paise % 100);
+        let rupee_words = Self::number_to_words(rupees);
+        if paise == 0 {
+            return format!("{} ONLY", rupee_words);
+        }
+        let paise_words = Self::number_to_words(paise);
+        let paise_words = paise_words.strip_suffix(" RUPEES").unwrap_or(&paise_words);
+        format!("{} AND {} PAISE ONLY", rupee_words, paise_words)
+    }
+
     /// Indian Rupee number to words converter
     pub fn number_to_words(mut num: i64) -> String {
         if num == 0 {
@@ -734,6 +780,33 @@ mod tests {
         assert_eq!(InvoiceRepository::number_to_words(5040), "FIVE THOUSAND FORTY RUPEES");
         assert_eq!(InvoiceRepository::number_to_words(66080), "SIXTY-SIX THOUSAND EIGHTY RUPEES");
         assert_eq!(InvoiceRepository::number_to_words(100000), "ONE LAKH RUPEES");
+    }
+
+    #[test]
+    fn money_in_words_includes_paise() {
+        assert_eq!(InvoiceRepository::money_in_words(2360.0), "TWO THOUSAND THREE HUNDRED SIXTY RUPEES ONLY");
+        assert_eq!(
+            InvoiceRepository::money_in_words(118.53),
+            "ONE HUNDRED EIGHTEEN RUPEES AND FIFTY-THREE PAISE ONLY"
+        );
+        assert_eq!(InvoiceRepository::money_in_words(0.05), "ZERO RUPEES AND FIVE PAISE ONLY");
+    }
+
+    #[test]
+    fn invoice_total_is_exact_not_rounded_to_the_rupee() {
+        let items = vec![InvoiceItemInput {
+            sl_no: Some(1),
+            description: "Job".to_string(),
+            hsn_sac: None,
+            qum: None,
+            quantity: 1.0,
+            rate: 100.45,
+        }];
+        let t = InvoiceRepository::calculate_financials(&items, "IGST", None, None, None, None).unwrap();
+        assert_eq!(t.igst_amount, 18.08);
+        assert_eq!(t.total_amount, 118.53);
+        assert_eq!(t.round_off, 0.0);
+        assert_eq!(t.amount_in_words, "ONE HUNDRED EIGHTEEN RUPEES AND FIFTY-THREE PAISE ONLY");
     }
 
     #[test]

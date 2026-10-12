@@ -20,8 +20,10 @@ pub struct Payment {
     pub credit_applied: f64,
     /// Part of this payment not allocated to invoices.
     pub excess_amount: f64,
-    /// "CREDIT" (kept as advance), "REFUND" (returned) or "NONE".
+    /// "CREDIT" (kept as advance), "REFUND" (returned), "ROUNDOFF" (kept, nothing owed back) or "NONE".
     pub excess_action: String,
+    /// Short amount accepted as full payment; counts towards settling the invoices.
+    pub writeoff_amount: f64,
     /// How much of this payment's advance later payments have already used.
     pub advance_used: f64,
     pub is_verified: bool,
@@ -61,6 +63,7 @@ pub struct PaymentListItem {
     pub credit_applied: f64,
     pub excess_amount: f64,
     pub excess_action: String,
+    pub writeoff_amount: f64,
     pub is_verified: bool,
     pub invoices_covered: Vec<String>,
 }
@@ -93,8 +96,12 @@ pub struct PaymentInput {
     pub remarks: Option<String>,
     #[serde(default)]
     pub allocations: Vec<PaymentAllocationInput>,
-    /// "CREDIT" or "REFUND" for any amount left unallocated.
+    /// "CREDIT", "REFUND" or "ROUNDOFF" for any amount left unallocated.
     pub excess_action: Option<String>,
+    /// Short amount the owner accepts as full payment. Must equal what is still short after
+    /// the money received, recognised TDS and any advance used.
+    #[serde(default)]
+    pub writeoff_amount: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -418,7 +418,32 @@ const MIGRATIONS: &[Migration] = &[
             );
         "#,
     },
+    Migration {
+        version: 10,
+        name: "010_payment_writeoff",
+        sql: r#"
+            -- Short amount the owner accepted as full payment (counts towards settling the invoices).
+            ALTER TABLE payments ADD COLUMN writeoff_amount REAL NOT NULL DEFAULT 0.0;
+        "#,
+    },
+    Migration {
+        version: 11,
+        name: "011_exact_invoice_totals",
+        sql: EXACT_TOTALS_SQL,
+    },
 ];
+
+/// Invoice totals are no longer rounded to the rupee. Invoices that are not fully paid yet are
+/// brought to their exact total (the round-off is folded back in). Fully paid invoices keep the
+/// total they were settled at, so they don't reappear with a few paise due.
+pub const EXACT_TOTALS_SQL: &str = r#"
+    UPDATE invoices
+    SET total_amount = ROUND(total_amount - round_off, 2),
+        round_off = 0.0
+    WHERE round_off != 0.0
+      AND COALESCE((SELECT SUM(amount_allocated + tds_allocated)
+                    FROM payment_allocations WHERE invoice_id = invoices.id), 0.0) < total_amount - 0.005;
+"#;
 
 /// Highest migration version this build knows; a backup from a newer build can't be restored.
 pub fn latest_version() -> i32 {
