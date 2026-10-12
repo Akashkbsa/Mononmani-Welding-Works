@@ -2,7 +2,9 @@ use super::models::{
     DuplicateInvoiceCheckResult, Invoice, InvoiceCreateInput, InvoiceFilterInput, InvoiceItem,
     InvoiceItemInput, InvoiceListItem, InvoiceWithItems,
 };
-use crate::util::{rupees, financial_year_label, normalize_date, parse_date, round2};
+use crate::util::{
+    doc_number, doc_sequence, financial_year_label, normalize_date, normalize_vehicle_number, parse_date, round2, rupees,
+};
 use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -123,25 +125,26 @@ impl InvoiceRepository {
         })
     }
 
-    /// Next number in the current financial year, e.g. MWW/26-27/001.
+    /// Next number in the current financial year, e.g. MWW/009/26-27. Numbers issued in the
+    /// older MWW/26-27/009 form still count towards the running number.
     pub fn get_next_invoice_number(conn: &Connection) -> Result<String, String> {
-        let prefix = format!("MWW/{}/", financial_year_label());
+        let fy = financial_year_label();
 
         let mut stmt = conn
-            .prepare("SELECT invoice_number FROM invoices WHERE invoice_number LIKE ?1")
+            .prepare("SELECT invoice_number FROM invoices WHERE invoice_number LIKE 'MWW/%'")
             .map_err(|e| format!("Failed to prepare query for next invoice number: {}", e))?;
 
         let rows = stmt
-            .query_map(params![format!("{}%", prefix)], |row| row.get::<_, String>(0))
+            .query_map([], |row| row.get::<_, String>(0))
             .map_err(|e| format!("Failed to query existing invoice numbers: {}", e))?;
 
         let max_seq = rows
             .filter_map(Result::ok)
-            .filter_map(|num| num.strip_prefix(&prefix).and_then(|s| s.trim().parse::<i64>().ok()))
+            .filter_map(|num| doc_sequence(&num, "MWW", &fy))
             .max()
             .unwrap_or(0);
 
-        Ok(format!("{}{:03}", prefix, max_seq + 1))
+        Ok(doc_number("MWW", max_seq + 1, &fy))
     }
 
     pub fn check_duplicate_number(
@@ -255,6 +258,29 @@ impl InvoiceRepository {
             return Err(format!("Invoice number {} is already used.", invoice_number));
         }
 
+        // Vehicle numbers are kept in the standard written form. A number saved earlier that
+        // doesn't pass the check can stay as it is until someone changes it.
+        let vehicle_number = match input.vehicle_number.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            None => None,
+            Some(v) => {
+                let unchanged = match id {
+                    Some(existing_id) => conn
+                        .query_row(
+                            "SELECT vehicle_number FROM invoices WHERE id = ?1",
+                            params![existing_id],
+                            |r| r.get::<_, Option<String>>(0),
+                        )
+                        .optional()
+                        .map_err(|e| e.to_string())?
+                        .flatten()
+                        .as_deref()
+                        == Some(v),
+                    None => false,
+                };
+                Some(if unchanged { v.to_string() } else { normalize_vehicle_number(v)? })
+            }
+        };
+
         let invoice_date = normalize_date(&input.invoice_date, "Invoice date")?;
         let terms_days = input.payment_terms_days.unwrap_or(60).max(0);
         let due_date = match input.due_date.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -318,7 +344,7 @@ impl InvoiceRepository {
             clean(input.customer_state),
             clean(input.customer_state_code),
             clean(input.po_number_and_date),
-            clean(input.vehicle_number),
+            vehicle_number,
             clean(input.date_of_supply),
             clean(input.place_of_supply),
             clean(input.our_dc_number_and_date),

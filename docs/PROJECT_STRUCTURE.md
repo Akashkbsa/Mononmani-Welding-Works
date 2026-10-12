@@ -14,7 +14,10 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 
 ## Business rules (enforced in Rust)
 
-- **Numbers:** `MWW/26-27/001` for invoices, `PAY/26-27/001` for payments, by Indian financial year (April–March), local time.
+- **Numbers:** `MWW/001/26-27` for invoices, `PAY/001/26-27` for payments: running number, then the Indian financial year (April–March), local time. Numbers issued in the older `MWW/26-27/001` form keep their number and still count towards the running number.
+- **Vehicle number:** checked as an Indian registration (e.g. `TN 09 AB 1234`, `22 BH 1234 AA`) and stored in that spaced form; an older value that fails the check can stay until it is changed.
+- **PO / DC numbers** are entered as a number and a date and stored as `number & dd-mm-yyyy`; left empty they print as a dash.
+- **Tax state** comes from the GSTIN prefix when there is one; the forms warn when it disagrees with the state chosen.
 - **Dates** are stored as `YYYY-MM-DD` and shown as `DD-MM-YYYY`.
 - **Tax:** CGST + SGST for customers in Puducherry (state code 34), IGST otherwise. The state code comes from the GSTIN or the customer's state. Totals are exact to the paisa, with no round-off to the rupee, and the amount in words includes paise. Migration 11 brought older invoices that were not fully paid to their exact total; fully paid ones keep the total they were settled at, so they do not reopen for a few paise.
 - **Invoice edits:** an invoice with payments cannot drop below what has been paid, cannot become Draft or Cancelled, and cannot be deleted.

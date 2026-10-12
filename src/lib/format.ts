@@ -53,6 +53,46 @@ export function formatDate(value: string | null | undefined): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : value;
 }
 
+/**
+ * Indian vehicle registration number in the usual written form, or null when it isn't one:
+ * "tn09ab1234" -> "TN 09 AB 1234", "dl1cab1234" -> "DL 1C AB 1234", "22bh1234aa" -> "22 BH 1234 AA".
+ * Mirrors the check in the backend.
+ */
+export function formatVehicleNumber(raw: string): string | null {
+  if (/[^A-Za-z0-9 .\-]/.test(raw)) return null;
+  const s = raw.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const bh = /^(\d{2})BH(\d{4})([A-Z]{1,2})$/.exec(s);
+  if (bh) return `${bh[1]} BH ${bh[2]} ${bh[3]}`;
+  const m = /^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{4})$/.exec(s);
+  if (!m) return null;
+  const [, state, rtoDigits, seriesLetters, number] = m;
+  let rto = rtoDigits;
+  let series = seriesLetters;
+  // Delhi-style single-digit RTO carries a letter: DL 1C AB 1234.
+  if (rto.length === 1 && series.length === 3) {
+    rto += series[0];
+    series = series.slice(1);
+  }
+  return [state, rto, series, number].filter(Boolean).join(" ");
+}
+
+/** "PO-123 & 12-01-2026" -> number "PO-123" and date "2026-01-12" (date empty when there is none). */
+export function splitRefDate(value: string | null | undefined): { number: string; dateISO: string } {
+  const v = value ?? "";
+  const i = v.lastIndexOf(" & ");
+  if (i >= 0) {
+    const d = /^(\d{2})-(\d{2})-(\d{4})$/.exec(v.slice(i + 3).trim());
+    if (d) return { number: v.slice(0, i), dateISO: `${d[3]}-${d[2]}-${d[1]}` };
+  }
+  return { number: v, dateISO: "" };
+}
+
+/** The other way round: number and date -> "PO-123 & 12-01-2026"; empty without a number. */
+export function joinRefDate(number: string, dateISO: string): string {
+  if (!number.trim()) return "";
+  return dateISO ? `${number} & ${formatDate(dateISO)}` : number;
+}
+
 /** Turns errors from the backend into a readable sentence. */
 export function errorMessage(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err);

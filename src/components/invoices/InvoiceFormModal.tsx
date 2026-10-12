@@ -11,7 +11,16 @@ import {
   updateInvoice,
 } from "../../services/api";
 import { GST_STATES, HOME_STATE, stateCodeFor, stateName, taxTypeFor } from "../../lib/gst";
-import { errorMessage, formatDate, formatMoney, round2, todayISO } from "../../lib/format";
+import {
+  errorMessage,
+  formatDate,
+  formatMoney,
+  formatVehicleNumber,
+  joinRefDate,
+  round2,
+  splitRefDate,
+  todayISO,
+} from "../../lib/format";
 import { Alert, Button, Field, inputClass, Modal, textareaClass } from "../ui";
 import CustomerFormModal from "../customers/CustomerFormModal";
 
@@ -126,6 +135,9 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [numberTaken, setNumberTaken] = useState(false);
   const [saving, setSaving] = useState<false | "save" | "print">(false);
+  const [vehicleTouched, setVehicleTouched] = useState(false);
+  // Set when the customer record's state and its GSTIN disagree, so the user can see why.
+  const [stateNote, setStateNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,6 +176,13 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
   const selectCustomer = (c: Customer) => {
     const code = stateCodeFor(c.state, c.gstin);
     const state = stateName(code) ?? c.state;
+    const recordCode = stateCodeFor(c.state, null);
+    const gstinCode = stateCodeFor(null, c.gstin);
+    setStateNote(
+      recordCode && gstinCode && recordCode !== gstinCode
+        ? `The customer record says ${c.state}, but its GSTIN starts with ${gstinCode} (${stateName(gstinCode)}). The GSTIN's state is used for tax. If the GSTIN is wrong, correct it in the customer record.`
+        : null
+    );
     setForm((f) => ({
       ...f,
       customer_id: c.id,
@@ -179,6 +198,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
   };
 
   const setCustomerState = (name: string) => {
+    setStateNote(null);
     const code = stateCodeFor(name, null);
     setForm((f) => ({
       ...f,
@@ -205,23 +225,28 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     if (!form.customer_name.trim()) return setError("Enter the customer's name.");
     if (!form.invoice_number.trim()) return setError("Enter an invoice number.");
     if (!form.invoice_date) return setError("Enter the invoice date.");
+    if (vehicleError) return setError(vehicleError);
     const blank = form.items.findIndex((i) => !i.description.trim());
     if (blank >= 0) return setError(`Line ${blank + 1} needs a description.`);
     if (form.items.some((i) => !(Number(i.quantity) > 0))) return setError("Every line needs a quantity above zero.");
     if (totals.discount > totals.subtotal) return setError("Discount cannot be more than the subtotal.");
 
     const clean = (v: string | null) => (v && v.trim() ? v.trim() : null);
+    const cleanRef = (v: string | null) => {
+      const { number, dateISO } = splitRefDate(v);
+      return clean(joinRefDate(number.trim(), dateISO));
+    };
     const input: InvoiceInput = {
       ...form,
       customer_address: clean(form.customer_address),
       customer_phone: clean(form.customer_phone),
       customer_gstin: clean(form.customer_gstin),
-      po_number_and_date: clean(form.po_number_and_date),
+      po_number_and_date: cleanRef(form.po_number_and_date),
       vehicle_number: clean(form.vehicle_number),
       date_of_supply: clean(form.date_of_supply),
       place_of_supply: clean(form.place_of_supply),
-      our_dc_number_and_date: clean(form.our_dc_number_and_date),
-      your_dc_number_and_date: clean(form.your_dc_number_and_date),
+      our_dc_number_and_date: cleanRef(form.our_dc_number_and_date),
+      your_dc_number_and_date: cleanRef(form.your_dc_number_and_date),
       terms_and_conditions: clean(form.terms_and_conditions),
       notes: clean(form.notes),
       discount: Number(form.discount) || 0,
@@ -242,6 +267,22 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
   };
 
   const knownCustomerState = GST_STATES.some((s) => s.name === form.customer_state);
+
+  // The GSTIN's own state versus the state chosen above; tax follows the state above.
+  const gstinCode = stateCodeFor(null, form.customer_gstin);
+  const gstinMismatch =
+    gstinCode && form.customer_state_code && gstinCode !== form.customer_state_code
+      ? `The GSTIN starts with ${gstinCode} (${stateName(gstinCode)}), but the state above is ${form.customer_state}. Tax follows the state above, so check which is right.`
+      : null;
+
+  // A vehicle number saved before this check existed can stay as it is until it is changed.
+  const vehicleValue = form.vehicle_number ?? "";
+  const vehicleError =
+    vehicleValue.trim() &&
+    !formatVehicleNumber(vehicleValue) &&
+    vehicleValue.trim() !== (invoice?.invoice.vehicle_number ?? "")
+      ? "Not a valid Indian vehicle number. Example: TN 09 AB 1234."
+      : null;
 
   return (
     <>
@@ -341,6 +382,9 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                       ))}
                     </select>
                   </div>
+                  {(stateNote || gstinMismatch) && (
+                    <p className="text-xs text-amber-700">{gstinMismatch ?? stateNote}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -539,21 +583,37 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
           </div>
 
           <Collapsible title="Delivery details">
-            <div className="grid grid-cols-3 gap-4">
-              <TextField label="PO number & date" value={form.po_number_and_date} onChange={(v) => update("po_number_and_date", v)} />
-              <TextField label="Vehicle number" value={form.vehicle_number} onChange={(v) => update("vehicle_number", v)} />
-              <TextField label="Date of supply" value={form.date_of_supply} onChange={(v) => update("date_of_supply", v)} />
-              <TextField label="Place of supply" value={form.place_of_supply} onChange={(v) => update("place_of_supply", v)} />
-              <TextField
+            <div className="grid grid-cols-2 gap-4">
+              <RefDateField
+                label="PO number & date"
+                value={form.po_number_and_date}
+                onChange={(v) => update("po_number_and_date", v)}
+              />
+              <Field label="Vehicle number" error={vehicleTouched ? vehicleError : null}>
+                <input
+                  className={`${inputClass} uppercase`}
+                  value={form.vehicle_number ?? ""}
+                  placeholder="TN 09 AB 1234"
+                  onChange={(e) => update("vehicle_number", e.target.value.toUpperCase())}
+                  onBlur={() => {
+                    setVehicleTouched(true);
+                    const formatted = formatVehicleNumber(vehicleValue);
+                    if (formatted) update("vehicle_number", formatted);
+                  }}
+                />
+              </Field>
+              <RefDateField
                 label="Our DC number & date"
                 value={form.our_dc_number_and_date}
                 onChange={(v) => update("our_dc_number_and_date", v)}
               />
-              <TextField
+              <RefDateField
                 label="Your DC number & date"
                 value={form.your_dc_number_and_date}
                 onChange={(v) => update("your_dc_number_and_date", v)}
               />
+              <TextField label="Date of supply" value={form.date_of_supply} onChange={(v) => update("date_of_supply", v)} />
+              <TextField label="Place of supply" value={form.place_of_supply} onChange={(v) => update("place_of_supply", v)} />
             </div>
           </Collapsible>
 
@@ -593,6 +653,47 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt>{label}</dt>
       <dd className="text-slate-900">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * A reference number and its date as one value: "number & dd-mm-yyyy". The number box takes
+ * the spare width, the "&" is fixed, and the date can only be set once a number is typed.
+ * Left empty, nothing is printed for it.
+ */
+function RefDateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const { number, dateISO } = splitRefDate(value);
+  return (
+    <Field label={label}>
+      <div className="flex items-center gap-2">
+        <input
+          className={`${inputClass} min-w-0 flex-1`}
+          value={number}
+          placeholder="Number"
+          onChange={(e) => onChange(joinRefDate(e.target.value, dateISO))}
+        />
+        <span className="font-medium text-slate-500" aria-hidden="true">
+          &amp;
+        </span>
+        <input
+          type="date"
+          className={`${inputClass} w-40 shrink-0`}
+          aria-label={`${label}: date`}
+          title={number.trim() ? undefined : "Enter the number first"}
+          disabled={!number.trim()}
+          value={dateISO}
+          onChange={(e) => onChange(joinRefDate(number, e.target.value))}
+        />
+      </div>
+    </Field>
   );
 }
 

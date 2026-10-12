@@ -4,7 +4,7 @@ use super::models::{
     UnpaidInvoiceSummary,
 };
 use crate::invoices::repository::InvoiceRepository;
-use crate::util::{rupees, financial_year_label, normalize_date, parse_date, round2, today};
+use crate::util::{doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
@@ -27,21 +27,22 @@ struct InvoiceBalance {
 
 impl PaymentRepository {
     pub fn get_next_payment_number(conn: &Connection) -> Result<String, String> {
-        let prefix = format!("PAY/{}/", financial_year_label());
+        let fy = financial_year_label();
 
         let mut stmt = conn
-            .prepare("SELECT payment_number FROM payments WHERE payment_number LIKE ?1")
+            .prepare("SELECT payment_number FROM payments WHERE payment_number LIKE 'PAY/%'")
             .map_err(|e| format!("Failed to work out the next payment number: {}", e))?;
 
         let max_seq = stmt
-            .query_map(params![format!("{}%", prefix)], |row| row.get::<_, String>(0))
+            .query_map([], |row| row.get::<_, String>(0))
             .map_err(|e| format!("Failed to work out the next payment number: {}", e))?
             .filter_map(Result::ok)
-            .filter_map(|num| num.strip_prefix(&prefix).and_then(|s| s.trim().parse::<i64>().ok()))
+            .filter_map(|num| doc_sequence(&num, "PAY", &fy))
             .max()
             .unwrap_or(0);
 
-        Ok(format!("{}{:03}", prefix, max_seq + 1))
+        // e.g. PAY/004/26-27; the older PAY/26-27/004 form still counts towards the running number.
+        Ok(doc_number("PAY", max_seq + 1, &fy))
     }
 
     pub fn create_payment(conn: &Connection, input: PaymentInput) -> Result<PaymentWithAllocations, String> {
@@ -1030,6 +1031,45 @@ mod tests {
 
     fn outstanding(conn: &Connection, inv: i64) -> f64 {
         PaymentRepository::get_invoice_payment_summary(conn, inv).unwrap().outstanding_amount
+    }
+
+    #[test]
+    fn next_numbers_put_the_running_number_before_the_year() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let fy = financial_year_label();
+        // One invoice in the older form and one in the current form.
+        invoice(&conn, c, &format!("MWW/{fy}/007"), 100.0);
+        invoice(&conn, c, &format!("MWW/003/{fy}"), 100.0);
+        assert_eq!(InvoiceRepository::get_next_invoice_number(&conn).unwrap(), format!("MWW/008/{fy}"));
+
+        assert_eq!(PaymentRepository::get_next_payment_number(&conn).unwrap(), format!("PAY/001/{fy}"));
+        let inv = invoice(&conn, c, "X/1", 100.0);
+        let p = PaymentRepository::create_payment(&conn, payment(c, 100.0, &[(inv, 100.0)], 0.0, "NONE")).unwrap();
+        assert_eq!(p.payment.payment_number, format!("PAY/001/{fy}"));
+        assert_eq!(PaymentRepository::get_next_payment_number(&conn).unwrap(), format!("PAY/002/{fy}"));
+    }
+
+    #[test]
+    fn vehicle_number_is_standardised_and_checked_on_invoices() {
+        let conn = setup();
+        let c = customer(&conn, "A");
+        let mut input = invoice_input(c, "V/1", 100.0);
+        input.vehicle_number = Some("py-01-ck-2064".to_string());
+        let created = InvoiceRepository::create(&conn, input).unwrap();
+        assert_eq!(created.invoice.vehicle_number.as_deref(), Some("PY 01 CK 2064"));
+
+        let mut bad = invoice_input(c, "V/2", 100.0);
+        bad.vehicle_number = Some("PY087945632".to_string());
+        let err = InvoiceRepository::create(&conn, bad).unwrap_err();
+        assert!(err.contains("not a valid Indian vehicle number"), "{err}");
+
+        // An invoice saved earlier with an unusual value can be edited without touching it.
+        conn.execute("UPDATE invoices SET vehicle_number = 'PY087945632' WHERE id = ?1", params![created.invoice.id])
+            .unwrap();
+        let mut again = invoice_input(c, "V/1", 100.0);
+        again.vehicle_number = Some("PY087945632".to_string());
+        InvoiceRepository::update(&conn, created.invoice.id, again).unwrap();
     }
 
     #[test]

@@ -51,6 +51,14 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
 
   const set = (key: keyof typeof form) => (value: string | boolean) => setForm((f) => ({ ...f, [key]: value }));
 
+  // Invoices take their tax state from the GSTIN, so a state that disagrees with it is worth a warning.
+  const gstinStateCode = stateCodeFor(null, form.gstin);
+  const pickedStateCode = stateCodeFor(form.state, null);
+  const gstinStateMismatch =
+    gstinStateCode && pickedStateCode && gstinStateCode !== pickedStateCode
+      ? `The GSTIN starts with ${gstinStateCode} (${stateName(gstinStateCode)}), but the state is ${form.state}. Invoices use the GSTIN's state for tax, so check which one is right.`
+      : null;
+
   // A state saved before the list existed (e.g. "Pondicherry") stays selectable.
   const knownState = GST_STATES.some((s) => s.name === form.state);
 
@@ -200,6 +208,7 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
             />
           </Field>
         </div>
+        {gstinStateMismatch && <p className="-mt-2 text-xs text-amber-700">{gstinStateMismatch}</p>}
 
         <Checkbox
           checked={form.is_favorite}
