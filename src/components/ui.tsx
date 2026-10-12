@@ -656,6 +656,35 @@ export function ConfirmDialog({ title, message, confirmLabel, cancelLabel = "Can
   );
 }
 
+/**
+ * Stops a form dialog from throwing away typed work. Close it through `requestClose`: when
+ * the user has changed something, a "Discard your changes?" question comes first.
+ *
+ * Mark the form dirty with `markDirty` (typing in any field does this through `onChangeCapture`
+ * on the form's wrapper; buttons that change the form call it themselves), and render
+ * `confirm` next to the dialog.
+ */
+export function useDiscardGuard(onClose: () => void) {
+  const [dirty, setDirty] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const markDirty = useCallback(() => setDirty(true), []);
+  const requestClose = useCallback(() => {
+    if (dirty) setAsking(true);
+    else onClose();
+  }, [dirty, onClose]);
+  const confirm = asking ? (
+    <ConfirmDialog
+      title="Discard your changes?"
+      message="What you have entered on this form will be lost."
+      confirmLabel="Discard changes"
+      cancelLabel="Keep editing"
+      onConfirm={async () => onClose()}
+      onClose={() => setAsking(false)}
+    />
+  ) : null;
+  return { markDirty, requestClose, confirm };
+}
+
 /* ---------- Toast ---------- */
 
 interface ToastState {

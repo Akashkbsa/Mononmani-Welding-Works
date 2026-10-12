@@ -21,7 +21,7 @@ import {
   splitRefDate,
   todayISO,
 } from "../../lib/format";
-import { Alert, Button, Field, inputClass, Modal, textareaClass } from "../ui";
+import { Alert, Button, Field, inputClass, Modal, textareaClass, useDiscardGuard } from "../ui";
 import CustomerFormModal from "../customers/CustomerFormModal";
 import CustomerPicker from "../CustomerPicker";
 
@@ -132,6 +132,7 @@ function Collapsible({ title, children }: { title: string; children: React.React
 
 export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
   const isEdit = !!invoice;
+  const guard = useDiscardGuard(onClose);
   const [form, setForm] = useState<InvoiceInput>(() => initialForm(invoice));
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [addingCustomer, setAddingCustomer] = useState(false);
@@ -171,11 +172,14 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
 
   const totals = useMemo(() => computeTotals(form), [form]);
 
-  const update = <K extends keyof InvoiceInput>(key: K, value: InvoiceInput[K]) =>
+  const update = <K extends keyof InvoiceInput>(key: K, value: InvoiceInput[K]) => {
+    guard.markDirty();
     setForm((f) => ({ ...f, [key]: value }));
+  };
 
   /** Copies the customer's current details onto the invoice and picks the right tax. */
   const selectCustomer = (c: Customer) => {
+    guard.markDirty();
     const code = stateCodeFor(c.state, c.gstin);
     const state = stateName(code) ?? c.state;
     const recordCode = stateCodeFor(c.state, null);
@@ -199,8 +203,10 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     }));
   };
 
-  const updateItem = (index: number, patch: Partial<InvoiceItemInput>) =>
+  const updateItem = (index: number, patch: Partial<InvoiceItemInput>) => {
+    guard.markDirty();
     setForm((f) => ({ ...f, items: f.items.map((item, i) => (i === index ? { ...item, ...patch } : item)) }));
+  };
 
   const checkNumber = async () => {
     const n = form.invoice_number.trim();
@@ -269,11 +275,11 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     <>
       <Modal
         title={isEdit ? `Edit invoice ${invoice!.invoice.invoice_number}` : "New invoice"}
-        onClose={onClose}
+        onClose={guard.requestClose}
         size="xl"
         footer={
           <>
-            <Button onClick={onClose}>Cancel</Button>
+            <Button onClick={guard.requestClose}>Cancel</Button>
             <Button loading={saving === "save"} disabled={!!saving} onClick={() => save(false)}>
               Save
             </Button>
@@ -283,7 +289,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
           </>
         }
       >
-        <div className="space-y-6">
+        <div className="space-y-6" onChangeCapture={guard.markDirty}>
           {error && <Alert>{error}</Alert>}
 
           {/* Customer and invoice details */}
@@ -573,6 +579,8 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
           </Field>
         </div>
       </Modal>
+
+      {guard.confirm}
 
       {addingCustomer && (
         <CustomerFormModal

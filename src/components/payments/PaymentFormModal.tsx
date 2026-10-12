@@ -16,7 +16,7 @@ import {
   updatePayment,
 } from "../../services/api";
 import { errorMessage, formatDate, formatMoney, round2, todayISO } from "../../lib/format";
-import { Alert, Button, Checkbox, Field, inputClass, Loading, Modal, textareaClass } from "../ui";
+import { Alert, Button, Checkbox, Field, inputClass, Loading, Modal, textareaClass, useDiscardGuard } from "../ui";
 import CustomerPicker from "../CustomerPicker";
 
 interface Props {
@@ -46,6 +46,7 @@ const num = (v: string | number | undefined) => {
 export default function PaymentFormModal({ payment, initialCustomerId, initialInvoiceId, onClose, onSaved }: Props) {
   const existing = payment?.payment;
   const isEdit = !!existing;
+  const guard = useDiscardGuard(onClose);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState<number | null>(existing?.customer_id ?? initialCustomerId ?? null);
@@ -199,6 +200,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
 
   /** Spread the money over the oldest invoices first. */
   const allocateOldestFirst = () => {
+    guard.markDirty();
     const next: Record<number, string> = {};
     if (percentMode) {
       let funds = num(amount) + (useAdvance ? advanceAvailable : 0);
@@ -273,21 +275,22 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
   const customerName = customers.find((c) => c.id === customerId)?.name ?? existing?.customer_name;
 
   return (
+    <>
     <Modal
       title={isEdit ? `Edit payment ${existing!.payment_number}` : "Record payment"}
       subtitle={isEdit ? customerName : undefined}
-      onClose={onClose}
+      onClose={guard.requestClose}
       size="lg"
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={guard.requestClose}>Cancel</Button>
           <Button variant="primary" loading={saving} onClick={save}>
             {isEdit ? "Save changes" : "Record payment"}
           </Button>
         </>
       }
     >
-      <div className="space-y-6">
+      <div className="space-y-6" onChangeCapture={guard.markDirty}>
         {error && <Alert>{error}</Alert>}
 
         <div className="grid grid-cols-3 gap-4">
@@ -298,6 +301,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
               disabled={isEdit}
               fallbackLabel={existing?.customer_name}
               onChange={(c) => {
+                guard.markDirty();
                 setCustomerId(c.id);
                 setAllocations({});
                 setUseAdvance(false);
@@ -359,7 +363,10 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                     key={mode}
                     type="button"
                     aria-pressed={tdsMode === mode}
-                    onClick={() => setTdsMode(mode)}
+                    onClick={() => {
+                      guard.markDirty();
+                      setTdsMode(mode);
+                    }}
                     className={`rounded px-3 py-1 transition-colors ${
                       tdsMode === mode ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
                     }`}
@@ -444,7 +451,13 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                 <span>
                   After TDS the customer should pay {formatMoney(round2(allocated - tdsValue - advanceUsed))} for these invoices.
                 </span>
-                <Button size="sm" onClick={() => setAmount(String(round2(allocated - tdsValue - advanceUsed)))}>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    guard.markDirty();
+                    setAmount(String(round2(allocated - tdsValue - advanceUsed)));
+                  }}
+                >
                   Set amount received
                 </Button>
               </div>
@@ -569,6 +582,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                   <Button
                     size="sm"
                     onClick={() => {
+                      guard.markDirty();
                       setAllocations((a) => ({ ...a, [inv.invoice_id]: String(inv.outstanding_amount) }));
                       setSettleInFull(true);
                     }}
@@ -632,6 +646,8 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
         </div>
       </div>
     </Modal>
+    {guard.confirm}
+    </>
   );
 }
 

@@ -3,7 +3,7 @@ import { Customer, CustomerCreateInput } from "../../types/customer";
 import { checkDuplicateCustomer, createCustomer, updateCustomer } from "../../services/api";
 import { GST_STATES, HOME_STATE, stateCodeFor, stateName } from "../../lib/gst";
 import { errorMessage } from "../../lib/format";
-import { Alert, Button, Checkbox, Field, inputClass, Modal } from "../ui";
+import { Alert, Button, Checkbox, Field, inputClass, Modal, useDiscardGuard } from "../ui";
 
 interface Props {
   customer?: Customer | null;
@@ -32,6 +32,7 @@ function validate(input: CustomerCreateInput): Record<string, string> {
 }
 
 export default function CustomerFormModal({ customer, onClose, onSaved }: Props) {
+  const guard = useDiscardGuard(onClose);
   const [form, setForm] = useState({
     name: customer?.name ?? "",
     gstin: customer?.gstin ?? "",
@@ -109,13 +110,14 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
   };
 
   return (
+    <>
     <Modal
       title={customer ? "Edit customer" : "New customer"}
-      onClose={onClose}
+      onClose={guard.requestClose}
       size="md"
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={guard.requestClose}>Cancel</Button>
           <Button variant="primary" loading={saving} onClick={() => save(!!duplicate)}>
             {duplicate ? "Save anyway" : customer ? "Save changes" : "Add customer"}
           </Button>
@@ -124,6 +126,7 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
     >
       <form
         className="space-y-4"
+        onChangeCapture={guard.markDirty}
         onSubmit={(e) => {
           e.preventDefault();
           save(!!duplicate);
@@ -219,5 +222,7 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
         <button type="submit" hidden />
       </form>
     </Modal>
+    {guard.confirm}
+    </>
   );
 }
