@@ -3,6 +3,7 @@ import { getBackupStatus } from "./services/api";
 import { CreditCard, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
+import BrandMark from "./components/BrandMark";
 import DashboardPage from "./pages/DashboardPage";
 import InvoicesPage from "./pages/InvoicesPage";
 import PaymentsPage from "./pages/PaymentsPage";
@@ -35,13 +36,13 @@ function NavButton({
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-colors ${
+      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-colors duration-100 ${
         active
-          ? "bg-white/10 text-white font-medium shadow-[inset_3px_0_0_var(--color-brand-200)]"
+          ? "bg-white/10 text-white font-medium shadow-[inset_3px_0_0_var(--color-arc-500)]"
           : "text-slate-300 hover:bg-white/5 hover:text-white"
       }`}
     >
-      <Icon className={`w-4 h-4 ${active ? "text-brand-200" : "text-slate-400"}`} />
+      <Icon className={`w-4 h-4 ${active ? "text-white" : "text-slate-400"}`} />
       {label}
       {badge && <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Backup due" />}
     </button>
@@ -70,9 +71,7 @@ function App() {
       <div className="h-full flex">
         <aside className="w-60 shrink-0 bg-ink-900 flex flex-col">
           <div className="px-4 py-5 mb-3 border-b border-white/10 flex items-center gap-3">
-            <div className="h-9 w-9 shrink-0 rounded-md bg-arc text-white grid place-items-center text-sm font-bold">
-              MW
-            </div>
+            <BrandMark className="h-9 w-9 shrink-0" />
             <div className="min-w-0">
               <div className="text-sm font-semibold text-white leading-tight">Mononmani</div>
               <div className="text-xs text-slate-400">Welding Works</div>
