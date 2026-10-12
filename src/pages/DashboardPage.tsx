@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CreditCard, FileText, Plus, Wallet } from "lucide-react";
 import type { Page } from "../App";
 import { InvoiceListItem } from "../types/invoice";
@@ -9,11 +9,12 @@ import {
   Alert,
   Button,
   Card,
-  Loading,
   PageHeader,
   RowChevron,
   rowClass,
+  rowProps,
   SectionTitle,
+  Skeleton,
   Stat,
   StatStrip,
   StatusBadge,
@@ -23,10 +24,50 @@ import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 
+// The first dashboard load of a session gets one gentle reveal. Coming back to the dashboard, or
+// reloading its data after a save, never replays it: people see this screen all day.
+let dashboardRevealed = false;
+
+function DashboardSkeleton() {
+  return (
+    <div role="status" aria-label="Loading the dashboard">
+      <Card className="mb-6 grid grid-cols-3 divide-x divide-slate-200 overflow-hidden">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex items-start gap-3 px-5 py-4">
+            <Skeleton className="mt-0.5 h-8 w-8" />
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-6 w-32" />
+            </div>
+          </div>
+        ))}
+      </Card>
+      <div className="grid grid-cols-5 gap-5">
+        {[3, 2].map((span) => (
+          <Card key={span} className={`${span === 3 ? "col-span-3" : "col-span-2"} space-y-4 p-5`}>
+            <Skeleton className="h-4 w-48" />
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center justify-between gap-4">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-56" />
+                </div>
+                <Skeleton className="h-4 w-20" />
+              </div>
+            ))}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const toast = useToast();
   const [summary, setSummary] = useState<PaymentsSummary | null>(null);
   const [awaiting, setAwaiting] = useState<InvoiceListItem[]>([]);
+  const [awaitingTotal, setAwaitingTotal] = useState(0);
+  const reveal = useRef(!dashboardRevealed).current;
   const [recentPayments, setRecentPayments] = useState<PaymentListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
@@ -38,12 +79,11 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
       const [kpis, invoices, payments] = await Promise.all([getPaymentsSummary(), listInvoices(), listPayments()]);
       setSummary(kpis);
       // Oldest invoices first.
-      setAwaiting(
-        invoices
-          .filter((i) => i.status === "ISSUED" && i.outstanding_amount > 0)
-          .sort((a, b) => a.invoice_date.localeCompare(b.invoice_date))
-          .slice(0, 6)
-      );
+      const waiting = invoices
+        .filter((i) => i.status === "ISSUED" && i.outstanding_amount > 0)
+        .sort((a, b) => a.invoice_date.localeCompare(b.invoice_date));
+      setAwaitingTotal(waiting.length);
+      setAwaiting(waiting.slice(0, 6));
       setRecentPayments(payments.slice(0, 5));
       setError(null);
     } catch (err) {
@@ -54,6 +94,10 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (summary) dashboardRevealed = true;
+  }, [summary]);
 
   // Ctrl+N starts a new invoice, unless the user is typing or a dialog is already open.
   const modalOpen = creatingInvoice || recordingPayment || viewingInvoiceId !== null;
@@ -97,13 +141,14 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
       )}
 
       {!summary ? (
-        <Loading />
+        error ? null : <DashboardSkeleton />
       ) : (
         <>
-          <div className="mb-6">
+          <div className={`mb-6 ${reveal ? "mww-reveal" : ""}`} style={{ "--i": 0 } as React.CSSProperties}>
             <StatStrip cols={3}>
             <Stat
               icon={Wallet}
+              tone={summary.total_outstanding > 0 ? "attention" : "default"}
               label="Balance due"
               value={formatMoney(summary.total_outstanding)}
               note={`${summary.unpaid_invoices_count} unpaid invoice${summary.unpaid_invoices_count === 1 ? "" : "s"}`}
@@ -126,7 +171,10 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
           </div>
 
           <div className="grid grid-cols-5 gap-5">
-            <Card className="col-span-3 p-5 self-start">
+            <Card
+              className={`col-span-3 p-5 self-start ${reveal ? "mww-reveal" : ""}`}
+              style={{ "--i": 1 } as React.CSSProperties}
+            >
               <SectionTitle
                 action={
                   <Button size="sm" variant="ghost" onClick={() => onNavigate("invoices")}>
@@ -142,13 +190,11 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-100">
                     {awaiting.map((inv) => (
-                      <tr
-                        key={inv.id}
-                        onClick={() => setViewingInvoiceId(inv.id)}
-                        className={rowClass}
-                      >
-                        <td className="py-2.5">
-                          <div className="font-medium text-slate-900">{inv.customer_name}</div>
+                      <tr key={inv.id} {...rowProps(() => setViewingInvoiceId(inv.id))} className={rowClass}>
+                        <td className="w-full max-w-0 py-2.5">
+                          <div className="truncate font-medium text-slate-900" title={inv.customer_name}>
+                            {inv.customer_name}
+                          </div>
                           <div className="text-xs text-slate-500">
                             {inv.invoice_number} · {formatDate(inv.invoice_date)} ·{" "}
                             <span className={daysSince(inv.invoice_date) > 30 ? "font-medium text-amber-700" : ""}>
@@ -166,9 +212,17 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
                   </tbody>
                 </table>
               )}
+              {awaitingTotal > awaiting.length && (
+                <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                  Showing the oldest {awaiting.length} of {awaitingTotal} waiting invoices.
+                </p>
+              )}
             </Card>
 
-            <Card className="col-span-2 p-5 self-start">
+            <Card
+              className={`col-span-2 p-5 self-start ${reveal ? "mww-reveal" : ""}`}
+              style={{ "--i": 2 } as React.CSSProperties}
+            >
               <SectionTitle
                 action={
                   <Button size="sm" variant="ghost" onClick={() => onNavigate("payments")}>

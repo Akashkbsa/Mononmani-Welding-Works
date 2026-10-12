@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { CreditCard, Plus, Search } from "lucide-react";
 import { PAYMENT_METHODS, PaymentListItem, PaymentsSummary } from "../types/payment";
 import { getPaymentsSummary, listPayments } from "../services/api";
 import { errorMessage, formatDate, formatMoney } from "../lib/format";
-import { Alert, Badge, Button, Card, EmptyState, inputClass, Loading, PageHeader, RowChevron, rowClass, Stat, StatStrip, theadClass, useToast } from "../components/ui";
+import { Alert, Badge, Button, Card, EmptyState, inputClass, ListSkeleton, PageHeader, RowChevron, rowClass, rowProps, Stat, StatStrip, theadClass, useToast } from "../components/ui";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 import PaymentDetailsModal from "../components/payments/PaymentDetailsModal";
 
@@ -73,6 +73,7 @@ export default function PaymentsPage() {
         <div className="relative w-80">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
+            aria-label="Search payments"
             className={`${inputClass} pl-9`}
             placeholder="Search customer, number, reference"
             value={query}
@@ -119,9 +120,10 @@ export default function PaymentsPage() {
 
       <Card>
         {payments === null ? (
-          <Loading />
+          <ListSkeleton label="Loading payments" />
         ) : payments.length === 0 ? (
           <EmptyState
+            icon={CreditCard}
             title={filtered ? "No payments match these filters" : "No payments recorded yet"}
             description={filtered ? undefined : "Record a payment when a customer pays an invoice."}
           />
@@ -140,10 +142,12 @@ export default function PaymentsPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {payments.map((p) => (
-                <tr key={p.id} onClick={() => setViewingId(p.id)} className={rowClass}>
+                <tr key={p.id} {...rowProps(() => setViewingId(p.id))} className={rowClass}>
                   <td className="py-3 px-4 font-medium text-slate-900">{p.payment_number}</td>
                   <td className="py-3 pr-4 text-slate-600">{formatDate(p.payment_date)}</td>
-                  <td className="py-3 pr-4">{p.customer_name}</td>
+                  <td className="max-w-[16rem] truncate py-3 pr-4" title={p.customer_name}>
+                    {p.customer_name}
+                  </td>
                   <td className="py-3 pr-4 text-slate-600">
                     <div className="flex items-center gap-2">
                       {p.payment_method}
@@ -151,7 +155,7 @@ export default function PaymentsPage() {
                     </div>
                   </td>
                   <td className="py-3 pr-4 text-slate-600">
-                    {p.invoices_covered.length ? p.invoices_covered.join(", ") : <span className="text-slate-400">Advance</span>}
+                    {p.invoices_covered.length ? p.invoices_covered.join(", ") : <span className="text-slate-500">Advance</span>}
                   </td>
                   <td className="py-3 px-4 text-right tabular font-medium">
                     {formatMoney(p.amount_received)}

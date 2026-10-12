@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search, Star } from "lucide-react";
+import { Plus, Search, Star, Users } from "lucide-react";
 import { Customer } from "../types/customer";
 import { listCustomers, searchCustomers, setCustomerFavorite } from "../services/api";
 import { errorMessage } from "../lib/format";
-import { Alert, Button, Card, EmptyState, inputClass, Loading, PageHeader, RowChevron, rowClass, theadClass, useToast } from "../components/ui";
+import { Alert, Button, Card, EmptyState, inputClass, ListSkeleton, PageHeader, RowChevron, rowClass, rowProps, theadClass, useToast } from "../components/ui";
 import CustomerFormModal from "../components/customers/CustomerFormModal";
 import CustomerDetailsModal from "../components/customers/CustomerDetailsModal";
 
@@ -54,6 +54,7 @@ export default function CustomersPage() {
       <div className="relative max-w-sm mb-4">
         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
         <input
+          aria-label="Search customers"
           className={`${inputClass} pl-9`}
           placeholder="Search name, phone or GSTIN"
           value={query}
@@ -69,9 +70,10 @@ export default function CustomersPage() {
 
       <Card>
         {customers === null ? (
-          <Loading />
+          <ListSkeleton label="Loading customers" />
         ) : customers.length === 0 ? (
           <EmptyState
+            icon={Users}
             title={query ? "No customers match your search" : "No customers yet"}
             description={query ? "Try a different name or number." : "Add a customer to start invoicing."}
           />
@@ -89,7 +91,7 @@ export default function CustomersPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {customers.map((c) => (
-                <tr key={c.id} onClick={() => setViewing(c)} className={rowClass}>
+                <tr key={c.id} {...rowProps(() => setViewing(c))} className={rowClass}>
                   <td className="pl-3">
                     <button
                       aria-label={c.is_favorite ? "Remove from frequent customers" : "Mark as frequent customer"}
@@ -102,7 +104,9 @@ export default function CustomersPage() {
                       <Star className={`w-4 h-4 ${c.is_favorite ? "fill-amber-400 text-amber-400" : "text-slate-300"}`} />
                     </button>
                   </td>
-                  <td className="py-3 pr-4 font-medium text-slate-900">{c.name}</td>
+                  <td className="max-w-[20rem] truncate py-3 pr-4 font-medium text-slate-900" title={c.name}>
+                    {c.name}
+                  </td>
                   <td className="py-3 pr-4 text-slate-600">{c.phone || "—"}</td>
                   <td className="py-3 pr-4 text-slate-600 font-mono text-xs">{c.gstin || "—"}</td>
                   <td className="py-3 pr-4 text-slate-600">{[c.city, c.state].filter(Boolean).join(", ") || "—"}</td>

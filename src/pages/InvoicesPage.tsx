@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Plus, Search } from "lucide-react";
+import { Download, FileText, Plus, Search } from "lucide-react";
 import { InvoiceListItem } from "../types/invoice";
 import { downloadMonthInvoices, listInvoices, printInvoice } from "../services/api";
 import { errorMessage, formatDate, formatMoney, todayISO } from "../lib/format";
@@ -9,10 +9,11 @@ import {
   Card,
   EmptyState,
   inputClass,
-  Loading,
+  ListSkeleton,
   PageHeader,
   RowChevron,
   rowClass,
+  rowProps,
   StatusBadge,
   theadClass,
   useToast,
@@ -61,6 +62,13 @@ export default function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewingId, setViewingId] = useState<number | null>(null);
+  // The invoice that was just saved glows briefly in the list, so the eye finds it.
+  const [flashId, setFlashId] = useState<number | null>(null);
+  useEffect(() => {
+    if (flashId === null) return;
+    const timer = window.setTimeout(() => setFlashId(null), 900);
+    return () => window.clearTimeout(timer);
+  }, [flashId]);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // "/" jumps to search, unless the user is already typing somewhere.
@@ -135,12 +143,13 @@ export default function InvoicesPage() {
       />
 
       <div className="flex items-end justify-between gap-4 mb-4 border-b border-slate-200">
-        <div className="flex gap-1">
+        <div role="tablist" aria-label="Invoice status" className="flex gap-1">
           {TABS.map((t) => (
             <button
               key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
-              aria-current={tab === t.id ? "true" : undefined}
               className={`px-3 h-9 -mb-px border-b-2 text-sm transition-colors ${
                 tab === t.id
                   ? "border-brand-600 text-brand-700 font-medium"
@@ -158,6 +167,7 @@ export default function InvoicesPage() {
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             ref={searchRef}
+            aria-label="Search invoices"
             className={`${inputClass} pl-9`}
             placeholder="Search number, customer, GSTIN, PO   ( / )"
             value={query}
@@ -206,9 +216,10 @@ export default function InvoicesPage() {
 
       <Card>
         {invoices === null ? (
-          <Loading />
+          <ListSkeleton label="Loading invoices" />
         ) : visible.length === 0 ? (
           <EmptyState
+            icon={FileText}
             title={invoices.length === 0 && !query ? "No invoices yet" : "No invoices here"}
             description={
               invoices.length === 0 && !query
@@ -239,10 +250,16 @@ export default function InvoicesPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {visible.map((inv) => (
-                  <tr key={inv.id} onClick={() => setViewingId(inv.id)} className={rowClass}>
+                  <tr
+                    key={inv.id}
+                    {...rowProps(() => setViewingId(inv.id))}
+                    className={`${rowClass} ${inv.id === flashId ? "mww-flash" : ""}`}
+                  >
                     <td className="py-3 px-4 font-medium text-slate-900 whitespace-nowrap">{inv.invoice_number}</td>
                     <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
-                    <td className="py-3 pr-4">{inv.customer_name}</td>
+                    <td className="max-w-[18rem] truncate py-3 pr-4" title={inv.customer_name}>
+                      {inv.customer_name}
+                    </td>
                     <td className="py-3 pr-4 text-right tabular">{formatMoney(inv.total_amount)}</td>
                     <td className="py-3 pr-4 text-right tabular">
                       {inv.status === "ISSUED" && inv.outstanding_amount > 0 ? formatMoney(inv.outstanding_amount) : "—"}
@@ -282,6 +299,7 @@ export default function InvoicesPage() {
           onSaved={async (saved, print) => {
             setCreating(false);
             toast(`Invoice ${saved.invoice.invoice_number} saved`);
+            setFlashId(saved.invoice.id);
             load();
             if (print) {
               try {
@@ -295,7 +313,14 @@ export default function InvoicesPage() {
       )}
 
       {viewingId !== null && (
-        <InvoiceDetailsModal invoiceId={viewingId} onClose={() => setViewingId(null)} onChanged={load} />
+        <InvoiceDetailsModal
+          invoiceId={viewingId}
+          onClose={() => setViewingId(null)}
+          onChanged={() => {
+            setFlashId(viewingId);
+            load();
+          }}
+        />
       )}
     </>
   );
