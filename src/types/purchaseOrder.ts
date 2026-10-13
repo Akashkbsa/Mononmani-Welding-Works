@@ -1,4 +1,4 @@
-import { AttachmentInfo, MAX_ATTACHMENT_BYTES } from "./attachment";
+import { AttachmentInfo } from "./attachment";
 
 export type PurchaseOrderStatus = "NOT_STARTED" | "PARTIAL" | "COMPLETED";
 
@@ -7,9 +7,6 @@ export const PO_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
   PARTIAL: "Partially completed",
   COMPLETED: "Completed",
 };
-
-/** Largest file that can be attached, in bytes (10 MB). The backend checks it again. */
-export const MAX_PO_FILE_BYTES = MAX_ATTACHMENT_BYTES;
 
 export interface PurchaseOrder {
   id: number;
