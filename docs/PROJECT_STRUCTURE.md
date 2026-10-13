@@ -8,6 +8,7 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 |---|---|
 | Dashboard | Balance due, overdue, invoiced and received this month; invoices waiting for payment; recent payments. |
 | Invoices | Search and status tabs (awaiting payment, overdue, paid, drafts, cancelled). Click a row for details: print Original / Duplicate / Triplicate, edit, record payment, delete. |
+| Purchase orders | Customers' purchase orders (photo, PDF or Word file), their status (Not started, Partially completed, Completed), an internal note, and the invoices raised against each. Click a row for details; open a file, edit, delete. |
 | Payments | Monthly and total receipts, advances held, cheques not yet cleared. Click a row for details, edit or delete. |
 | Customers | Search, frequent-customer star, details with balance due, advance held and invoice list. |
 | Settings | Where the data folder is, with a button to open it for backups. |
@@ -16,6 +17,8 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 
 - **Numbers:** `MWW/001/26-27` for invoices, `PAY/001/26-27` for payments: running number, then the Indian financial year (April–March), local time. Numbers issued in the older `MWW/26-27/001` form keep their number and still count towards the running number.
 - **Vehicle number:** checked as an Indian registration (e.g. `TN 09 AB 1234`, `22 BH 1234 AA`) and stored in that spaced form; an older value that fails the check can stay until it is changed.
+- **Purchase orders** hold the customer, PO number, PO date, status, an internal note and attached files; the app never reads the files. Files are kept inside the database (table `purchase_order_files`), up to 10 MB each, types JPG/PNG/PDF/DOC/DOCX, checked in Rust by size, extension and the file's first bytes. Status is set only by the owner. A duplicate PO number for the same customer is a warning, not an error.
+- **Invoice <-> purchase order:** `invoices.purchase_order_id` (nullable). One order can have many invoices; an invoice has at most one order, and it must be the same customer's. Linking fills the invoice's "PO number & date" text (`number & dd-mm-yyyy`, or just the number when the order has no date), so the printed invoice is unchanged. Unlinking, or later editing the order, leaves that text alone. An invoice that stays linked cannot change customer; removing the order first (even in the same save) allows it. An order with linked invoices cannot be deleted, and a customer with orders cannot be deleted. Cancelled and draft invoices can be linked.
 - **PO / DC numbers** are entered as a number and a date and stored as `number & dd-mm-yyyy`; left empty they print as a dash.
 - **TDS** can be entered as a percentage (0.1, 1, 2, 5, 10 or another rate) taken on the amount before GST or on the invoice total, worked out per invoice from the part each invoice is paid; or as a rupee amount. The payment still stores one `tds_amount`.
 - **Printing** an invoice: any one copy, all three copies in one PDF, or original + duplicate in one PDF (`generate_invoice_copies_pdf`).
@@ -38,21 +41,23 @@ src/                          React UI
   components/invoices/        InvoiceFormModal, InvoiceDetailsModal
   components/payments/        PaymentFormModal, PaymentDetailsModal
   components/customers/       CustomerFormModal, CustomerDetailsModal
-  pages/                      Dashboard, Invoices, Payments, Customers, Settings
+  components/purchaseOrders/  PurchaseOrderFormModal, PurchaseOrderDetailsModal
+  pages/                      Dashboard, Invoices, PurchaseOrders, Payments, Customers, Settings
   services/api.ts             every Tauri command, one function each
   lib/format.ts, lib/gst.ts   money/date formatting, GST state codes
   template/                   invoice HTML + CSS used for the PDF
 src-tauri/src/
   lib.rs                      app setup, command list, open PDF / data folder
   util.rs                     dates, rounding, Indian number formatting
-  db/migrations.rs            schema migrations 001–005 (each in a transaction)
+  db/migrations.rs            schema migrations 001–012 (each in a transaction)
   customers/ invoices/ payments/   models, repository (rules + SQL), commands
+  purchase_orders/            models, repository (rules + SQL), files (size/type/name checks, upload decoding), commands
   pdf/renderer.rs             fills the template and prints it with Edge/Chrome
 ```
 
 ## Data on disk
 
-`%APPDATA%\com.manonmani.app\` — `Database\manonmani.db`, `Invoices\<year>\<number>_<copy>.pdf`. The folder name comes from the Tauri identifier; don't change the identifier or the app will start with an empty database.
+`%APPDATA%\com.manonmani.app\` — `Database\manonmani.db` (also holds purchase order files), `Invoices\<year>\<number>_<copy>.pdf`, `Temp\` (short-lived copies of purchase order files made so they can be opened; emptied each time the app starts). The folder name comes from the Tauri identifier; don't change the identifier or the app will start with an empty database.
 
 ## Building and running
 
@@ -63,7 +68,7 @@ PDF creation needs Microsoft Edge (installed with Windows) or Google Chrome.
 
 ## Tests
 
-Rust unit tests live next to the code (`customers/repository.rs`, `invoices/repository.rs`, `payments/repository.rs`, `util.rs`, `pdf/renderer.rs`). They cover tax maths, number-to-words, migrations, allocation limits, advances, and the delete/edit guards.
+Rust unit tests live next to the code (`customers/repository.rs`, `invoices/repository.rs`, `payments/repository.rs`, `purchase_orders/repository.rs`, `purchase_orders/files.rs`, `db/migrations.rs`, `util.rs`, `pdf/renderer.rs`). They cover tax maths, number-to-words, migrations, allocation limits, advances, and the delete/edit guards.
 
 On this machine `cargo test` builds but the test executable cannot start (`STATUS_ENTRYPOINT_NOT_FOUND`): the MinGW linker can't merge Tauri's Windows manifest into test binaries. The tests pass when the data-layer modules are compiled on their own without Tauri.
 
@@ -73,4 +78,4 @@ On this machine `cargo test` builds but the test executable cannot start (`STATU
 - Migration 8 adds `change_log` (filled by triggers on every record table) and `backup_runs`. A backup is skipped when nothing changed after the last successful run; the change number only advances after the upload is verified (size and MD5), so interrupted backups lose nothing.
 - Every backup is a complete compressed copy and is never overwritten, so earlier versions stay restorable. Restore keeps a `before-restore-*.db` copy in the Backups folder.
 - The Google Client ID/secret and refresh token live in Windows Credential Manager, not in the database.
-- To run the data-layer tests despite the Tauri test-exe problem, compile `db`, `util`, and the `models.rs`/`repository.rs` files of customers, invoices, payments and backup (plus `backup/snapshot.rs`) in a small crate using `#[path]` modules, then `cargo test` there.
+- To run the data-layer tests despite the Tauri test-exe problem, compile `db`, `util`, and the `models.rs`/`repository.rs` files of customers, invoices, payments, purchase_orders and backup (plus `backup/snapshot.rs` and `purchase_orders/files.rs`) in a small crate using `#[path]` modules, then `cargo test` there.
