@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClipboardList, Plus, Search } from "lucide-react";
-import type { Page } from "../App";
 import { listPurchaseOrders } from "../services/api";
 import { errorMessage, formatDate } from "../lib/format";
 import { PurchaseOrderListItem } from "../types/purchaseOrder";
@@ -36,7 +35,7 @@ function statusBadge(status: PurchaseOrderListItem["status"]) {
   return <Badge tone="neutral">Not started</Badge>;
 }
 
-export default function PurchaseOrdersPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
+export default function PurchaseOrdersPage({ onOpenInvoice }: { onOpenInvoice: (invoiceId: number) => void }) {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderListItem[] | null>(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("all");
@@ -225,9 +224,9 @@ export default function PurchaseOrdersPage({ onNavigate }: { onNavigate: (page: 
           id={viewingId}
           onClose={() => setViewingId(null)}
           onChanged={load}
-          onOpenInvoice={() => {
+          onOpenInvoice={(invoiceId) => {
             setViewingId(null);
-            onNavigate("invoices");
+            onOpenInvoice(invoiceId);
           }}
         />
       )}

@@ -60,6 +60,8 @@ function financialYear(now = new Date()): string {
 function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [backupDue, setBackupDue] = useState(false);
+  // An invoice another screen wants opened (for example from a purchase order); the Invoices page opens it once.
+  const [openInvoiceId, setOpenInvoiceId] = useState<number | null>(null);
 
   // Reminds the user (a dot on Settings) when something is not backed up yet.
   useEffect(() => {
@@ -110,8 +112,17 @@ function App() {
             <div key={page} className="mww-page">
               <ErrorBoundary>
                 {page === "dashboard" && <DashboardPage onNavigate={setPage} />}
-                {page === "invoices" && <InvoicesPage />}
-                {page === "purchaseOrders" && <PurchaseOrdersPage onNavigate={setPage} />}
+                {page === "invoices" && (
+                  <InvoicesPage openInvoiceId={openInvoiceId} onOpenInvoiceHandled={() => setOpenInvoiceId(null)} />
+                )}
+                {page === "purchaseOrders" && (
+                  <PurchaseOrdersPage
+                    onOpenInvoice={(invoiceId) => {
+                      setOpenInvoiceId(invoiceId);
+                      setPage("invoices");
+                    }}
+                  />
+                )}
                 {page === "payments" && <PaymentsPage />}
                 {page === "customers" && <CustomersPage />}
                 {page === "settings" && <SettingsPage />}

@@ -52,7 +52,14 @@ function monthLabel(key: string): string {
   return `${MONTH_NAMES[Number(m) - 1] ?? m} ${y}`;
 }
 
-export default function InvoicesPage() {
+export default function InvoicesPage({
+  openInvoiceId = null,
+  onOpenInvoiceHandled,
+}: {
+  /** An invoice to open as soon as the page shows (set by another screen). */
+  openInvoiceId?: number | null;
+  onOpenInvoiceHandled?: () => void;
+}) {
   const toast = useToast();
   const [invoices, setInvoices] = useState<InvoiceListItem[] | null>(null);
   const [query, setQuery] = useState("");
@@ -62,6 +69,11 @@ export default function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewingId, setViewingId] = useState<number | null>(null);
+  useEffect(() => {
+    if (openInvoiceId === null) return;
+    setViewingId(openInvoiceId);
+    onOpenInvoiceHandled?.();
+  }, [openInvoiceId, onOpenInvoiceHandled]);
   // The underline slides between tabs instead of jumping.
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [slider, setSlider] = useState<{ x: number; w: number } | null>(null);

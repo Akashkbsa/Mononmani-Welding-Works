@@ -14,6 +14,7 @@ import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { Alert, Badge, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge, usePresence, useToast } from "../ui";
 import InvoiceFormModal from "./InvoiceFormModal";
 import PaymentFormModal from "../payments/PaymentFormModal";
+import PurchaseOrderDetailsModal from "../purchaseOrders/PurchaseOrderDetailsModal";
 
 interface Props {
   invoiceId: number;
@@ -126,6 +127,8 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
   const [recordingPayment, setRecordingPayment] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  // The purchase order this invoice is linked to, shown in its own window.
+  const [viewingOrderId, setViewingOrderId] = useState<number | null>(null);
   const [restoring, setRestoring] = useState(false);
 
   const load = useCallback(async () => {
@@ -259,6 +262,20 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-600 content-start">
               {inv.po_number_and_date && <Detail label="PO" value={inv.po_number_and_date} />}
+              {inv.purchase_order_id !== null && (
+                <>
+                  <dt className="text-xs text-slate-500">Purchase order</dt>
+                  <dd className="text-sm">
+                    <button
+                      type="button"
+                      className="font-medium text-brand-700 hover:underline"
+                      onClick={() => setViewingOrderId(inv.purchase_order_id)}
+                    >
+                      {inv.purchase_order_number ?? "View"}
+                    </button>
+                  </dd>
+                </>
+              )}
               {inv.vehicle_number && <Detail label="Vehicle" value={inv.vehicle_number} />}
               {inv.date_of_supply && <Detail label="Date of supply" value={inv.date_of_supply} />}
               {inv.place_of_supply && <Detail label="Place of supply" value={inv.place_of_supply} />}
@@ -382,6 +399,15 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
             toast("Payment recorded");
             refresh();
           }}
+        />
+      )}
+
+      {viewingOrderId !== null && (
+        <PurchaseOrderDetailsModal
+          id={viewingOrderId}
+          onClose={() => setViewingOrderId(null)}
+          onChanged={refresh}
+          onOpenInvoice={() => setViewingOrderId(null)}
         />
       )}
 

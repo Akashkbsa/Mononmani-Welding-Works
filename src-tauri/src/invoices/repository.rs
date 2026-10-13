@@ -339,7 +339,9 @@ impl InvoiceRepository {
                 .unwrap_or((None, None)),
             None => (None, None),
         };
-        if stored_order.is_some() && stored_customer != input.customer_id {
+        // Only an invoice that stays linked to the same order is held to its customer. Removing the
+        // order (or pointing at another order of the new customer) in the same save is fine.
+        if stored_order.is_some() && input.purchase_order_id == stored_order && stored_customer != input.customer_id {
             return Err(
                 "This invoice is linked to a purchase order, so its customer can't be changed. Remove the purchase order first."
                     .to_string(),
@@ -1209,6 +1211,22 @@ mod tests {
         assert!(err.contains("linked to a purchase order"), "{}", err);
         let unchanged = InvoiceRepository::find_by_id(&conn, saved.invoice.id).unwrap().unwrap();
         assert_eq!(unchanged.invoice.customer_id, Some(a));
+    }
+
+    #[test]
+    fn removing_the_order_and_changing_the_customer_in_one_save_is_allowed() {
+        let conn = setup_test_db();
+        let a = add_customer(&conn, "A");
+        let b = add_customer(&conn, "B");
+        let po = add_order(&conn, a, "PO-1", None);
+        let saved = InvoiceRepository::create(&conn, link_input(a, "A", "MWW/001/26-27", Some(po), None)).unwrap();
+        let moved = InvoiceRepository::update(&conn, saved.invoice.id, link_input(b, "B", "MWW/001/26-27", None, None)).unwrap();
+        assert_eq!(moved.invoice.customer_id, Some(b));
+        assert_eq!(moved.invoice.purchase_order_id, None);
+        // Pointing it at one of the new customer's own orders in the same save works too.
+        let po_b = add_order(&conn, b, "PO-B", None);
+        let again = InvoiceRepository::update(&conn, saved.invoice.id, link_input(b, "B", "MWW/001/26-27", Some(po_b), None)).unwrap();
+        assert_eq!(again.invoice.purchase_order_id, Some(po_b));
     }
 
     #[test]

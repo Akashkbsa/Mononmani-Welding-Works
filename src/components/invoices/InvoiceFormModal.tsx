@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Customer, formatCustomerAddress } from "../../types/customer";
 import { InvoiceInput, InvoiceItemInput, InvoiceStatus, InvoiceWithItems, TaxType } from "../../types/invoice";
+import { PO_STATUS_LABEL, PurchaseOrderListItem } from "../../types/purchaseOrder";
 import {
   checkDuplicateInvoiceNumber,
   createInvoice,
   getNextInvoiceNumber,
   getSettings,
   listCustomers,
+  listPurchaseOrders,
   updateInvoice,
 } from "../../services/api";
 import { HOME_STATE, stateCodeFor, stateName, taxTypeFor } from "../../lib/gst";
@@ -21,7 +23,7 @@ import {
   splitRefDate,
   todayISO,
 } from "../../lib/format";
-import { Alert, Button, Field, inputClass, Modal, textareaClass, useDiscardGuard } from "../ui";
+import { Alert, Button, Field, inputClass, Modal, SearchSelect, textareaClass, useDiscardGuard } from "../ui";
 import CustomerFormModal from "../customers/CustomerFormModal";
 import CustomerPicker from "../CustomerPicker";
 
@@ -136,6 +138,8 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
   const guard = useDiscardGuard(onClose);
   const [form, setForm] = useState<InvoiceInput>(() => initialForm(invoice));
   const [customers, setCustomers] = useState<Customer[]>([]);
+  // The chosen customer's purchase orders, for the Purchase order picker.
+  const [orders, setOrders] = useState<PurchaseOrderListItem[]>([]);
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [numberTaken, setNumberTaken] = useState(false);
   const [saving, setSaving] = useState<false | "save" | "print">(false);
@@ -171,6 +175,45 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     }
   }, [invoice]);
 
+  useEffect(() => {
+    if (form.customer_id === null) {
+      setOrders([]);
+      return;
+    }
+    let cancelled = false;
+    listPurchaseOrders({ customer_id: form.customer_id })
+      .then((list) => !cancelled && setOrders(list))
+      .catch((err) => !cancelled && setError(errorMessage(err)));
+    return () => {
+      cancelled = true;
+    };
+  }, [form.customer_id]);
+
+  const orderOptions = useMemo(
+    () =>
+      orders.map((po) => ({
+        id: po.id,
+        label: po.po_date ? `${po.po_number} — ${formatDate(po.po_date)}` : po.po_number,
+        detail: PO_STATUS_LABEL[po.status],
+        search: `${po.po_number} ${PO_STATUS_LABEL[po.status]}`,
+      })),
+    [orders]
+  );
+  // An invoice that is still linked keeps its customer; remove the purchase order first to change it.
+  const customerLocked =
+    isEdit && invoice?.invoice.purchase_order_id != null && form.purchase_order_id === invoice.invoice.purchase_order_id;
+
+  const choosePurchaseOrder = (id: number | null) => {
+    guard.markDirty();
+    const po = orders.find((o) => o.id === id);
+    // The PO box shows what will be printed; the backend fills the same text when it links.
+    setForm((f) => ({
+      ...f,
+      purchase_order_id: id,
+      po_number_and_date: po ? joinRefDate(po.po_number, po.po_date ?? "") : f.po_number_and_date,
+    }));
+  };
+
   const totals = useMemo(() => computeTotals(form), [form]);
 
   const update = <K extends keyof InvoiceInput>(key: K, value: InvoiceInput[K]) => {
@@ -193,6 +236,8 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     setForm((f) => ({
       ...f,
       customer_id: c.id,
+      // Another customer's order cannot stay chosen.
+      purchase_order_id: f.customer_id === c.id ? f.purchase_order_id : null,
       customer_name: c.name,
       customer_address: formatCustomerAddress(c) || null,
       customer_phone: c.phone,
@@ -302,6 +347,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     customers={customers}
                     value={form.customer_id}
                     fallbackLabel={isEdit && form.customer_id === null ? form.customer_name : undefined}
+                    disabled={customerLocked}
                     onChange={selectCustomer}
                   />
                   <Button icon={<Plus className="w-4 h-4" />} onClick={() => setAddingCustomer(true)}>
@@ -328,7 +374,39 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     These details come from the customer record. To change them, edit the customer.
                   </p>
                   {stateNote && <p className="mt-1 text-xs text-amber-700">{stateNote}</p>}
+                  {customerLocked && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      This invoice is linked to a purchase order, so its customer is fixed. Remove the purchase order to change it.
+                    </p>
+                  )}
                 </div>
+              )}
+
+              {form.customer_id !== null && (
+                <Field
+                  label="Purchase order"
+                  hint={
+                    form.purchase_order_id !== null
+                      ? "The PO number & date below are filled from this order."
+                      : orders.length === 0
+                      ? "This customer has no purchase orders yet. You can add one under Purchase orders."
+                      : "Optional. Pick the customer's purchase order to link this invoice to it."
+                  }
+                >
+                  <div className="flex gap-2">
+                    <SearchSelect
+                      ariaLabel="Purchase order"
+                      options={orderOptions}
+                      value={form.purchase_order_id}
+                      placeholder="Search by PO number"
+                      emptyText="No purchase order matches."
+                      disabled={orders.length === 0 && form.purchase_order_id === null}
+                      fallbackLabel={form.purchase_order_id !== null ? invoice?.invoice.purchase_order_number ?? undefined : undefined}
+                      onChange={choosePurchaseOrder}
+                    />
+                    {form.purchase_order_id !== null && <Button onClick={() => choosePurchaseOrder(null)}>Remove</Button>}
+                  </div>
+                </Field>
               )}
             </div>
 
@@ -535,6 +613,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
               <RefDateField
                 label="PO number & date"
                 value={form.po_number_and_date}
+                disabled={form.purchase_order_id !== null}
                 onChange={(v) => update("po_number_and_date", v)}
               />
               <Field label="Vehicle number" error={vehicleTouched ? vehicleError : null}>
@@ -616,10 +695,13 @@ function RefDateField({
   label,
   value,
   onChange,
+  disabled,
 }: {
   label: string;
   value: string | null;
   onChange: (v: string | null) => void;
+  /** Read-only, for example while the text comes from a linked purchase order. */
+  disabled?: boolean;
 }) {
   const { number, dateISO } = splitRefDate(value);
   const hasNumber = !!number.trim();
@@ -630,6 +712,7 @@ function RefDateField({
           className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
           value={number}
           placeholder="Number"
+          disabled={disabled}
           aria-label={`${label}: number`}
           onChange={(e) => onChange(joinRefDate(e.target.value, dateISO))}
         />
@@ -644,7 +727,7 @@ function RefDateField({
           className="h-full w-36 shrink-0 bg-transparent px-2 text-sm text-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-400"
           aria-label={`${label}: date`}
           title={hasNumber ? undefined : "Enter the number first"}
-          disabled={!hasNumber}
+          disabled={!hasNumber || disabled}
           value={dateISO}
           onChange={(e) => onChange(joinRefDate(number, e.target.value))}
         />
