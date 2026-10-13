@@ -4,6 +4,7 @@ mod db;
 pub mod invoices;
 pub mod payments;
 mod pdf;
+pub mod purchase_orders;
 mod settings;
 mod storage;
 mod util;
