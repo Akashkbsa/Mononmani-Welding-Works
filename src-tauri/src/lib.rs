@@ -6,6 +6,7 @@ pub mod invoices;
 pub mod payments;
 mod pdf;
 pub mod purchase_orders;
+pub mod quotations;
 mod settings;
 mod storage;
 mod util;

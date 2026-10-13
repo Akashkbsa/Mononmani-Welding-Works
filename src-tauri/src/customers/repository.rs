@@ -542,6 +542,13 @@ impl CustomerRepository {
             return Err(format!("This customer has {} purchase order(s), so they can't be deleted.", orders));
         }
 
+        let quotations: i64 = conn
+            .query_row("SELECT COUNT(*) FROM quotations WHERE customer_id = ?1", params![id], |r| r.get(0))
+            .map_err(|e| format!("Failed to check customer records: {}", e))?;
+        if quotations > 0 {
+            return Err(format!("This customer has {} quotation(s), so they can't be deleted.", quotations));
+        }
+
         conn.execute("DELETE FROM customers WHERE id = ?1", params![id])
             .map_err(|e| format!("Failed to delete customer: {}", e))?;
 
@@ -1080,6 +1087,36 @@ mod tests {
         .unwrap();
         let err = CustomerRepository::delete(&conn, customer.id).unwrap_err();
         assert!(err.contains("purchase order"), "{}", err);
+        assert!(CustomerRepository::find_by_id(&conn, customer.id).unwrap().is_some());
+    }
+
+    #[test]
+    fn customer_with_quotations_cannot_be_deleted() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&temp_dir.path().join("test_cust_q.db"));
+        let customer = CustomerRepository::create(
+            &conn,
+            CustomerCreateInput {
+                name: "Has a quotation".to_string(),
+                gstin: None,
+                phone: None,
+                email: None,
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                is_favorite: None,
+            },
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO quotations (customer_id, quotation_number, quotation_date, created_at, updated_at) VALUES (?1, 'Q-1', '2026-10-01', 'x', 'x')",
+            params![customer.id],
+        )
+        .unwrap();
+        let err = CustomerRepository::delete(&conn, customer.id).unwrap_err();
+        assert_eq!(err, "This customer has 1 quotation(s), so they can't be deleted.");
         assert!(CustomerRepository::find_by_id(&conn, customer.id).unwrap().is_some());
     }
 }
