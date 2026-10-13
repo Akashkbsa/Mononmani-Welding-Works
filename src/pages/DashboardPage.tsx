@@ -62,7 +62,13 @@ function DashboardSkeleton() {
   );
 }
 
-export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
+export default function DashboardPage({
+  onNavigate,
+  onOpenQuotation,
+}: {
+  onNavigate: (page: Page) => void;
+  onOpenQuotation: (quotationId: number) => void;
+}) {
   const toast = useToast();
   const [summary, setSummary] = useState<PaymentsSummary | null>(null);
   const [awaiting, setAwaiting] = useState<InvoiceListItem[]>([]);
@@ -288,7 +294,12 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page)
       )}
 
       {viewingInvoiceId !== null && (
-        <InvoiceDetailsModal invoiceId={viewingInvoiceId} onClose={() => setViewingInvoiceId(null)} onChanged={load} />
+        <InvoiceDetailsModal
+          invoiceId={viewingInvoiceId}
+          onClose={() => setViewingInvoiceId(null)}
+          onChanged={load}
+          onOpenQuotation={onOpenQuotation}
+        />
       )}
     </>
   );

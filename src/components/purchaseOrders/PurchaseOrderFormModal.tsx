@@ -8,12 +8,14 @@ import {
   PurchaseOrderInput,
   PurchaseOrderStatus,
 } from "../../types/purchaseOrder";
+import { QuotationListItem } from "../../types/quotation";
 import {
   addPurchaseOrderFile,
   checkDuplicatePoNumber,
   createPurchaseOrder,
   getPurchaseOrder,
   listCustomers,
+  listQuotations,
   listUnlinkedInvoicesForCustomer,
   removePurchaseOrderFile,
   setInvoicePurchaseOrder,
@@ -29,6 +31,7 @@ import {
   inputClass,
   Loading,
   Modal,
+  SearchSelect,
   StatusBadge,
   textareaClass,
   useDiscardGuard,
@@ -66,6 +69,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
   const [status, setStatus] = useState<PurchaseOrderStatus>("NOT_STARTED");
   const [notes, setNotes] = useState("");
   const [quotationId, setQuotationId] = useState<number | null>(null);
+  const [quotations, setQuotations] = useState<QuotationListItem[]>([]);
   const [invoiceIds, setInvoiceIds] = useState<number[]>([]);
   const [availableInvoices, setAvailableInvoices] = useState<LinkedInvoice[]>([]);
   const [storedFiles, setStoredFiles] = useState<PurchaseOrderFileInfo[]>([]);
@@ -74,7 +78,10 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const customerLocked = (detail?.invoices.length ?? 0) > 0;
+  const invoiceLocked = (detail?.invoices.length ?? 0) > 0;
+  // An order that still keeps its quotation keeps its customer; remove the quotation first.
+  const quotationLocked = isEdit && detail?.order.quotation_id != null && quotationId === detail.order.quotation_id;
+  const customerLocked = invoiceLocked || quotationLocked;
 
   const loadDetail = useCallback(async () => {
     if (!purchaseOrderId) return;
@@ -142,6 +149,30 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
       cancelled = true;
     };
   }, [customerId]);
+
+  useEffect(() => {
+    if (customerId === null) {
+      setQuotations([]);
+      return;
+    }
+    let cancelled = false;
+    listQuotations({ customer_id: customerId })
+      .then((list) => !cancelled && setQuotations(list))
+      .catch((err) => !cancelled && setError(errorMessage(err)));
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+
+  const quotationOptions = useMemo(
+    () =>
+      quotations.map((q) => ({
+        id: q.id,
+        label: `${q.quotation_number} — ${formatDate(q.quotation_date)}`,
+        search: q.quotation_number,
+      })),
+    [quotations]
+  );
 
   const selectedCustomer = useMemo(
     () => customers.find((customer) => customer.id === customerId) ?? null,
@@ -246,8 +277,10 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
               label="Customer"
               required
               hint={
-                customerLocked
+                invoiceLocked
                   ? "Customer cannot be changed after invoices have been linked to this purchase order."
+                  : quotationLocked
+                  ? "This order is linked to a quotation, so its customer is fixed. Remove the quotation to change it."
                   : undefined
               }
             >
@@ -259,6 +292,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
                 onChange={(customer) => {
                   guard.markDirty();
                   setCustomerId(customer.id);
+                  setQuotationId(null);
                   setInvoiceIds([]);
                   setDuplicateWarning(null);
                 }}
@@ -295,6 +329,43 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
               </select>
             </Field>
           </div>
+
+          {customerId !== null && (
+            <Field
+              label="Quotation"
+              hint={
+                quotations.length === 0 && quotationId === null
+                  ? "This customer has no quotations yet. You can add one under Quotations."
+                  : "Optional. Pick the quotation this order came from."
+              }
+            >
+              <div className="flex gap-2">
+                <SearchSelect
+                  ariaLabel="Quotation"
+                  options={quotationOptions}
+                  value={quotationId}
+                  placeholder="Search by quotation number"
+                  emptyText="No quotation matches."
+                  disabled={quotations.length === 0 && quotationId === null}
+                  fallbackLabel={quotationId !== null ? detail?.order.quotation_number ?? undefined : undefined}
+                  onChange={(id) => {
+                    guard.markDirty();
+                    setQuotationId(id);
+                  }}
+                />
+                {quotationId !== null && (
+                  <Button
+                    onClick={() => {
+                      guard.markDirty();
+                      setQuotationId(null);
+                    }}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </Field>
+          )}
 
           <Field label="Internal note">
             <textarea

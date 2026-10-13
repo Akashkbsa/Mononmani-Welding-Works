@@ -37,10 +37,12 @@ function statusBadge(status: PurchaseOrderListItem["status"]) {
 
 export default function PurchaseOrdersPage({
   onOpenInvoice,
+  onOpenQuotation,
   openPurchaseOrderId = null,
   onOpenHandled,
 }: {
   onOpenInvoice: (invoiceId: number) => void;
+  onOpenQuotation: (quotationId: number) => void;
   /** A purchase order to open as soon as the page shows (set by another screen). */
   openPurchaseOrderId?: number | null;
   onOpenHandled?: () => void;
@@ -194,6 +196,7 @@ export default function PurchaseOrdersPage({
                   <th className="py-2.5 px-4 font-semibold">PO number</th>
                   <th className="py-2.5 pr-4 font-semibold">Customer</th>
                   <th className="py-2.5 pr-4 font-semibold">PO date</th>
+                  <th className="py-2.5 pr-4 font-semibold">Quotation</th>
                   <th className="py-2.5 pr-4 font-semibold">Status</th>
                   <th className="py-2.5 pr-4 font-semibold text-right">Files</th>
                   <th className="py-2.5 px-4 font-semibold text-right">Invoices</th>
@@ -208,6 +211,7 @@ export default function PurchaseOrdersPage({
                       {po.customer_name}
                     </td>
                     <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{po.po_date ? formatDate(po.po_date) : "-"}</td>
+                    <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{po.quotation_number ?? "-"}</td>
                     <td className="py-3 pr-4">{statusBadge(po.status)}</td>
                     <td className="py-3 pr-4 text-right tabular">{po.file_count}</td>
                     <td className="py-3 px-4 text-right tabular">{po.invoice_count}</td>
@@ -241,6 +245,10 @@ export default function PurchaseOrdersPage({
           onOpenInvoice={(invoiceId) => {
             setViewingId(null);
             onOpenInvoice(invoiceId);
+          }}
+          onOpenQuotation={(quotationId) => {
+            setViewingId(null);
+            onOpenQuotation(quotationId);
           }}
         />
       )}

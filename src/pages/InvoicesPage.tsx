@@ -55,10 +55,12 @@ function monthLabel(key: string): string {
 export default function InvoicesPage({
   openInvoiceId = null,
   onOpenInvoiceHandled,
+  onOpenQuotation,
 }: {
   /** An invoice to open as soon as the page shows (set by another screen). */
   openInvoiceId?: number | null;
   onOpenInvoiceHandled?: () => void;
+  onOpenQuotation: (quotationId: number) => void;
 }) {
   const toast = useToast();
   const [invoices, setInvoices] = useState<InvoiceListItem[] | null>(null);
@@ -349,6 +351,7 @@ export default function InvoicesPage({
       {viewingId !== null && (
         <InvoiceDetailsModal
           invoiceId={viewingId}
+          onOpenQuotation={onOpenQuotation}
           onClose={() => setViewingId(null)}
           onChanged={() => {
             setFlashId(viewingId);

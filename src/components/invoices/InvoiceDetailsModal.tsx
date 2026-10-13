@@ -21,6 +21,8 @@ interface Props {
   onClose: () => void;
   /** Called after anything changes so the list behind can refresh. */
   onChanged: () => void;
+  /** Opens a quotation on its own page (the purchase order window can lead there). */
+  onOpenQuotation: (quotationId: number) => void;
 }
 
 const COPIES: { copy: CopyType; label: string }[] = [
@@ -117,7 +119,7 @@ function PrintMenu({
   );
 }
 
-export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: Props) {
+export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged, onOpenQuotation }: Props) {
   const toast = useToast();
   const [data, setData] = useState<InvoiceWithItems | null>(null);
   const [payments, setPayments] = useState<InvoicePaymentSummary | null>(null);
@@ -408,6 +410,10 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged }: P
           onClose={() => setViewingOrderId(null)}
           onChanged={refresh}
           onOpenInvoice={() => setViewingOrderId(null)}
+          onOpenQuotation={(quotationId) => {
+            setViewingOrderId(null);
+            onOpenQuotation(quotationId);
+          }}
         />
       )}
 

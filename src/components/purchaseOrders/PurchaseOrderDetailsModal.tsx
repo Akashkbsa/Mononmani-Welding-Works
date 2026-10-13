@@ -11,6 +11,7 @@ interface Props {
   onClose: () => void;
   onChanged: () => void;
   onOpenInvoice: (invoiceId: number) => void;
+  onOpenQuotation: (quotationId: number) => void;
 }
 
 function poStatusBadge(status: PurchaseOrderDetail["order"]["status"]) {
@@ -26,7 +27,7 @@ function paymentStatusBadge(status: string) {
   return <Badge tone="neutral">{status}</Badge>;
 }
 
-export default function PurchaseOrderDetailsModal({ id, onClose, onChanged, onOpenInvoice }: Props) {
+export default function PurchaseOrderDetailsModal({ id, onClose, onChanged, onOpenInvoice, onOpenQuotation }: Props) {
   const toast = useToast();
   const [data, setData] = useState<PurchaseOrderDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +89,23 @@ export default function PurchaseOrderDetailsModal({ id, onClose, onChanged, onOp
             <Item label="PO number" value={data.order.po_number} strong />
             <Item label="PO date" value={data.order.po_date ? formatDate(data.order.po_date) : "-"} />
             <Item label="Status" value={data.order.status === "PARTIAL" ? "Partially completed" : data.order.status === "COMPLETED" ? "Completed" : "Not started"} />
+            <div>
+              <dt className="text-xs text-slate-500">Quotation</dt>
+              <dd className="text-slate-800">
+                {data.order.quotation_id !== null ? (
+                  <button
+                    type="button"
+                    className="font-medium text-brand-700 hover:underline"
+                    onClick={() => onOpenQuotation(data.order.quotation_id as number)}
+                  >
+                    {data.order.quotation_number ?? "View"}
+                    {data.order.quotation_date ? ` — ${formatDate(data.order.quotation_date)}` : ""}
+                  </button>
+                ) : (
+                  "-"
+                )}
+              </dd>
+            </div>
           </dl>
 
           <div>

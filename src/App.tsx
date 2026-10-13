@@ -68,6 +68,11 @@ function App() {
   const [openQuotationId, setOpenQuotationId] = useState<number | null>(null);
   const [openPurchaseOrderId, setOpenPurchaseOrderId] = useState<number | null>(null);
 
+  const openQuotation = (quotationId: number) => {
+    setOpenQuotationId(quotationId);
+    setPage("quotations");
+  };
+
   // Reminds the user (a dot on Settings) when something is not backed up yet.
   useEffect(() => {
     getBackupStatus()
@@ -116,9 +121,13 @@ function App() {
           <div className="max-w-6xl mx-auto px-8 py-6">
             <div key={page} className="mww-page">
               <ErrorBoundary>
-                {page === "dashboard" && <DashboardPage onNavigate={setPage} />}
+                {page === "dashboard" && <DashboardPage onNavigate={setPage} onOpenQuotation={openQuotation} />}
                 {page === "invoices" && (
-                  <InvoicesPage openInvoiceId={openInvoiceId} onOpenInvoiceHandled={() => setOpenInvoiceId(null)} />
+                  <InvoicesPage
+                    openInvoiceId={openInvoiceId}
+                    onOpenInvoiceHandled={() => setOpenInvoiceId(null)}
+                    onOpenQuotation={openQuotation}
+                  />
                 )}
                 {page === "quotations" && (
                   <QuotationsPage
@@ -134,6 +143,7 @@ function App() {
                   <PurchaseOrdersPage
                     openPurchaseOrderId={openPurchaseOrderId}
                     onOpenHandled={() => setOpenPurchaseOrderId(null)}
+                    onOpenQuotation={openQuotation}
                     onOpenInvoice={(invoiceId) => {
                       setOpenInvoiceId(invoiceId);
                       setPage("invoices");
