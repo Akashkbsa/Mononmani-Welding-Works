@@ -10,6 +10,7 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("customers", "customer", "customers"),
     ("invoices", "invoice", "invoices"),
     ("payments", "payment", "payments"),
+    ("quotations", "quotation", "quotations"),
     ("purchase_orders", "purchase order", "purchase orders"),
     ("customer_credits", "advance", "advances"),
 ];
@@ -229,6 +230,20 @@ mod tests {
         let p = BackupRepository::pending_changes(&conn, mark).unwrap();
         assert_eq!(p.lines, vec!["1 customer edited"]);
         assert!(!BackupRepository::pending_changes(&conn, BackupRepository::max_seq(&conn).unwrap()).unwrap().any);
+    }
+
+    #[test]
+    fn pending_summary_counts_quotations() {
+        let (_d, conn) = setup();
+        let c = add_customer(&conn, "A");
+        let before = BackupRepository::max_seq(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO quotations (customer_id, quotation_number, quotation_date, created_at, updated_at) VALUES (?1, 'Q-1', '2026-10-01', 'x', 'x')",
+            params![c],
+        )
+        .unwrap();
+        let p = BackupRepository::pending_changes(&conn, before).unwrap();
+        assert_eq!(p.lines, vec!["1 quotation added"]);
     }
 
     #[test]

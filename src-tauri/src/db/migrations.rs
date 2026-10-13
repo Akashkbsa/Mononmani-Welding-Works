@@ -436,6 +436,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "012_purchase_orders",
         sql: PURCHASE_ORDERS_SQL,
     },
+    Migration {
+        version: 13,
+        name: "013_quotations",
+        sql: QUOTATIONS_SQL,
+    },
 ];
 
 /// Purchase orders received from customers (with the files they came in) and the optional link
@@ -490,6 +495,60 @@ pub const PURCHASE_ORDERS_SQL: &str = r#"
     CREATE TRIGGER IF NOT EXISTS trg_purchase_order_files_delete_log AFTER DELETE ON purchase_order_files
     BEGIN
         INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('purchase_order_files', OLD.id, 'DELETE', datetime('now'));
+    END;
+"#;
+
+/// Quotations sent to customers (with the files they went out as) and the optional link from a
+/// purchase order to the quotation it was raised from. One quotation can have many orders.
+pub const QUOTATIONS_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS quotations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL REFERENCES customers(id),
+        quotation_number TEXT NOT NULL,
+        quotation_date TEXT NOT NULL,
+        notes TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_quotations_customer ON quotations(customer_id);
+
+    CREATE TABLE IF NOT EXISTS quotation_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quotation_id INTEGER NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_quotation_files_quotation ON quotation_files(quotation_id);
+
+    ALTER TABLE purchase_orders ADD COLUMN quotation_id INTEGER NULL REFERENCES quotations(id);
+    CREATE INDEX IF NOT EXISTS idx_purchase_orders_quotation ON purchase_orders(quotation_id);
+
+    CREATE TRIGGER IF NOT EXISTS trg_quotations_insert_log AFTER INSERT ON quotations
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('quotations', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_quotations_update_log AFTER UPDATE ON quotations
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('quotations', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_quotations_delete_log AFTER DELETE ON quotations
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('quotations', OLD.id, 'DELETE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_quotation_files_insert_log AFTER INSERT ON quotation_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('quotation_files', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_quotation_files_update_log AFTER UPDATE ON quotation_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('quotation_files', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_quotation_files_delete_log AFTER DELETE ON quotation_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('quotation_files', OLD.id, 'DELETE', datetime('now'));
     END;
 "#;
 
@@ -647,6 +706,41 @@ mod tests {
         path
     }
 
+    /// A database exactly as migration 12 left it: one customer and one purchase order (no quotations yet).
+    fn database_at_version_12(dir: &Path) -> std::path::PathBuf {
+        let path = dir.join("t12.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, applied_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        for m in MIGRATIONS.iter().filter(|m| m.version <= 12) {
+            conn.execute_batch(m.sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, 'x')",
+                params![m.version, m.name],
+            )
+            .unwrap();
+        }
+        conn.execute("INSERT INTO customers (name, created_at, updated_at) VALUES ('Sample Co', 'x', 'x')", []).unwrap();
+        conn.execute(
+            "INSERT INTO purchase_orders (customer_id, po_number, created_at, updated_at) VALUES (1, 'PO-OLD', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        path
+    }
+
+    fn add_quotation(conn: &Connection, number: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO quotations (customer_id, quotation_number, quotation_date, created_at, updated_at) VALUES (1, ?1, '2026-10-01', 'x', 'x')",
+            params![number],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
     fn open(path: &Path) -> Connection {
         DatabaseManager::new(path).unwrap().get_connection().unwrap()
     }
@@ -665,7 +759,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_11(dir.path()));
 
-        assert_eq!(latest_version(), 12);
+        assert!(latest_version() >= 12);
         let (linked, text): (Option<i64>, String) = conn
             .query_row("SELECT purchase_order_id, po_number_and_date FROM invoices", [], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap();
@@ -716,5 +810,59 @@ mod tests {
         let id = add_order(&conn, "PO-3");
         conn.execute("UPDATE invoices SET purchase_order_id = ?1", params![id]).unwrap();
         assert!(conn.execute("DELETE FROM purchase_orders WHERE id = ?1", params![id]).is_err());
+    }
+
+    #[test]
+    fn migration_13_adds_quotations_and_leaves_existing_orders_unlinked() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_12(dir.path()));
+
+        assert_eq!(latest_version(), 13);
+        let linked: Option<i64> =
+            conn.query_row("SELECT quotation_id FROM purchase_orders WHERE po_number = 'PO-OLD'", [], |r| r.get(0)).unwrap();
+        assert_eq!(linked, None);
+
+        let q = add_quotation(&conn, "Q-1");
+        conn.execute("UPDATE purchase_orders SET quotation_id = ?1", params![q]).unwrap();
+        let bad: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
+        assert_eq!(bad, 0);
+    }
+
+    #[test]
+    fn quotations_and_their_files_are_logged_and_files_go_with_the_quotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_12(dir.path()));
+        let q = add_quotation(&conn, "Q-2");
+        conn.execute("UPDATE quotations SET notes = 'x' WHERE id = ?1", params![q]).unwrap();
+        conn.execute(
+            "INSERT INTO quotation_files (quotation_id, file_name, mime_type, size_bytes, data, created_at) VALUES (?1, 'a.pdf', 'application/pdf', 4, x'25504446', 'x')",
+            params![q],
+        )
+        .unwrap();
+        let ops = |table: &str| -> Vec<String> {
+            conn.prepare("SELECT op FROM change_log WHERE table_name = ?1 ORDER BY seq")
+                .unwrap()
+                .query_map(params![table], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert_eq!(ops("quotations"), vec!["INSERT", "UPDATE"]);
+        assert_eq!(ops("quotation_files"), vec!["INSERT"]);
+
+        conn.execute("DELETE FROM quotations WHERE id = ?1", params![q]).unwrap();
+        let files: i64 = conn.query_row("SELECT COUNT(*) FROM quotation_files", [], |r| r.get(0)).unwrap();
+        assert_eq!(files, 0, "files go with their quotation");
+        assert_eq!(ops("quotations"), vec!["INSERT", "UPDATE", "DELETE"]);
+    }
+
+    #[test]
+    fn database_refuses_to_delete_a_quotation_that_an_order_points_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_12(dir.path()));
+        let q = add_quotation(&conn, "Q-3");
+        conn.execute("UPDATE purchase_orders SET quotation_id = ?1", params![q]).unwrap();
+        assert!(conn.execute("DELETE FROM quotations WHERE id = ?1", params![q]).is_err());
+        assert!(conn.execute("UPDATE purchase_orders SET quotation_id = 9999", []).is_err(), "no such quotation");
     }
 }
