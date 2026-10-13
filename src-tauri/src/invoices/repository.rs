@@ -1076,6 +1076,7 @@ mod tests {
                 status: "NOT_STARTED".to_string(),
                 notes: None,
                 invoice_ids: vec![],
+                quotation_id: None,
             },
         )
         .unwrap()
@@ -1189,6 +1190,7 @@ mod tests {
                 status: "PARTIAL".to_string(),
                 notes: None,
                 invoice_ids: vec![],
+                quotation_id: None,
             },
         )
         .unwrap();

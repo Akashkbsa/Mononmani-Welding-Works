@@ -4,6 +4,7 @@ use super::models::{
     PurchaseOrderInput, PurchaseOrderListItem, STATUSES,
 };
 use crate::invoices::repository::InvoiceRepository;
+use crate::quotations::repository::QuotationRepository;
 use crate::util::{display_date, normalize_date, round2};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -84,6 +85,9 @@ impl PurchaseOrderRepository {
         )
         .map_err(|e| format!("Failed to save the purchase order: {}", e))?;
         let id = tx.last_insert_rowid();
+        if let Some(quotation_id) = input.quotation_id {
+            QuotationRepository::set_purchase_order_link(&tx, id, Some(quotation_id))?;
+        }
         for invoice_id in &input.invoice_ids {
             Self::set_invoice_link(&tx, *invoice_id, Some(id))?;
         }
@@ -92,14 +96,20 @@ impl PurchaseOrderRepository {
     }
 
     pub fn update(conn: &Connection, id: i64, input: PurchaseOrderInput) -> Result<PurchaseOrderDetail, String> {
-        let current: i64 = conn
-            .query_row("SELECT customer_id FROM purchase_orders WHERE id = ?1", params![id], |r| r.get(0))
+        let (current, stored_quotation): (i64, Option<i64>) = conn
+            .query_row("SELECT customer_id, quotation_id FROM purchase_orders WHERE id = ?1", params![id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .optional()
             .map_err(|e| format!("Failed to load the purchase order: {}", e))?
             .ok_or_else(|| "Purchase order not found.".to_string())?;
         let (number, date, notes) = Self::clean_input(conn, &input)?;
         if current != input.customer_id && Self::linked_count(conn, id)? > 0 {
             return Err("Unlink this order's invoices before changing its customer.".to_string());
+        }
+        // Same lock the invoice link has: the order keeps its quotation, so its customer is fixed.
+        if current != input.customer_id && stored_quotation.is_some() && input.quotation_id == stored_quotation {
+            return Err("Remove this order's quotation before changing its customer.".to_string());
         }
         let now = Utc::now().to_rfc3339();
         let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {}", e))?;
@@ -109,6 +119,9 @@ impl PurchaseOrderRepository {
             params![input.customer_id, number, date, input.status, notes, now, id],
         )
         .map_err(|e| format!("Failed to save the purchase order: {}", e))?;
+        if input.quotation_id != stored_quotation {
+            QuotationRepository::set_purchase_order_link(&tx, id, input.quotation_id)?;
+        }
         for invoice_id in &input.invoice_ids {
             Self::set_invoice_link(&tx, *invoice_id, Some(id))?;
         }
@@ -132,8 +145,10 @@ impl PurchaseOrderRepository {
     pub fn get(conn: &Connection, id: i64) -> Result<Option<PurchaseOrderDetail>, String> {
         let order = conn
             .query_row(
-                "SELECT po.id, po.customer_id, c.name, po.po_number, po.po_date, po.status, po.notes, po.created_at, po.updated_at
-                 FROM purchase_orders po JOIN customers c ON c.id = po.customer_id WHERE po.id = ?1",
+                "SELECT po.id, po.customer_id, c.name, po.po_number, po.po_date, po.status, po.notes, po.created_at, po.updated_at,
+                        po.quotation_id, q.quotation_number, q.quotation_date
+                 FROM purchase_orders po JOIN customers c ON c.id = po.customer_id
+                 LEFT JOIN quotations q ON q.id = po.quotation_id WHERE po.id = ?1",
                 params![id],
                 |r| {
                     Ok(PurchaseOrder {
@@ -144,6 +159,9 @@ impl PurchaseOrderRepository {
                         po_date: r.get(4)?,
                         status: r.get(5)?,
                         notes: r.get(6)?,
+                        quotation_id: r.get(9)?,
+                        quotation_number: r.get(10)?,
+                        quotation_date: r.get(11)?,
                         created_at: r.get(7)?,
                         updated_at: r.get(8)?,
                     })
@@ -173,8 +191,10 @@ impl PurchaseOrderRepository {
         let mut query = String::from(
             "SELECT po.id, po.customer_id, c.name, po.po_number, po.po_date, po.status,
                     (SELECT COUNT(*) FROM purchase_order_files f WHERE f.purchase_order_id = po.id),
-                    (SELECT COUNT(*) FROM invoices i WHERE i.purchase_order_id = po.id)
-             FROM purchase_orders po JOIN customers c ON c.id = po.customer_id WHERE 1=1",
+                    (SELECT COUNT(*) FROM invoices i WHERE i.purchase_order_id = po.id),
+                    po.quotation_id, q.quotation_number
+             FROM purchase_orders po JOIN customers c ON c.id = po.customer_id
+             LEFT JOIN quotations q ON q.id = po.quotation_id WHERE 1=1",
         );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(q) = filter.query.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -207,6 +227,8 @@ impl PurchaseOrderRepository {
                     status: r.get(5)?,
                     file_count: r.get(6)?,
                     invoice_count: r.get(7)?,
+                    quotation_id: r.get(8)?,
+                    quotation_number: r.get(9)?,
                 })
             })
             .map_err(|e| format!("Failed to load purchase orders: {}", e))?;
@@ -375,6 +397,7 @@ mod tests {
             status: "NOT_STARTED".to_string(),
             notes: None,
             invoice_ids: vec![],
+            quotation_id: None,
         }
     }
 
@@ -387,6 +410,113 @@ mod tests {
     }
 
     const PDF: &[u8] = b"%PDF-1.4 sample";
+
+    fn add_quotation(conn: &Connection, customer_id: i64, number: &str, date: &str) -> i64 {
+        crate::quotations::repository::QuotationRepository::create(
+            conn,
+            crate::quotations::models::QuotationInput {
+                customer_id,
+                quotation_number: number.to_string(),
+                quotation_date: date.to_string(),
+                notes: None,
+                purchase_order_ids: vec![],
+            },
+        )
+        .unwrap()
+        .quotation
+        .id
+    }
+
+    fn order_count_of(conn: &Connection, quotation_id: i64) -> usize {
+        crate::quotations::repository::QuotationRepository::get(conn, quotation_id).unwrap().unwrap().orders.len()
+    }
+
+    #[test]
+    fn an_order_links_to_a_quotation_of_its_customer_and_shows_its_number_and_date() {
+        let (_d, conn) = setup();
+        let a = add_customer(&conn, "A");
+        let q = add_quotation(&conn, a, "Q-7", "2026-09-30");
+        let mut inp = input(a, "PO-1", None);
+        inp.quotation_id = Some(q);
+        let po = PurchaseOrderRepository::create(&conn, inp).unwrap();
+        assert_eq!(po.order.quotation_id, Some(q));
+        assert_eq!(po.order.quotation_number.as_deref(), Some("Q-7"));
+        assert_eq!(po.order.quotation_date.as_deref(), Some("2026-09-30"));
+        let list = PurchaseOrderRepository::list(&conn, PurchaseOrderFilter::default()).unwrap();
+        assert_eq!(list[0].quotation_id, Some(q));
+        assert_eq!(list[0].quotation_number.as_deref(), Some("Q-7"));
+        let none = PurchaseOrderRepository::create(&conn, input(a, "PO-2", None)).unwrap();
+        assert_eq!(none.order.quotation_id, None);
+        assert_eq!(none.order.quotation_number, None);
+    }
+
+    #[test]
+    fn an_order_cannot_take_a_quotation_of_another_customer_or_a_missing_one() {
+        let (_d, conn) = setup();
+        let a = add_customer(&conn, "A");
+        let b = add_customer(&conn, "B");
+        let theirs = add_quotation(&conn, b, "Q-B", "2026-09-30");
+        let mut inp = input(a, "PO-1", None);
+        inp.quotation_id = Some(theirs);
+        let err = PurchaseOrderRepository::create(&conn, inp).unwrap_err();
+        assert!(err.contains("different customer"), "{}", err);
+        let mut gone = input(a, "PO-2", None);
+        gone.quotation_id = Some(9999);
+        assert_eq!(PurchaseOrderRepository::create(&conn, gone).unwrap_err(), "Quotation not found.");
+        let orders: i64 = conn.query_row("SELECT COUNT(*) FROM purchase_orders", [], |r| r.get(0)).unwrap();
+        assert_eq!(orders, 0, "a refused save leaves no order behind");
+    }
+
+    #[test]
+    fn moving_an_order_to_another_quotation_or_removing_it_updates_both_sides() {
+        let (_d, conn) = setup();
+        let a = add_customer(&conn, "A");
+        let q1 = add_quotation(&conn, a, "Q-1", "2026-09-01");
+        let q2 = add_quotation(&conn, a, "Q-2", "2026-09-02");
+        let mut inp = input(a, "PO-1", None);
+        inp.quotation_id = Some(q1);
+        let po = PurchaseOrderRepository::create(&conn, inp).unwrap().order.id;
+        assert_eq!((order_count_of(&conn, q1), order_count_of(&conn, q2)), (1, 0));
+
+        let mut to_q2 = input(a, "PO-1", None);
+        to_q2.quotation_id = Some(q2);
+        PurchaseOrderRepository::update(&conn, po, to_q2).unwrap();
+        assert_eq!((order_count_of(&conn, q1), order_count_of(&conn, q2)), (0, 1));
+        assert!(crate::quotations::repository::QuotationRepository::delete(&conn, q1).is_ok(), "q1 has no orders left");
+
+        let removed = PurchaseOrderRepository::update(&conn, po, input(a, "PO-1", None)).unwrap();
+        assert_eq!(removed.order.quotation_id, None);
+        assert_eq!(order_count_of(&conn, q2), 0);
+        assert!(crate::quotations::repository::QuotationRepository::delete(&conn, q2).is_ok());
+    }
+
+    #[test]
+    fn customer_cannot_change_while_the_order_keeps_its_quotation() {
+        let (_d, conn) = setup();
+        let a = add_customer(&conn, "A");
+        let b = add_customer(&conn, "B");
+        let q = add_quotation(&conn, a, "Q-1", "2026-09-01");
+        let mut inp = input(a, "PO-1", None);
+        inp.quotation_id = Some(q);
+        let po = PurchaseOrderRepository::create(&conn, inp).unwrap().order.id;
+
+        let mut same_quotation = input(b, "PO-1", None);
+        same_quotation.quotation_id = Some(q);
+        assert_eq!(
+            PurchaseOrderRepository::update(&conn, po, same_quotation).unwrap_err(),
+            "Remove this order's quotation before changing its customer."
+        );
+        // Removing the quotation in the same save lets the customer change.
+        let moved = PurchaseOrderRepository::update(&conn, po, input(b, "PO-1", None)).unwrap();
+        assert_eq!(moved.order.customer_name, "B");
+        assert_eq!(moved.order.quotation_id, None);
+
+        // Invoices on the order still lock the customer, quotation or not.
+        let invoice = add_invoice(&conn, "I-1", b, "ISSUED");
+        PurchaseOrderRepository::set_invoice_link(&conn, invoice, Some(po)).unwrap();
+        let err = PurchaseOrderRepository::update(&conn, po, input(a, "PO-1", None)).unwrap_err();
+        assert!(err.contains("invoices"), "{}", err);
+    }
 
     #[test]
     fn create_requires_a_customer_and_a_po_number() {

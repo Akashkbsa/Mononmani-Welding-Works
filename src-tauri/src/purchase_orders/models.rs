@@ -11,6 +11,10 @@ pub struct PurchaseOrder {
     pub po_date: Option<String>,
     pub status: String,
     pub notes: Option<String>,
+    /// The quotation this order was raised from, if any.
+    pub quotation_id: Option<i64>,
+    pub quotation_number: Option<String>,
+    pub quotation_date: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -25,6 +29,8 @@ pub struct PurchaseOrderListItem {
     pub status: String,
     pub file_count: i64,
     pub invoice_count: i64,
+    pub quotation_id: Option<i64>,
+    pub quotation_number: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +72,9 @@ pub struct PurchaseOrderInput {
     pub notes: Option<String>,
     #[serde(default)]
     pub invoice_ids: Vec<i64>,
+    /// The quotation this order came from; `None` for an order that came without one.
+    #[serde(default)]
+    pub quotation_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
