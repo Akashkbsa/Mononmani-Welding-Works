@@ -127,6 +127,18 @@ pub fn run() {
             purchase_orders::open_purchase_order_file,
             purchase_orders::list_unlinked_invoices_for_customer,
             purchase_orders::set_invoice_purchase_order,
+            quotations::list_quotations,
+            quotations::get_quotation,
+            quotations::create_quotation,
+            quotations::update_quotation,
+            quotations::delete_quotation,
+            quotations::check_duplicate_quotation_number,
+            quotations::add_quotation_file,
+            quotations::remove_quotation_file,
+            quotations::get_quotation_file_preview,
+            quotations::open_quotation_file,
+            quotations::list_unlinked_purchase_orders_for_customer,
+            quotations::set_purchase_order_quotation,
             settings::get_settings,
             settings::save_settings
         ])
