@@ -1018,20 +1018,20 @@ mod tests {
     }
 
     #[test]
-    fn next_numbers_put_the_running_number_before_the_year() {
+    fn next_numbers_put_the_year_before_the_running_number() {
         let conn = setup();
         let c = customer(&conn, "A");
         let fy = financial_year_label();
-        // One invoice in the older form and one in the current form.
-        invoice(&conn, c, &format!("MWW/{fy}/007"), 100.0);
-        invoice(&conn, c, &format!("MWW/003/{fy}"), 100.0);
-        assert_eq!(InvoiceRepository::get_next_invoice_number(&conn).unwrap(), format!("MWW/008/{fy}"));
+        // One invoice in the swapped form issued for a while, and one in the current form.
+        invoice(&conn, c, &format!("MWW/007/{fy}"), 100.0);
+        invoice(&conn, c, &format!("MWW/{fy}/003"), 100.0);
+        assert_eq!(InvoiceRepository::get_next_invoice_number(&conn).unwrap(), format!("MWW/{fy}/008"));
 
-        assert_eq!(PaymentRepository::get_next_payment_number(&conn).unwrap(), format!("PAY/001/{fy}"));
+        assert_eq!(PaymentRepository::get_next_payment_number(&conn).unwrap(), format!("PAY/{fy}/001"));
         let inv = invoice(&conn, c, "X/1", 100.0);
         let p = PaymentRepository::create_payment(&conn, payment(c, 100.0, &[(inv, 100.0)], 0.0, "NONE")).unwrap();
-        assert_eq!(p.payment.payment_number, format!("PAY/001/{fy}"));
-        assert_eq!(PaymentRepository::get_next_payment_number(&conn).unwrap(), format!("PAY/002/{fy}"));
+        assert_eq!(p.payment.payment_number, format!("PAY/{fy}/001"));
+        assert_eq!(PaymentRepository::get_next_payment_number(&conn).unwrap(), format!("PAY/{fy}/002"));
     }
 
     #[test]

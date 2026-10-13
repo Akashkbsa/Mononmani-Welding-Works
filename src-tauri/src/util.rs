@@ -60,14 +60,14 @@ pub fn financial_year_label() -> String {
     format!("{:02}-{:02}", start % 100, (start + 1) % 100)
 }
 
-/// Document number as printed: prefix, running number, financial year, e.g. "MWW/009/26-27".
+/// Document number as printed: prefix, financial year, running number, e.g. "MWW/26-27/009".
 pub fn doc_number(prefix: &str, seq: i64, fy: &str) -> String {
-    format!("{}/{:03}/{}", prefix, seq, fy)
+    format!("{}/{}/{:03}", prefix, fy, seq)
 }
 
 /// The running number inside a document number of the given prefix and financial year.
-/// Reads the current "MWW/009/26-27" form and the older "MWW/26-27/009" form, so numbering
-/// carries on from whatever was issued before.
+/// Reads the current "MWW/26-27/009" form and the "MWW/009/26-27" form that was issued for
+/// a while, so numbering carries on from whatever was issued before.
 pub fn doc_sequence(number: &str, prefix: &str, fy: &str) -> Option<i64> {
     let parts: Vec<&str> = number.trim().split('/').map(str::trim).collect();
     if parts.len() != 3 || !parts[0].eq_ignore_ascii_case(prefix) {
@@ -146,14 +146,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn document_numbers_put_the_running_number_before_the_year() {
-        assert_eq!(doc_number("MWW", 9, "26-27"), "MWW/009/26-27");
-        assert_eq!(doc_number("PAY", 4, "26-27"), "PAY/004/26-27");
-        assert_eq!(doc_sequence("MWW/009/26-27", "MWW", "26-27"), Some(9));
-        // The older form still counts, so numbering continues.
-        assert_eq!(doc_sequence("MWW/26-27/008", "MWW", "26-27"), Some(8));
-        assert_eq!(doc_sequence("MWW/26-27/008", "MWW", "27-28"), None);
-        assert_eq!(doc_sequence("PAY/004/26-27", "MWW", "26-27"), None);
+    fn document_numbers_put_the_year_before_the_running_number() {
+        assert_eq!(doc_number("MWW", 9, "26-27"), "MWW/26-27/009");
+        assert_eq!(doc_number("PAY", 4, "26-27"), "PAY/26-27/004");
+        assert_eq!(doc_sequence("MWW/26-27/009", "MWW", "26-27"), Some(9));
+        // Numbers issued in the swapped form still count, so numbering continues.
+        assert_eq!(doc_sequence("MWW/008/26-27", "MWW", "26-27"), Some(8));
+        assert_eq!(doc_sequence("MWW/008/26-27", "MWW", "27-28"), None);
+        assert_eq!(doc_sequence("PAY/26-27/004", "MWW", "26-27"), None);
         assert_eq!(doc_sequence("T/1", "MWW", "26-27"), None);
     }
 

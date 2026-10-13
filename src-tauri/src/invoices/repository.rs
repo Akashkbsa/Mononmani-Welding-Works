@@ -128,8 +128,8 @@ impl InvoiceRepository {
         })
     }
 
-    /// Next number in the current financial year, e.g. MWW/009/26-27. Numbers issued in the
-    /// older MWW/26-27/009 form still count towards the running number.
+    /// Next number in the current financial year, e.g. MWW/26-27/009. Numbers issued in the
+    /// swapped MWW/009/26-27 form still count towards the running number.
     pub fn get_next_invoice_number(conn: &Connection) -> Result<String, String> {
         let fy = financial_year_label();
 
