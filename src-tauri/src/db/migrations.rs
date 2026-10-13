@@ -431,7 +431,67 @@ const MIGRATIONS: &[Migration] = &[
         name: "011_exact_invoice_totals",
         sql: EXACT_TOTALS_SQL,
     },
+    Migration {
+        version: 12,
+        name: "012_purchase_orders",
+        sql: PURCHASE_ORDERS_SQL,
+    },
 ];
+
+/// Purchase orders received from customers (with the files they came in) and the optional link
+/// from an invoice to the order it was raised against. One order can have many invoices.
+pub const PURCHASE_ORDERS_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL REFERENCES customers(id),
+        po_number TEXT NOT NULL,
+        po_date TEXT NULL,
+        status TEXT NOT NULL DEFAULT 'NOT_STARTED' CHECK (status IN ('NOT_STARTED', 'PARTIAL', 'COMPLETED')),
+        notes TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_orders_customer ON purchase_orders(customer_id);
+
+    CREATE TABLE IF NOT EXISTS purchase_order_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_order_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_order_files_order ON purchase_order_files(purchase_order_id);
+
+    ALTER TABLE invoices ADD COLUMN purchase_order_id INTEGER NULL REFERENCES purchase_orders(id);
+    CREATE INDEX IF NOT EXISTS idx_invoices_purchase_order ON invoices(purchase_order_id);
+
+    CREATE TRIGGER IF NOT EXISTS trg_purchase_orders_insert_log AFTER INSERT ON purchase_orders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('purchase_orders', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_purchase_orders_update_log AFTER UPDATE ON purchase_orders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('purchase_orders', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_purchase_orders_delete_log AFTER DELETE ON purchase_orders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('purchase_orders', OLD.id, 'DELETE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_purchase_order_files_insert_log AFTER INSERT ON purchase_order_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('purchase_order_files', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_purchase_order_files_update_log AFTER UPDATE ON purchase_order_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('purchase_order_files', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_purchase_order_files_delete_log AFTER DELETE ON purchase_order_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('purchase_order_files', OLD.id, 'DELETE', datetime('now'));
+    END;
+"#;
 
 /// Invoice totals are no longer rounded to the rupee. Invoices that are not fully paid yet are
 /// brought to their exact total (the round-off is folded back in). Fully paid invoices keep the
@@ -552,5 +612,109 @@ impl DatabaseManager {
             is_connected: true,
             applied_migrations,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A database exactly as migration 11 left it, holding one customer and one invoice.
+    fn database_at_version_11(dir: &Path) -> std::path::PathBuf {
+        let path = dir.join("t.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, applied_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        for m in MIGRATIONS.iter().filter(|m| m.version <= 11) {
+            conn.execute_batch(m.sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, 'x')",
+                params![m.version, m.name],
+            )
+            .unwrap();
+        }
+        conn.execute("INSERT INTO customers (name, created_at, updated_at) VALUES ('Sample Co', 'x', 'x')", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO invoices (invoice_number, invoice_date, customer_id, customer_name, po_number_and_date, amount_in_words, created_at, updated_at)
+             VALUES ('MWW/001/26-27', '2026-10-01', 1, 'Sample Co', 'PO-OLD & 01-10-2026', 'x', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        path
+    }
+
+    fn open(path: &Path) -> Connection {
+        DatabaseManager::new(path).unwrap().get_connection().unwrap()
+    }
+
+    fn add_order(conn: &Connection, number: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO purchase_orders (customer_id, po_number, created_at, updated_at) VALUES (1, ?1, 'x', 'x')",
+            params![number],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn migration_12_adds_tables_and_keeps_existing_invoices() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_11(dir.path()));
+
+        assert_eq!(latest_version(), 12);
+        let (linked, text): (Option<i64>, String) = conn
+            .query_row("SELECT purchase_order_id, po_number_and_date FROM invoices", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(linked, None);
+        assert_eq!(text, "PO-OLD & 01-10-2026");
+
+        let id = add_order(&conn, "PO-1");
+        let status: String = conn.query_row("SELECT status FROM purchase_orders WHERE id = ?1", params![id], |r| r.get(0)).unwrap();
+        assert_eq!(status, "NOT_STARTED");
+        let logged: i64 = conn
+            .query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'purchase_orders' AND op = 'INSERT'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(logged, 1);
+
+        conn.execute(
+            "INSERT INTO purchase_order_files (purchase_order_id, file_name, mime_type, size_bytes, data, created_at) VALUES (?1, 'a.pdf', 'application/pdf', 4, x'25504446', 'x')",
+            params![id],
+        )
+        .unwrap();
+        let logged: i64 = conn
+            .query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'purchase_order_files'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(logged, 1);
+
+        conn.execute("DELETE FROM purchase_orders WHERE id = ?1", params![id]).unwrap();
+        let files: i64 = conn.query_row("SELECT COUNT(*) FROM purchase_order_files", [], |r| r.get(0)).unwrap();
+        assert_eq!(files, 0, "files go with their order");
+
+        let bad: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
+        assert_eq!(bad, 0);
+    }
+
+    #[test]
+    fn status_must_be_one_of_the_three_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_11(dir.path()));
+        let id = add_order(&conn, "PO-2");
+        for ok in ["NOT_STARTED", "PARTIAL", "COMPLETED"] {
+            conn.execute("UPDATE purchase_orders SET status = ?1 WHERE id = ?2", params![ok, id]).unwrap();
+        }
+        assert!(conn.execute("UPDATE purchase_orders SET status = 'DONE' WHERE id = ?1", params![id]).is_err());
+    }
+
+    #[test]
+    fn database_refuses_to_delete_an_order_that_an_invoice_points_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_11(dir.path()));
+        let id = add_order(&conn, "PO-3");
+        conn.execute("UPDATE invoices SET purchase_order_id = ?1", params![id]).unwrap();
+        assert!(conn.execute("DELETE FROM purchase_orders WHERE id = ?1", params![id]).is_err());
     }
 }

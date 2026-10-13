@@ -10,6 +10,7 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("customers", "customer", "customers"),
     ("invoices", "invoice", "invoices"),
     ("payments", "payment", "payments"),
+    ("purchase_orders", "purchase order", "purchase orders"),
     ("customer_credits", "advance", "advances"),
 ];
 
