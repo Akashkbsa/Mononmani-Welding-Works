@@ -1,20 +1,22 @@
 import { useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { CreditCard, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
+import { ClipboardList, CreditCard, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
 import DashboardPage from "./pages/DashboardPage";
 import InvoicesPage from "./pages/InvoicesPage";
+import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
 
-export type Page = "dashboard" | "invoices" | "payments" | "customers" | "settings";
+export type Page = "dashboard" | "invoices" | "purchaseOrders" | "payments" | "customers" | "settings";
 
 const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "invoices", label: "Invoices", icon: FileText },
+  { id: "purchaseOrders", label: "Purchase orders", icon: ClipboardList },
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "customers", label: "Customers", icon: Users },
 ];
@@ -109,6 +111,7 @@ function App() {
               <ErrorBoundary>
                 {page === "dashboard" && <DashboardPage onNavigate={setPage} />}
                 {page === "invoices" && <InvoicesPage />}
+                {page === "purchaseOrders" && <PurchaseOrdersPage onNavigate={setPage} />}
                 {page === "payments" && <PaymentsPage />}
                 {page === "customers" && <CustomersPage />}
                 {page === "settings" && <SettingsPage />}
