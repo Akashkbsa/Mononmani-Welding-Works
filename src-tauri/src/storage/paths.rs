@@ -36,6 +36,7 @@ impl StorageManager {
             self.get_invoices_dir(),
             self.get_backups_dir(),
             self.get_settings_dir(),
+            self.get_temp_dir(),
         ];
 
         for dir in &dirs {
@@ -74,6 +75,22 @@ impl StorageManager {
 
     pub fn get_settings_dir(&self) -> PathBuf {
         self.app_data_dir.join("Settings")
+    }
+
+    /// Short-lived copies of purchase order files made so they can be opened; emptied at start.
+    pub fn get_temp_dir(&self) -> PathBuf {
+        self.app_data_dir.join("Temp")
+    }
+
+    /// Delete everything left in the Temp folder. Failures are ignored: a file still open in
+    /// another program just stays until the next start.
+    pub fn clear_temp_dir(&self) {
+        if let Ok(entries) = fs::read_dir(self.get_temp_dir()) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let _ = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+            }
+        }
     }
 
     pub fn get_storage_info(&self) -> StorageInfo {

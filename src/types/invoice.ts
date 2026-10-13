@@ -58,6 +58,8 @@ export interface Invoice {
   status: InvoiceStatus;
   notes: string | null;
   pdf_path: string | null;
+  purchase_order_id: number | null;
+  purchase_order_number: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -94,6 +96,8 @@ export interface InvoiceListItem {
   outstanding_amount: number;
   payment_status: PaymentStatus;
   pdf_path: string | null;
+  purchase_order_id: number | null;
+  purchase_order_number: string | null;
 }
 
 export interface InvoiceItemInput {
@@ -150,6 +154,8 @@ export interface InvoiceInput {
 
   status: InvoiceStatus;
   notes: string | null;
+  /** The purchase order this invoice is raised against (same customer), or null. */
+  purchase_order_id: number | null;
   items: InvoiceItemInput[];
 }
 

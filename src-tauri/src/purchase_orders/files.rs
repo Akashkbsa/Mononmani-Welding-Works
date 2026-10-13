@@ -1,5 +1,9 @@
 //! Rules for the files attached to a purchase order: size, type, and a safe name.
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use std::path::{Path, PathBuf};
+
 /// Largest file that can be attached: 10 MB.
 pub const MAX_FILE_BYTES: usize = 10 * 1024 * 1024;
 
@@ -55,6 +59,31 @@ pub fn clean_file_name(raw: &str) -> String {
         }
         _ => trimmed.chars().take(MAX_NAME_CHARS).collect(),
     }
+}
+
+/// Turn the base64 text the screen sends into the file's bytes. Text that is already longer
+/// than a 10 MB file could be is refused before any decoding.
+pub fn decode_upload(data_base64: &str) -> Result<Vec<u8>, String> {
+    if data_base64.len() > MAX_FILE_BYTES / 3 * 4 + 8 {
+        return Err("That file is over 10 MB. Reduce its size and add it again.".to_string());
+    }
+    STANDARD
+        .decode(data_base64.trim())
+        .map_err(|_| "The file could not be read. Try adding it again.".to_string())
+}
+
+/// Where a copy of file `file_id` is written so the default program can open it. The name is
+/// already cleaned, so the result is always one file directly inside `temp_dir`.
+pub fn temp_open_path(temp_dir: &Path, file_id: i64, clean_name: &str) -> PathBuf {
+    temp_dir.join(format!("{}_{}", file_id, clean_name))
+}
+
+/// A `data:` URL for showing a photo in the app. Other file types have no preview.
+pub fn image_data_url(mime: &str, bytes: &[u8]) -> Result<String, String> {
+    if mime != "image/jpeg" && mime != "image/png" {
+        return Err("Only photos can be previewed.".to_string());
+    }
+    Ok(format!("data:{};base64,{}", mime, STANDARD.encode(bytes)))
 }
 
 #[cfg(test)]
@@ -120,5 +149,32 @@ mod tests {
         let cleaned = clean_file_name(&long);
         assert_eq!(cleaned.chars().count(), 120);
         assert!(cleaned.ends_with(".pdf"));
+    }
+
+    #[test]
+    fn decode_upload_round_trips_and_rejects_bad_text() {
+        assert_eq!(decode_upload("JVBERi0xLjQ=").unwrap(), b"%PDF-1.4");
+        assert!(decode_upload("not base64 !!").unwrap_err().contains("could not be read"));
+    }
+
+    #[test]
+    fn decode_upload_refuses_oversized_text_before_decoding() {
+        let huge = "A".repeat(MAX_FILE_BYTES * 2);
+        assert!(decode_upload(&huge).unwrap_err().contains("10 MB"));
+    }
+
+    #[test]
+    fn temp_open_path_is_a_single_file_directly_inside_the_temp_folder() {
+        let temp = Path::new("C:/data/Temp");
+        let path = temp_open_path(temp, 7, "order.pdf");
+        assert_eq!(path.parent().unwrap(), temp);
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), "7_order.pdf");
+    }
+
+    #[test]
+    fn only_photos_get_a_preview() {
+        assert!(image_data_url("image/jpeg", JPEG).unwrap().starts_with("data:image/jpeg;base64,"));
+        assert!(image_data_url("image/png", PNG).unwrap().starts_with("data:image/png;base64,"));
+        assert!(image_data_url("application/pdf", PDF).is_err());
     }
 }

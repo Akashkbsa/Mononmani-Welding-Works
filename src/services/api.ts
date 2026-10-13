@@ -18,6 +18,15 @@ import {
   PaymentsSummary,
   UnpaidInvoice,
 } from "../types/payment";
+import {
+  DuplicatePoCheck,
+  LinkedInvoice,
+  PurchaseOrderDetail,
+  PurchaseOrderFileInfo,
+  PurchaseOrderFilter,
+  PurchaseOrderInput,
+  PurchaseOrderListItem,
+} from "../types/purchaseOrder";
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
@@ -87,6 +96,33 @@ export async function downloadMonthInvoices(
   await openInvoicePdf(result.path);
   return result;
 }
+
+// Purchase orders
+export const listPurchaseOrders = (filter: PurchaseOrderFilter = {}) =>
+  call<PurchaseOrderListItem[]>("list_purchase_orders", { filter });
+export const getPurchaseOrder = (id: number) => call<PurchaseOrderDetail | null>("get_purchase_order", { id });
+export const createPurchaseOrder = (input: PurchaseOrderInput) =>
+  call<PurchaseOrderDetail>("create_purchase_order", { input });
+export const updatePurchaseOrder = (id: number, input: PurchaseOrderInput) =>
+  call<PurchaseOrderDetail>("update_purchase_order", { id, input });
+export const deletePurchaseOrder = (id: number) => call<void>("delete_purchase_order", { id });
+/** A warning only: the same customer already has an order with this number. */
+export const checkDuplicatePoNumber = (customerId: number, poNumber: string, excludeId?: number) =>
+  call<DuplicatePoCheck>("check_duplicate_po_number", { customerId, poNumber, excludeId: excludeId ?? null });
+/** `dataBase64` is the file's bytes as base64 text, without a "data:" prefix. */
+export const addPurchaseOrderFile = (purchaseOrderId: number, fileName: string, dataBase64: string) =>
+  call<PurchaseOrderFileInfo>("add_purchase_order_file", { purchaseOrderId, fileName, dataBase64 });
+export const removePurchaseOrderFile = (fileId: number) => call<void>("remove_purchase_order_file", { fileId });
+/** A photo as a data: URL to show in the app (photos only). */
+export const getPurchaseOrderFilePreview = (fileId: number) =>
+  call<string>("get_purchase_order_file_preview", { fileId });
+/** Opens a PDF or Word file (or a photo) in the program Windows uses for it. */
+export const openPurchaseOrderFile = (fileId: number) => call<void>("open_purchase_order_file", { fileId });
+export const listUnlinkedInvoicesForCustomer = (customerId: number) =>
+  call<LinkedInvoice[]>("list_unlinked_invoices_for_customer", { customerId });
+/** Link an invoice to a purchase order, or unlink it with null. */
+export const setInvoicePurchaseOrder = (invoiceId: number, purchaseOrderId: number | null) =>
+  call<void>("set_invoice_purchase_order", { invoiceId, purchaseOrderId });
 
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });

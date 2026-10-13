@@ -66,6 +66,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let storage = StorageManager::new(app.handle())?;
+            storage.clear_temp_dir();
             let db = DatabaseManager::new(storage.get_db_path())?;
             app.manage(AppState { storage, db });
             Ok(())
@@ -112,6 +113,18 @@ pub fn run() {
             backup::run_backup,
             backup::list_drive_backups,
             backup::restore_drive_backup,
+            purchase_orders::list_purchase_orders,
+            purchase_orders::get_purchase_order,
+            purchase_orders::create_purchase_order,
+            purchase_orders::update_purchase_order,
+            purchase_orders::delete_purchase_order,
+            purchase_orders::check_duplicate_po_number,
+            purchase_orders::add_purchase_order_file,
+            purchase_orders::remove_purchase_order_file,
+            purchase_orders::get_purchase_order_file_preview,
+            purchase_orders::open_purchase_order_file,
+            purchase_orders::list_unlinked_invoices_for_customer,
+            purchase_orders::set_invoice_purchase_order,
             settings::get_settings,
             settings::save_settings
         ])

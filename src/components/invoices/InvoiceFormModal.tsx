@@ -69,6 +69,7 @@ function initialForm(invoice?: InvoiceWithItems | null): InvoiceInput {
     customer_state: HOME_STATE.name,
     customer_state_code: HOME_STATE.code,
     po_number_and_date: null,
+    purchase_order_id: null,
     vehicle_number: null,
     date_of_supply: formatDate(today),
     place_of_supply: HOME_STATE.name,
