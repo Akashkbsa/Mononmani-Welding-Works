@@ -1,4 +1,4 @@
-//! Rules for the files attached to a purchase order: size, type, and a safe name.
+//! Rules for the files attached to a record (purchase order or quotation): size, type, and a safe name.
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -72,10 +72,11 @@ pub fn decode_upload(data_base64: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "The file could not be read. Try adding it again.".to_string())
 }
 
-/// Where a copy of file `file_id` is written so the default program can open it. The name is
+/// Where a copy of file `file_id` is written so the default program can open it. `kind` ("po" or
+/// "quotation") keeps the two kinds of file apart, since their ids count separately. The name is
 /// already cleaned, so the result is always one file directly inside `temp_dir`.
-pub fn temp_open_path(temp_dir: &Path, file_id: i64, clean_name: &str) -> PathBuf {
-    temp_dir.join(format!("{}_{}", file_id, clean_name))
+pub fn temp_open_path(temp_dir: &Path, kind: &str, file_id: i64, clean_name: &str) -> PathBuf {
+    temp_dir.join(format!("{}_{}_{}", kind, file_id, clean_name))
 }
 
 /// True when `path` is already a file of exactly `expected_len` bytes. A stored attachment never
@@ -83,6 +84,23 @@ pub fn temp_open_path(temp_dir: &Path, file_id: i64, clean_name: &str) -> PathBu
 /// Acrobat still has it open.
 pub fn temp_copy_is_current(path: &Path, expected_len: usize) -> bool {
     std::fs::metadata(path).map(|m| m.is_file() && m.len() == expected_len as u64).unwrap_or(false)
+}
+
+/// Make sure a copy of an attached file is in `temp_dir` and return its path, ready to be opened
+/// by the default program. Only a file directly inside `temp_dir` is ever returned.
+pub fn prepare_temp_copy(temp_dir: &Path, kind: &str, file_id: i64, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(temp_dir).map_err(|e| format!("Could not prepare the Temp folder: {}", e))?;
+    let path = temp_open_path(temp_dir, kind, file_id, &clean_file_name(name));
+    // Open the copy that is already there (it may still be open in Word or Acrobat, which locks it).
+    if !temp_copy_is_current(&path, bytes.len()) {
+        std::fs::write(&path, bytes).map_err(|e| format!("Could not write the file to open it: {}", e))?;
+    }
+    let file = path.canonicalize().map_err(|e| format!("Could not find the file to open: {}", e))?;
+    let dir = temp_dir.canonicalize().map_err(|e| format!("Temp folder is not available: {}", e))?;
+    if !file.starts_with(&dir) {
+        return Err("Only attached files can be opened.".to_string());
+    }
+    Ok(file)
 }
 
 /// A `data:` URL for showing a photo in the app. Other file types have no preview.
@@ -173,9 +191,32 @@ mod tests {
     #[test]
     fn temp_open_path_is_a_single_file_directly_inside_the_temp_folder() {
         let temp = Path::new("C:/data/Temp");
-        let path = temp_open_path(temp, 7, "order.pdf");
+        let path = temp_open_path(temp, "po", 7, "order.pdf");
         assert_eq!(path.parent().unwrap(), temp);
-        assert_eq!(path.file_name().unwrap().to_str().unwrap(), "7_order.pdf");
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), "po_7_order.pdf");
+    }
+
+    #[test]
+    fn temp_names_of_the_two_kinds_never_collide() {
+        let temp = Path::new("C:/data/Temp");
+        assert_ne!(temp_open_path(temp, "po", 7, "a.pdf"), temp_open_path(temp, "quotation", 7, "a.pdf"));
+    }
+
+    #[test]
+    fn prepare_temp_copy_writes_once_then_reuses_and_stays_inside() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("Temp");
+        let first = prepare_temp_copy(&temp, "quotation", 3, "q.pdf", b"%PDF-1.4 one").unwrap();
+        assert_eq!(std::fs::read(&first).unwrap(), b"%PDF-1.4 one");
+        assert_eq!(first.parent().unwrap(), temp.canonicalize().unwrap());
+        // Same size is reused as it is: different bytes of the same length are not written over it.
+        let again = prepare_temp_copy(&temp, "quotation", 3, "q.pdf", b"%PDF-1.4 two").unwrap();
+        assert_eq!(again, first);
+        assert_eq!(std::fs::read(&again).unwrap(), b"%PDF-1.4 one");
+        // A hostile name still ends up as one plain file directly inside Temp.
+        let odd = prepare_temp_copy(&temp, "po", 4, r"..\..\x.pdf", b"%PDF-1.4").unwrap();
+        assert_eq!(odd.parent().unwrap(), temp.canonicalize().unwrap());
+        assert_eq!(odd.file_name().unwrap().to_str().unwrap(), "po_4_x.pdf");
     }
 
     #[test]

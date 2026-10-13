@@ -1,4 +1,4 @@
-use super::files::{clean_file_name, decode_upload, image_data_url, temp_copy_is_current, temp_open_path};
+use crate::attachments::{decode_upload, image_data_url, prepare_temp_copy};
 use super::models::{
     DuplicatePoCheck, LinkedInvoice, PurchaseOrderDetail, PurchaseOrderFileInfo, PurchaseOrderFilter, PurchaseOrderInput,
     PurchaseOrderListItem,
@@ -90,21 +90,8 @@ pub fn get_purchase_order_file_preview(file_id: i64, state: State<'_, AppState>)
 pub fn open_purchase_order_file(file_id: i64, state: State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.get_connection()?;
     let (name, _, bytes) = PurchaseOrderRepository::read_file(&conn, file_id)?;
-
-    let temp_dir = state.storage.get_temp_dir();
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Could not prepare the Temp folder: {}", e))?;
-    let path = temp_open_path(&temp_dir, file_id, &clean_file_name(&name));
-    // Open the copy that is already there (it may still be open in Word or Acrobat, which locks it).
-    if !temp_copy_is_current(&path, bytes.len()) {
-        std::fs::write(&path, &bytes).map_err(|e| format!("Could not write the file to open it: {}", e))?;
-    }
-
-    // Same guard as opening invoice PDFs: only a file inside our own folder is ever opened.
-    let file = path.canonicalize().map_err(|e| format!("Could not find the file to open: {}", e))?;
-    let temp_dir = temp_dir.canonicalize().map_err(|e| format!("Temp folder is not available: {}", e))?;
-    if !file.starts_with(&temp_dir) {
-        return Err("Only files from purchase orders can be opened.".to_string());
-    }
+    // Only a file inside our own Temp folder is ever opened (checked inside prepare_temp_copy).
+    let file = prepare_temp_copy(&state.storage.get_temp_dir(), "po", file_id, &name, &bytes)?;
     tauri_plugin_opener::open_path(file, None::<&str>)
         .map_err(|e| format!("Could not open the file: {}. Check that a program for this file type is installed.", e))
 }

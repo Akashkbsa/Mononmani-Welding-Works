@@ -1,3 +1,4 @@
+mod attachments;
 mod backup;
 mod customers;
 mod db;

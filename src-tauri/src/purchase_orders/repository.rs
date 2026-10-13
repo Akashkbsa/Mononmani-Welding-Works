@@ -1,4 +1,4 @@
-use super::files::{clean_file_name, validate_file};
+use crate::attachments::{clean_file_name, validate_file};
 use super::models::{
     DuplicatePoCheck, LinkedInvoice, PurchaseOrder, PurchaseOrderDetail, PurchaseOrderFileInfo, PurchaseOrderFilter,
     PurchaseOrderInput, PurchaseOrderListItem, STATUSES,
