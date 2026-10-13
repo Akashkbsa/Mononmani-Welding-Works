@@ -23,8 +23,8 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
-chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", features = ["blocking", "json"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "default-tls"] }
 sha2 = "0.10"
 md-5 = "0.10"
 flate2 = "1"
@@ -38,6 +38,6 @@ tempfile = "3"
 [profile.release]
 codegen-units = 1
 lto = true
-opt-level = 3
+opt-level = "s"
 panic = "abort"
 strip = true

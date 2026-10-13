@@ -23,13 +23,6 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export function addDaysISO(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return "";
-  const date = new Date(y, m - 1, d + days);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 /** Whole days from a YYYY-MM-DD date to today (0 for today or a future date). */
 export function daysSince(iso: string): number {
   const [y, m, d] = iso.split("-").map(Number);
