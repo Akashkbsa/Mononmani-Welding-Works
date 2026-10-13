@@ -1,9 +1,7 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Paperclip, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Customer } from "../../types/customer";
 import {
   LinkedInvoice,
-  MAX_PO_FILE_BYTES,
   PO_STATUS_LABEL,
   PurchaseOrderDetail,
   PurchaseOrderFileInfo,
@@ -37,25 +35,13 @@ import {
   useToast,
 } from "../ui";
 import CustomerPicker from "../CustomerPicker";
+import FileAttachmentsField, { AttachmentErrors } from "../attachments/FileAttachmentsField";
+import { useFileAttachments } from "../attachments/useFileAttachments";
 
 interface Props {
   purchaseOrderId?: number;
   onClose: () => void;
   onSaved: (id: number) => void;
-}
-
-interface PendingUpload {
-  key: string;
-  fileName: string;
-  sizeBytes: number;
-  base64: string;
-}
-
-const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "pdf", "doc", "docx"];
-
-function bytesLabel(sizeBytes: number) {
-  if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(sizeBytes / 1024).toFixed(1)} KB`;
 }
 
 function paymentStatusBadge(invoice: LinkedInvoice) {
@@ -68,7 +54,6 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
   const toast = useToast();
   const isEdit = purchaseOrderId !== undefined;
   const guard = useDiscardGuard(onClose);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(isEdit);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
@@ -80,17 +65,14 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
   const [poDate, setPoDate] = useState("");
   const [status, setStatus] = useState<PurchaseOrderStatus>("NOT_STARTED");
   const [notes, setNotes] = useState("");
+  const [quotationId, setQuotationId] = useState<number | null>(null);
   const [invoiceIds, setInvoiceIds] = useState<number[]>([]);
   const [availableInvoices, setAvailableInvoices] = useState<LinkedInvoice[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<PendingUpload[]>([]);
   const [storedFiles, setStoredFiles] = useState<PurchaseOrderFileInfo[]>([]);
   const [removeFile, setRemoveFile] = useState<PurchaseOrderFileInfo | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [busyFileName, setBusyFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
 
   const customerLocked = (detail?.invoices.length ?? 0) > 0;
 
@@ -104,6 +86,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
     setPoDate(po.order.po_date ?? "");
     setStatus(po.order.status);
     setNotes(po.order.notes ?? "");
+    setQuotationId(po.order.quotation_id);
     setStoredFiles(po.files);
     setInvoiceIds([]);
   }, [purchaseOrderId]);
@@ -116,6 +99,13 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
     setDetail(po);
     setStoredFiles(po.files);
   }, [purchaseOrderId]);
+
+  const attachments = useFileAttachments({
+    ownerId: purchaseOrderId,
+    addFile: addPurchaseOrderFile,
+    onStoredChange: refreshDetail,
+    onDirty: guard.markDirty,
+  });
 
   useEffect(() => {
     listCustomers()
@@ -168,97 +158,6 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
     }
   };
 
-  const readFile = (file: File) =>
-    new Promise<PendingUpload>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = typeof reader.result === "string" ? reader.result : "";
-        const comma = result.indexOf(",");
-        if (comma < 0) return reject(new Error("Could not read the file."));
-        resolve({
-          key: `${file.name}-${file.size}-${file.lastModified}`,
-          fileName: file.name,
-          sizeBytes: file.size,
-          base64: result.slice(comma + 1),
-        });
-      };
-      reader.onerror = () => reject(new Error("Could not read the file."));
-      reader.readAsDataURL(file);
-    });
-
-  const addFiles = async (event: ChangeEvent<HTMLInputElement>) => {
-    const list = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (list.length === 0) return;
-    const nextErrors: string[] = [];
-    const accepted: PendingUpload[] = [];
-
-    for (const file of list) {
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-      if (!ALLOWED_EXTENSIONS.includes(ext)) {
-        nextErrors.push(`${file.name}: only JPG, JPEG, PNG, PDF, DOC and DOCX files are allowed.`);
-        continue;
-      }
-      if (file.size > MAX_PO_FILE_BYTES) {
-        nextErrors.push(`${file.name}: file is larger than 10 MB.`);
-        continue;
-      }
-      try {
-        accepted.push(await readFile(file));
-      } catch (err) {
-        nextErrors.push(`${file.name}: ${errorMessage(err)}`);
-      }
-    }
-
-    setUploadErrors(nextErrors);
-    if (nextErrors.length > 0) toast(nextErrors[0], "error");
-
-    if (accepted.length === 0) return;
-
-    guard.markDirty();
-    if (!isEdit || !purchaseOrderId) {
-      setPendingFiles((current) => [...current, ...accepted]);
-      return;
-    }
-
-    setUploading(true);
-    const failures: string[] = [];
-    for (const file of accepted) {
-      try {
-        setBusyFileName(file.fileName);
-        await addPurchaseOrderFile(purchaseOrderId, file.fileName, file.base64);
-      } catch (err) {
-        failures.push(`${file.fileName}: ${errorMessage(err)}`);
-      }
-    }
-    setBusyFileName(null);
-    setUploading(false);
-    if (failures.length > 0) {
-      setUploadErrors(failures);
-      toast(failures[0], "error");
-    } else {
-      setUploadErrors([]);
-    }
-    await refreshDetail();
-  };
-
-  const uploadPendingFiles = async (savedId: number) => {
-    if (pendingFiles.length === 0) return [] as string[];
-    setUploading(true);
-    const failures: string[] = [];
-    for (const file of pendingFiles) {
-      try {
-        setBusyFileName(file.fileName);
-        await addPurchaseOrderFile(savedId, file.fileName, file.base64);
-      } catch (err) {
-        failures.push(`${file.fileName}: ${errorMessage(err)}`);
-      }
-    }
-    setBusyFileName(null);
-    setUploading(false);
-    return failures;
-  };
-
   const toggleInvoice = (id: number, checked: boolean) => {
     guard.markDirty();
     setInvoiceIds((current) => (checked ? [...current, id] : current.filter((item) => item !== id)));
@@ -278,7 +177,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
 
   const save = async () => {
     setError(null);
-    setUploadErrors([]);
+    attachments.clearErrors();
     if (customerId === null) return setError("Choose a customer.");
     if (!poNumber.trim()) return setError("Enter the purchase order number.");
 
@@ -289,13 +188,14 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
       status,
       notes: notes.trim() || null,
       invoice_ids: invoiceIds,
+      quotation_id: quotationId,
     };
 
     setSaving(true);
     try {
       const saved = isEdit && purchaseOrderId ? await updatePurchaseOrder(purchaseOrderId, input) : await createPurchaseOrder(input);
       const savedId = saved.order.id;
-      const failures = await uploadPendingFiles(savedId);
+      const failures = await attachments.uploadPending(savedId);
       if (failures.length > 0) {
         // The order itself is saved, so leave the form (the list refreshes) and say which files
         // are missing. Staying here in "new" mode would let a second Save create a duplicate.
@@ -331,7 +231,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
         footer={
           <>
             <Button onClick={guard.requestClose}>Cancel</Button>
-            <Button variant="primary" loading={saving || uploading} onClick={save}>
+            <Button variant="primary" loading={saving || attachments.uploading} onClick={save}>
               {isEdit ? "Save changes" : "Save purchase order"}
             </Button>
           </>
@@ -339,15 +239,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
       >
         <div className="space-y-6" onChangeCapture={guard.markDirty}>
           {error && <Alert>{error}</Alert>}
-          {uploadErrors.length > 0 && (
-            <Alert>
-              <div className="space-y-1">
-                {uploadErrors.map((message) => (
-                  <div key={message}>{message}</div>
-                ))}
-              </div>
-            </Alert>
-          )}
+          <AttachmentErrors attachments={attachments} />
 
           <div className="grid grid-cols-2 gap-4">
             <Field
@@ -415,77 +307,13 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
             />
           </Field>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">Files</h3>
-                <p className="text-xs text-slate-500">Add photos, PDF or Word files for this purchase order.</p>
-              </div>
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,image/jpeg,image/png,application/pdf"
-                  className="hidden"
-                  onChange={addFiles}
-                />
-                <Button icon={<Paperclip className="w-4 h-4" />} onClick={() => fileInputRef.current?.click()} disabled={saving || uploading}>
-                  Add files
-                </Button>
-              </>
-            </div>
-
-            {isEdit && storedFiles.length > 0 && (
-              <div className="space-y-2">
-                {storedFiles.map((file) => (
-                  <div key={file.id} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-slate-800">{file.file_name}</div>
-                      <div className="text-xs text-slate-500">{bytesLabel(file.size_bytes)}</div>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="dangerText"
-                      icon={<Trash2 className="w-4 h-4" />}
-                      disabled={busyFileName === file.file_name}
-                      onClick={() => setRemoveFile(file)}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {pendingFiles.length > 0 && (
-              <div className="space-y-2">
-                {pendingFiles.map((file) => (
-                  <div key={file.key} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-slate-800">{file.fileName}</div>
-                      <div className="text-xs text-slate-500">{bytesLabel(file.sizeBytes)}</div>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="dangerText"
-                      icon={<Trash2 className="w-4 h-4" />}
-                      onClick={() => {
-                        guard.markDirty();
-                        setPendingFiles((current) => current.filter((item) => item.key !== file.key));
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {storedFiles.length === 0 && pendingFiles.length === 0 && (
-              <p className="text-sm text-slate-500">No files attached yet.</p>
-            )}
-          </div>
+          <FileAttachmentsField
+            stored={storedFiles}
+            attachments={attachments}
+            onRequestRemove={setRemoveFile}
+            description="Add photos, PDF or Word files for this purchase order."
+            disabled={saving}
+          />
 
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-slate-900">Attach invoices</h3>

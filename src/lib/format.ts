@@ -91,3 +91,9 @@ export function errorMessage(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err);
   return text.replace(/^Error:\s*/, "");
 }
+
+/** "1.2 MB" or "34.5 KB" for a file size in bytes. */
+export function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes >= 1024 * 1024) return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(sizeBytes / 1024).toFixed(1)} KB`;
+}

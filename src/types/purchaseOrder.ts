@@ -1,3 +1,5 @@
+import { AttachmentInfo, MAX_ATTACHMENT_BYTES } from "./attachment";
+
 export type PurchaseOrderStatus = "NOT_STARTED" | "PARTIAL" | "COMPLETED";
 
 export const PO_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
@@ -7,7 +9,7 @@ export const PO_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
 };
 
 /** Largest file that can be attached, in bytes (10 MB). The backend checks it again. */
-export const MAX_PO_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_PO_FILE_BYTES = MAX_ATTACHMENT_BYTES;
 
 export interface PurchaseOrder {
   id: number;
@@ -18,6 +20,11 @@ export interface PurchaseOrder {
   po_date: string | null;
   status: PurchaseOrderStatus;
   notes: string | null;
+  /** The quotation this order was raised from, if any. */
+  quotation_id: number | null;
+  quotation_number: string | null;
+  /** YYYY-MM-DD */
+  quotation_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -31,14 +38,11 @@ export interface PurchaseOrderListItem {
   status: PurchaseOrderStatus;
   file_count: number;
   invoice_count: number;
+  quotation_id: number | null;
+  quotation_number: string | null;
 }
 
-export interface PurchaseOrderFileInfo {
-  id: number;
-  file_name: string;
-  mime_type: string;
-  size_bytes: number;
-}
+export type PurchaseOrderFileInfo = AttachmentInfo;
 
 /** An invoice shown under a purchase order, or in the list of invoices that can still be attached. */
 export interface LinkedInvoice {
@@ -68,6 +72,8 @@ export interface PurchaseOrderInput {
   notes: string | null;
   /** Invoices to attach when saving. Unlinking is a separate action. */
   invoice_ids: number[];
+  /** The quotation this order came from; null for an order that came without one. */
+  quotation_id: number | null;
 }
 
 export interface PurchaseOrderFilter {

@@ -27,6 +27,15 @@ import {
   PurchaseOrderInput,
   PurchaseOrderListItem,
 } from "../types/purchaseOrder";
+import {
+  DuplicateQuotationCheck,
+  LinkedOrder,
+  QuotationDetail,
+  QuotationFileInfo,
+  QuotationFilter,
+  QuotationInput,
+  QuotationListItem,
+} from "../types/quotation";
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
@@ -123,6 +132,30 @@ export const listUnlinkedInvoicesForCustomer = (customerId: number) =>
 /** Link an invoice to a purchase order, or unlink it with null. */
 export const setInvoicePurchaseOrder = (invoiceId: number, purchaseOrderId: number | null) =>
   call<void>("set_invoice_purchase_order", { invoiceId, purchaseOrderId });
+
+// Quotations
+export const listQuotations = (filter: QuotationFilter = {}) => call<QuotationListItem[]>("list_quotations", { filter });
+export const getQuotation = (id: number) => call<QuotationDetail | null>("get_quotation", { id });
+export const createQuotation = (input: QuotationInput) => call<QuotationDetail>("create_quotation", { input });
+export const updateQuotation = (id: number, input: QuotationInput) =>
+  call<QuotationDetail>("update_quotation", { id, input });
+export const deleteQuotation = (id: number) => call<void>("delete_quotation", { id });
+/** A warning only: some customer already has a quotation with this number. */
+export const checkDuplicateQuotationNumber = (quotationNumber: string, excludeId?: number) =>
+  call<DuplicateQuotationCheck>("check_duplicate_quotation_number", { quotationNumber, excludeId: excludeId ?? null });
+/** `dataBase64` is the file's bytes as base64 text, without a "data:" prefix. */
+export const addQuotationFile = (quotationId: number, fileName: string, dataBase64: string) =>
+  call<QuotationFileInfo>("add_quotation_file", { quotationId, fileName, dataBase64 });
+export const removeQuotationFile = (fileId: number) => call<void>("remove_quotation_file", { fileId });
+/** A photo as a data: URL to show in the app (photos only). */
+export const getQuotationFilePreview = (fileId: number) => call<string>("get_quotation_file_preview", { fileId });
+/** Opens a PDF or Word file (or a photo) in the program Windows uses for it. */
+export const openQuotationFile = (fileId: number) => call<void>("open_quotation_file", { fileId });
+export const listUnlinkedPurchaseOrdersForCustomer = (customerId: number) =>
+  call<LinkedOrder[]>("list_unlinked_purchase_orders_for_customer", { customerId });
+/** Link a purchase order to a quotation, or unlink it with null. */
+export const setPurchaseOrderQuotation = (purchaseOrderId: number, quotationId: number | null) =>
+  call<void>("set_purchase_order_quotation", { purchaseOrderId, quotationId });
 
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });
