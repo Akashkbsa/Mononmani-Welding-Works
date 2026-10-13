@@ -61,6 +61,8 @@ pub struct Invoice {
     pub status: String,
     pub notes: Option<String>,
     pub pdf_path: Option<String>,
+    pub purchase_order_id: Option<i64>,
+    pub purchase_order_number: Option<String>,
     
     pub created_at: String,
     pub updated_at: String,
@@ -106,6 +108,8 @@ pub struct InvoiceListItem {
     pub outstanding_amount: f64,
     pub payment_status: String,
     pub pdf_path: Option<String>,
+    pub purchase_order_id: Option<i64>,
+    pub purchase_order_number: Option<String>,
     pub items_count: i32,
     pub created_at: String,
 }
@@ -169,6 +173,9 @@ pub struct InvoiceCreateInput {
     
     pub status: Option<String>,
     pub notes: Option<String>,
+    /// The purchase order this invoice is raised against (same customer), or none.
+    #[serde(default)]
+    pub purchase_order_id: Option<i64>,
     
     // Line items
     pub items: Vec<InvoiceItemInput>,

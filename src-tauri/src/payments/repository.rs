@@ -863,6 +863,7 @@ mod tests {
             terms_and_conditions: None,
             status: None,
             notes: None,
+            purchase_order_id: None,
             items: vec![InvoiceItemInput {
                 sl_no: None,
                 description: "Work".to_string(),

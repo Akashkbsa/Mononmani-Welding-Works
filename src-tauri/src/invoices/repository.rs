@@ -5,6 +5,7 @@ use super::models::{
 use crate::util::{
     doc_number, doc_sequence, financial_year_label, normalize_date, normalize_vehicle_number, parse_date, round2, rupees,
 };
+use crate::purchase_orders::repository::PurchaseOrderRepository;
 use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -106,6 +107,8 @@ impl InvoiceRepository {
             pdf_path: row.get(46)?,
             created_at: row.get(47)?,
             updated_at: row.get(48)?,
+            purchase_order_id: row.get(49)?,
+            purchase_order_number: row.get(50)?,
         })
     }
 
@@ -323,6 +326,26 @@ impl InvoiceRepository {
             }
         }
 
+        // What this invoice is linked to now, so a change of link or customer can be told apart.
+        let (stored_customer, stored_order): (Option<i64>, Option<i64>) = match id {
+            Some(existing_id) => conn
+                .query_row(
+                    "SELECT customer_id, purchase_order_id FROM invoices WHERE id = ?1",
+                    params![existing_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to load the invoice: {}", e))?
+                .unwrap_or((None, None)),
+            None => (None, None),
+        };
+        if stored_order.is_some() && stored_customer != input.customer_id {
+            return Err(
+                "This invoice is linked to a purchase order, so its customer can't be changed. Remove the purchase order first."
+                    .to_string(),
+            );
+        }
+
         let clean = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         let now = Utc::now().to_rfc3339();
 
@@ -468,6 +491,12 @@ impl InvoiceRepository {
             .map_err(|e| format!("Failed to update customer: {}", e))?;
         }
 
+        // Only a changed link touches the invoice's PO text, so editing an issued invoice later
+        // never rewrites it from an order that was renumbered in the meantime.
+        if input.purchase_order_id != stored_order {
+            PurchaseOrderRepository::set_invoice_link(&tx, invoice_id, input.purchase_order_id)?;
+        }
+
         tx.commit().map_err(|e| format!("Failed to save invoice: {}", e))?;
 
         Self::find_by_id(conn, invoice_id)?.ok_or_else(|| "Saved invoice could not be reloaded.".to_string())
@@ -551,7 +580,9 @@ impl InvoiceRepository {
                     round_off, total_amount, amount_in_words,
                     bank_name, bank_branch, bank_account_no, bank_ifsc,
                     terms_and_conditions, status, notes, pdf_path,
-                    created_at, updated_at
+                    created_at, updated_at,
+                    purchase_order_id,
+                    (SELECT po_number FROM purchase_orders WHERE id = invoices.purchase_order_id)
                 FROM invoices
                 WHERE id = ?1
                 "#,
@@ -594,7 +625,9 @@ impl InvoiceRepository {
                 COALESCE(SUM(pa.tds_allocated), 0.0) AS tds_amount,
                 i.pdf_path,
                 (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS items_count,
-                i.created_at
+                i.created_at,
+                i.purchase_order_id,
+                (SELECT po_number FROM purchase_orders WHERE id = i.purchase_order_id)
             FROM invoices i
             LEFT JOIN payment_allocations pa ON pa.invoice_id = i.id
             WHERE 1=1
@@ -664,6 +697,8 @@ impl InvoiceRepository {
                     pdf_path: row.get(13)?,
                     items_count: row.get(14)?,
                     created_at: row.get(15)?,
+                    purchase_order_id: row.get(16)?,
+                    purchase_order_number: row.get(17)?,
                 })
             })
             .map_err(|e| format!("Failed to load invoices: {}", e))?;
@@ -948,6 +983,7 @@ mod tests {
                 terms_and_conditions: None,
                 status: None,
                 notes: None,
+                purchase_order_id: None,
                 items: vec![InvoiceItemInput {
                     sl_no: Some(1),
                     description: "Steel Plate Welding".to_string(),
@@ -1001,6 +1037,211 @@ mod tests {
             Some("Original Street, Puducherry - 605009"),
             "Invoice customer address must NOT silently change when customer record changes"
         );
+    }
+
+    // ---- purchase order link ----
+
+    use crate::purchase_orders::models::PurchaseOrderInput;
+    use crate::purchase_orders::repository::PurchaseOrderRepository;
+
+    fn add_customer(conn: &Connection, name: &str) -> i64 {
+        CustomerRepository::create(
+            conn,
+            CustomerCreateInput {
+                name: name.to_string(),
+                gstin: None,
+                phone: None,
+                email: None,
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                is_favorite: None,
+            },
+        )
+        .unwrap()
+        .id
+    }
+
+    fn add_order(conn: &Connection, customer_id: i64, number: &str, date: Option<&str>) -> i64 {
+        PurchaseOrderRepository::create(
+            conn,
+            PurchaseOrderInput {
+                customer_id,
+                po_number: number.to_string(),
+                po_date: date.map(str::to_string),
+                status: "NOT_STARTED".to_string(),
+                notes: None,
+                invoice_ids: vec![],
+            },
+        )
+        .unwrap()
+        .order
+        .id
+    }
+
+    fn link_input(customer_id: i64, name: &str, number: &str, order: Option<i64>, typed_po: Option<&str>) -> InvoiceCreateInput {
+        InvoiceCreateInput {
+            invoice_number: number.to_string(),
+            invoice_date: "2026-10-01".to_string(),
+            due_date: None,
+            payment_terms_days: None,
+            invoice_state: None,
+            customer_id: Some(customer_id),
+            customer_name: name.to_string(),
+            customer_address: None,
+            customer_phone: None,
+            customer_gstin: None,
+            customer_state: None,
+            customer_state_code: None,
+            po_number_and_date: typed_po.map(str::to_string),
+            vehicle_number: None,
+            date_of_supply: None,
+            place_of_supply: None,
+            our_dc_number_and_date: None,
+            your_dc_number_and_date: None,
+            delivery_note: None,
+            supplier_ref: None,
+            buyer_ref: None,
+            dispatch_doc_no: None,
+            delivery_note_date: None,
+            dispatch_through: None,
+            destination: None,
+            terms_of_delivery: None,
+            tax_type: "CGST_SGST".to_string(),
+            discount: None,
+            cgst_rate: Some(0.0),
+            sgst_rate: Some(0.0),
+            igst_rate: None,
+            bank_name: None,
+            bank_branch: None,
+            bank_account_no: None,
+            bank_ifsc: None,
+            terms_and_conditions: None,
+            status: None,
+            notes: None,
+            purchase_order_id: order,
+            items: vec![InvoiceItemInput {
+                sl_no: Some(1),
+                description: "Work".to_string(),
+                hsn_sac: None,
+                qum: None,
+                quantity: 1.0,
+                rate: 1000.0,
+            }],
+        }
+    }
+
+    #[test]
+    fn invoice_without_an_order_is_unchanged() {
+        let conn = setup_test_db();
+        let c = add_customer(&conn, "A");
+        let saved = InvoiceRepository::create(&conn, link_input(c, "A", "MWW/001/26-27", None, Some("PO-101 & 01-10-2026"))).unwrap();
+        assert_eq!(saved.invoice.po_number_and_date.as_deref(), Some("PO-101 & 01-10-2026"));
+        assert_eq!(saved.invoice.purchase_order_id, None);
+        assert_eq!(saved.invoice.purchase_order_number, None);
+        let list = InvoiceRepository::find_all(&conn, InvoiceFilterInput::default()).unwrap();
+        assert_eq!(list[0].purchase_order_id, None);
+        assert_eq!(list[0].purchase_order_number, None);
+    }
+
+    #[test]
+    fn choosing_an_order_links_it_and_fills_the_po_text() {
+        let conn = setup_test_db();
+        let c = add_customer(&conn, "A");
+        let po = add_order(&conn, c, "PO-1045", Some("2026-10-05"));
+        let saved = InvoiceRepository::create(&conn, link_input(c, "A", "MWW/001/26-27", Some(po), Some("typed by hand"))).unwrap();
+        assert_eq!(saved.invoice.purchase_order_id, Some(po));
+        assert_eq!(saved.invoice.purchase_order_number.as_deref(), Some("PO-1045"));
+        assert_eq!(saved.invoice.po_number_and_date.as_deref(), Some("PO-1045 & 05-10-2026"));
+        let list = InvoiceRepository::find_all(&conn, InvoiceFilterInput::default()).unwrap();
+        assert_eq!(list[0].purchase_order_number.as_deref(), Some("PO-1045"));
+    }
+
+    #[test]
+    fn saving_with_another_customers_order_is_rejected() {
+        let conn = setup_test_db();
+        let a = add_customer(&conn, "A");
+        let b = add_customer(&conn, "B");
+        let theirs = add_order(&conn, b, "PO-9", None);
+        let err = InvoiceRepository::create(&conn, link_input(a, "A", "MWW/001/26-27", Some(theirs), None)).unwrap_err();
+        assert!(err.contains("different customer"), "{}", err);
+        assert!(InvoiceRepository::find_all(&conn, InvoiceFilterInput::default()).unwrap().is_empty(), "nothing is saved on error");
+    }
+
+    #[test]
+    fn editing_a_linked_invoice_keeps_the_link_and_its_text_when_the_link_is_unchanged() {
+        let conn = setup_test_db();
+        let c = add_customer(&conn, "A");
+        let po = add_order(&conn, c, "PO-1", Some("2026-10-05"));
+        let saved = InvoiceRepository::create(&conn, link_input(c, "A", "MWW/001/26-27", Some(po), None)).unwrap();
+        // The order is renumbered later; an old invoice must keep the text it was issued with.
+        PurchaseOrderRepository::update(
+            &conn,
+            po,
+            PurchaseOrderInput {
+                customer_id: c,
+                po_number: "PO-1-REV".to_string(),
+                po_date: Some("2026-10-06".to_string()),
+                status: "PARTIAL".to_string(),
+                notes: None,
+                invoice_ids: vec![],
+            },
+        )
+        .unwrap();
+        let mut edit = link_input(c, "A", "MWW/001/26-27", Some(po), Some("PO-1 & 05-10-2026"));
+        edit.notes = Some("edited".to_string());
+        let again = InvoiceRepository::update(&conn, saved.invoice.id, edit).unwrap();
+        assert_eq!(again.invoice.purchase_order_id, Some(po));
+        assert_eq!(again.invoice.po_number_and_date.as_deref(), Some("PO-1 & 05-10-2026"));
+        assert_eq!(again.invoice.notes.as_deref(), Some("edited"));
+    }
+
+    #[test]
+    fn a_linked_invoice_cannot_change_customer() {
+        let conn = setup_test_db();
+        let a = add_customer(&conn, "A");
+        let b = add_customer(&conn, "B");
+        let po = add_order(&conn, a, "PO-1", None);
+        let saved = InvoiceRepository::create(&conn, link_input(a, "A", "MWW/001/26-27", Some(po), None)).unwrap();
+        let err = InvoiceRepository::update(&conn, saved.invoice.id, link_input(b, "B", "MWW/001/26-27", Some(po), None)).unwrap_err();
+        assert!(err.contains("linked to a purchase order"), "{}", err);
+        let unchanged = InvoiceRepository::find_by_id(&conn, saved.invoice.id).unwrap().unwrap();
+        assert_eq!(unchanged.invoice.customer_id, Some(a));
+    }
+
+    #[test]
+    fn clearing_the_order_unlinks_and_keeps_the_text() {
+        let conn = setup_test_db();
+        let c = add_customer(&conn, "A");
+        let po = add_order(&conn, c, "PO-1", Some("2026-10-05"));
+        let saved = InvoiceRepository::create(&conn, link_input(c, "A", "MWW/001/26-27", Some(po), None)).unwrap();
+        assert_eq!(saved.invoice.purchase_order_id, Some(po), "linked before it is cleared");
+        let cleared = InvoiceRepository::update(
+            &conn,
+            saved.invoice.id,
+            link_input(c, "A", "MWW/001/26-27", None, Some("PO-1 & 05-10-2026")),
+        )
+        .unwrap();
+        assert_eq!(cleared.invoice.purchase_order_id, None);
+        assert_eq!(cleared.invoice.purchase_order_number, None);
+        assert_eq!(cleared.invoice.po_number_and_date.as_deref(), Some("PO-1 & 05-10-2026"));
+        let detail = PurchaseOrderRepository::get(&conn, po).unwrap().unwrap();
+        assert!(detail.invoices.is_empty());
+    }
+
+    #[test]
+    fn cancelled_and_draft_invoices_can_be_linked() {
+        let conn = setup_test_db();
+        let c = add_customer(&conn, "A");
+        let po = add_order(&conn, c, "PO-1", None);
+        let mut draft = link_input(c, "A", "MWW/001/26-27", Some(po), None);
+        draft.status = Some("DRAFT".to_string());
+        InvoiceRepository::create(&conn, draft).unwrap();
+        let detail = PurchaseOrderRepository::get(&conn, po).unwrap().unwrap();
+        assert_eq!(detail.invoices.len(), 1);
+        assert_eq!(detail.invoices[0].payment_status, "DRAFT");
     }
 }
 

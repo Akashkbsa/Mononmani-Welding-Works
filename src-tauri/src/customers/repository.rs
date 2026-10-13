@@ -535,6 +535,13 @@ impl CustomerRepository {
             ));
         }
 
+        let orders: i64 = conn
+            .query_row("SELECT COUNT(*) FROM purchase_orders WHERE customer_id = ?1", params![id], |r| r.get(0))
+            .map_err(|e| format!("Failed to check customer records: {}", e))?;
+        if orders > 0 {
+            return Err(format!("This customer has {} purchase order(s), so they can't be deleted.", orders));
+        }
+
         conn.execute("DELETE FROM customers WHERE id = ?1", params![id])
             .map_err(|e| format!("Failed to delete customer: {}", e))?;
 
@@ -1044,5 +1051,35 @@ mod tests {
         let db2 = DatabaseManager::new(&db_path).unwrap();
         let status2 = db2.get_status().unwrap();
         assert_eq!(status2.applied_migrations.len(), applied);
+    }
+
+    #[test]
+    fn customer_with_purchase_orders_cannot_be_deleted() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&temp_dir.path().join("test_cust_po.db"));
+        let customer = CustomerRepository::create(
+            &conn,
+            CustomerCreateInput {
+                name: "Has an order".to_string(),
+                gstin: None,
+                phone: None,
+                email: None,
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                is_favorite: None,
+            },
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO purchase_orders (customer_id, po_number, created_at, updated_at) VALUES (?1, 'PO-1', 'x', 'x')",
+            params![customer.id],
+        )
+        .unwrap();
+        let err = CustomerRepository::delete(&conn, customer.id).unwrap_err();
+        assert!(err.contains("purchase order"), "{}", err);
+        assert!(CustomerRepository::find_by_id(&conn, customer.id).unwrap().is_some());
     }
 }
