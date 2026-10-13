@@ -1,4 +1,4 @@
-use super::files::{clean_file_name, decode_upload, image_data_url, temp_open_path};
+use super::files::{clean_file_name, decode_upload, image_data_url, temp_copy_is_current, temp_open_path};
 use super::models::{
     DuplicatePoCheck, LinkedInvoice, PurchaseOrderDetail, PurchaseOrderFileInfo, PurchaseOrderFilter, PurchaseOrderInput,
     PurchaseOrderListItem,
@@ -94,7 +94,10 @@ pub fn open_purchase_order_file(file_id: i64, state: State<'_, AppState>) -> Res
     let temp_dir = state.storage.get_temp_dir();
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Could not prepare the Temp folder: {}", e))?;
     let path = temp_open_path(&temp_dir, file_id, &clean_file_name(&name));
-    std::fs::write(&path, &bytes).map_err(|e| format!("Could not write the file to open it: {}", e))?;
+    // Open the copy that is already there (it may still be open in Word or Acrobat, which locks it).
+    if !temp_copy_is_current(&path, bytes.len()) {
+        std::fs::write(&path, &bytes).map_err(|e| format!("Could not write the file to open it: {}", e))?;
+    }
 
     // Same guard as opening invoice PDFs: only a file inside our own folder is ever opened.
     let file = path.canonicalize().map_err(|e| format!("Could not find the file to open: {}", e))?;

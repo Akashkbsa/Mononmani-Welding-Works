@@ -78,6 +78,13 @@ pub fn temp_open_path(temp_dir: &Path, file_id: i64, clean_name: &str) -> PathBu
     temp_dir.join(format!("{}_{}", file_id, clean_name))
 }
 
+/// True when `path` is already a file of exactly `expected_len` bytes. A stored attachment never
+/// changes, so such a copy can be opened again as it is. Rewriting it would fail while Word or
+/// Acrobat still has it open.
+pub fn temp_copy_is_current(path: &Path, expected_len: usize) -> bool {
+    std::fs::metadata(path).map(|m| m.is_file() && m.len() == expected_len as u64).unwrap_or(false)
+}
+
 /// A `data:` URL for showing a photo in the app. Other file types have no preview.
 pub fn image_data_url(mime: &str, bytes: &[u8]) -> Result<String, String> {
     if mime != "image/jpeg" && mime != "image/png" {
@@ -169,6 +176,17 @@ mod tests {
         let path = temp_open_path(temp, 7, "order.pdf");
         assert_eq!(path.parent().unwrap(), temp);
         assert_eq!(path.file_name().unwrap().to_str().unwrap(), "7_order.pdf");
+    }
+
+    #[test]
+    fn a_temp_copy_is_reused_only_when_the_same_size_file_is_already_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("7_order.pdf");
+        assert!(!temp_copy_is_current(&path, 4), "no file yet");
+        std::fs::write(&path, b"abcd").unwrap();
+        assert!(temp_copy_is_current(&path, 4));
+        assert!(!temp_copy_is_current(&path, 5), "a different size is rewritten");
+        assert!(!temp_copy_is_current(dir.path(), 0), "a folder is not a file copy");
     }
 
     #[test]

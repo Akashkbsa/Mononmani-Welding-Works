@@ -217,7 +217,8 @@ impl PurchaseOrderRepository {
     fn invoice_rows(conn: &Connection, where_sql: &str, arg: i64) -> Result<Vec<LinkedInvoice>, String> {
         let sql = format!(
             "SELECT i.id, i.invoice_number, i.invoice_date, i.total_amount, i.status,
-                    COALESCE(SUM(pa.amount_allocated), 0.0), COALESCE(SUM(pa.tds_allocated), 0.0)
+                    COALESCE(SUM(pa.amount_allocated), 0.0), COALESCE(SUM(pa.tds_allocated), 0.0),
+                    i.po_number_and_date
              FROM invoices i LEFT JOIN payment_allocations pa ON pa.invoice_id = i.id
              WHERE {} GROUP BY i.id ORDER BY i.invoice_date DESC, i.id DESC",
             where_sql
@@ -236,6 +237,7 @@ impl PurchaseOrderRepository {
                     total_amount,
                     payment_status: InvoiceRepository::payment_status(&status, settled, outstanding),
                     status,
+                    po_number_and_date: r.get(7)?,
                 })
             })
             .map_err(|e| format!("Failed to load invoices: {}", e))?;
@@ -537,6 +539,18 @@ mod tests {
         assert_eq!(ids, vec![issued, draft, cancelled]);
         assert_eq!(list.iter().find(|i| i.id == cancelled).unwrap().payment_status, "CANCELLED");
         assert_eq!(list.iter().find(|i| i.id == issued).unwrap().payment_status, "UNPAID");
+    }
+
+    #[test]
+    fn attachable_invoices_show_the_po_text_they_already_carry() {
+        let (_d, conn) = setup();
+        let a = add_customer(&conn, "A");
+        let printed = add_invoice(&conn, "I-1", a, "ISSUED");
+        let blank = add_invoice(&conn, "I-2", a, "ISSUED");
+        conn.execute("UPDATE invoices SET po_number_and_date = 'PO/88 & 01-10-2026' WHERE id = ?1", params![printed]).unwrap();
+        let list = PurchaseOrderRepository::unlinked_invoices_for_customer(&conn, a).unwrap();
+        assert_eq!(list.iter().find(|i| i.id == printed).unwrap().po_number_and_date.as_deref(), Some("PO/88 & 01-10-2026"));
+        assert_eq!(list.iter().find(|i| i.id == blank).unwrap().po_number_and_date, None);
     }
 
     #[test]

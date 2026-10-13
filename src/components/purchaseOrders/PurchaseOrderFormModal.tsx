@@ -108,6 +108,15 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
     setInvoiceIds([]);
   }, [purchaseOrderId]);
 
+  /** Reload only what the saved order holds (files, linked invoices), never the fields being typed. */
+  const refreshDetail = useCallback(async () => {
+    if (!purchaseOrderId) return;
+    const po = await getPurchaseOrder(purchaseOrderId);
+    if (!po) throw new Error("This purchase order no longer exists.");
+    setDetail(po);
+    setStoredFiles(po.files);
+  }, [purchaseOrderId]);
+
   useEffect(() => {
     listCustomers()
       .then(setCustomers)
@@ -230,7 +239,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
     } else {
       setUploadErrors([]);
     }
-    await loadDetail();
+    await refreshDetail();
   };
 
   const uploadPendingFiles = async (savedId: number) => {
@@ -260,7 +269,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
     try {
       await setInvoicePurchaseOrder(invoiceId, null);
       toast("Invoice unlinked");
-      await loadDetail();
+      await refreshDetail();
       if (customerId !== null) setAvailableInvoices(await listUnlinkedInvoicesForCustomer(customerId));
     } catch (err) {
       toast(errorMessage(err), "error");
@@ -507,6 +516,11 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
                               <div className="text-slate-500">
                                 {formatDate(invoice.invoice_date)} · {formatMoney(invoice.total_amount)}
                               </div>
+                              {invoice.po_number_and_date && (
+                                <div className="text-xs text-amber-700">
+                                  {`Prints PO "${invoice.po_number_and_date}" now. Attaching replaces it with this order's number.`}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div>{paymentStatusBadge(invoice)}</div>
@@ -557,7 +571,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
           onConfirm={async () => {
             await removePurchaseOrderFile(removeFile.id);
             toast("File removed");
-            await loadDetail();
+            await refreshDetail();
           }}
           onClose={() => setRemoveFile(null)}
         />

@@ -49,6 +49,8 @@ export interface LinkedInvoice {
   total_amount: number;
   status: string;
   payment_status: string;
+  /** The "PO number & date" text the invoice carries now; linking replaces it. */
+  po_number_and_date: string | null;
 }
 
 export interface PurchaseOrderDetail {

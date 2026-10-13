@@ -44,6 +44,8 @@ pub struct LinkedInvoice {
     pub total_amount: f64,
     pub status: String,
     pub payment_status: String,
+    /// The "PO number & date" text the invoice carries now (replaced when it is linked to an order).
+    pub po_number_and_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

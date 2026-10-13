@@ -221,6 +221,12 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     setForm((f) => ({ ...f, [key]: value }));
   };
 
+  /** The PO text a purchase order fills in, as the form shows it. */
+  const orderText = (id: number | null) => {
+    const po = orders.find((o) => o.id === id);
+    return po ? joinRefDate(po.po_number, po.po_date ?? "") : null;
+  };
+
   /** Copies the customer's current details onto the invoice and picks the right tax. */
   const selectCustomer = (c: Customer) => {
     guard.markDirty();
@@ -238,6 +244,11 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
       customer_id: c.id,
       // Another customer's order cannot stay chosen.
       purchase_order_id: f.customer_id === c.id ? f.purchase_order_id : null,
+      // The PO text that came from the other customer's order must not stay on this invoice.
+      po_number_and_date:
+        f.customer_id !== c.id && f.purchase_order_id !== null && f.po_number_and_date === orderText(f.purchase_order_id)
+          ? null
+          : f.po_number_and_date,
       customer_name: c.name,
       customer_address: formatCustomerAddress(c) || null,
       customer_phone: c.phone,
@@ -350,7 +361,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     disabled={customerLocked}
                     onChange={selectCustomer}
                   />
-                  <Button icon={<Plus className="w-4 h-4" />} onClick={() => setAddingCustomer(true)}>
+                  <Button icon={<Plus className="w-4 h-4" />} disabled={customerLocked} onClick={() => setAddingCustomer(true)}>
                     New
                   </Button>
                 </div>
