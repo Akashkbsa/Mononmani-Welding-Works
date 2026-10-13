@@ -35,13 +35,27 @@ function statusBadge(status: PurchaseOrderListItem["status"]) {
   return <Badge tone="neutral">Not started</Badge>;
 }
 
-export default function PurchaseOrdersPage({ onOpenInvoice }: { onOpenInvoice: (invoiceId: number) => void }) {
+export default function PurchaseOrdersPage({
+  onOpenInvoice,
+  openPurchaseOrderId = null,
+  onOpenHandled,
+}: {
+  onOpenInvoice: (invoiceId: number) => void;
+  /** A purchase order to open as soon as the page shows (set by another screen). */
+  openPurchaseOrderId?: number | null;
+  onOpenHandled?: () => void;
+}) {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderListItem[] | null>(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("all");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewingId, setViewingId] = useState<number | null>(null);
+  useEffect(() => {
+    if (openPurchaseOrderId === null) return;
+    setViewingId(openPurchaseOrderId);
+    onOpenHandled?.();
+  }, [openPurchaseOrderId, onOpenHandled]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [slider, setSlider] = useState<{ x: number; w: number } | null>(null);
   const [sliderReady, setSliderReady] = useState(false);

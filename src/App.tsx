@@ -1,21 +1,23 @@
 import { useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { ClipboardList, CreditCard, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
+import { ClipboardList, CreditCard, FileCheck2, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
 import DashboardPage from "./pages/DashboardPage";
 import InvoicesPage from "./pages/InvoicesPage";
 import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
+import QuotationsPage from "./pages/QuotationsPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
 
-export type Page = "dashboard" | "invoices" | "purchaseOrders" | "payments" | "customers" | "settings";
+export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "customers" | "settings";
 
 const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "invoices", label: "Invoices", icon: FileText },
+  { id: "quotations", label: "Quotations", icon: FileCheck2 },
   { id: "purchaseOrders", label: "Purchase orders", icon: ClipboardList },
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "customers", label: "Customers", icon: Users },
@@ -62,6 +64,9 @@ function App() {
   const [backupDue, setBackupDue] = useState(false);
   // An invoice another screen wants opened (for example from a purchase order); the Invoices page opens it once.
   const [openInvoiceId, setOpenInvoiceId] = useState<number | null>(null);
+  // Same handoff for a quotation or a purchase order opened from the other one.
+  const [openQuotationId, setOpenQuotationId] = useState<number | null>(null);
+  const [openPurchaseOrderId, setOpenPurchaseOrderId] = useState<number | null>(null);
 
   // Reminds the user (a dot on Settings) when something is not backed up yet.
   useEffect(() => {
@@ -115,8 +120,20 @@ function App() {
                 {page === "invoices" && (
                   <InvoicesPage openInvoiceId={openInvoiceId} onOpenInvoiceHandled={() => setOpenInvoiceId(null)} />
                 )}
+                {page === "quotations" && (
+                  <QuotationsPage
+                    openQuotationId={openQuotationId}
+                    onOpenHandled={() => setOpenQuotationId(null)}
+                    onOpenPurchaseOrder={(purchaseOrderId) => {
+                      setOpenPurchaseOrderId(purchaseOrderId);
+                      setPage("purchaseOrders");
+                    }}
+                  />
+                )}
                 {page === "purchaseOrders" && (
                   <PurchaseOrdersPage
+                    openPurchaseOrderId={openPurchaseOrderId}
+                    onOpenHandled={() => setOpenPurchaseOrderId(null)}
                     onOpenInvoice={(invoiceId) => {
                       setOpenInvoiceId(invoiceId);
                       setPage("invoices");
