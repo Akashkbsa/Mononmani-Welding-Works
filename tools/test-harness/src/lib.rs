@@ -8,3 +8,4 @@ pub mod payments { #[path = "../../../../src-tauri/src/payments/models.rs"] pub 
 pub mod backup { #[path = "../../../../src-tauri/src/backup/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/backup/repository.rs"] pub mod repository; #[path = "../../../../src-tauri/src/backup/snapshot.rs"] pub mod snapshot; }
 pub mod purchase_orders { #[path = "../../../../src-tauri/src/purchase_orders/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/purchase_orders/repository.rs"] pub mod repository; }
 pub mod quotations { #[path = "../../../../src-tauri/src/quotations/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/quotations/repository.rs"] pub mod repository; }
+pub mod supplier_bills { #[path = "../../../../src-tauri/src/supplier_bills/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/supplier_bills/repository.rs"] pub mod repository; }

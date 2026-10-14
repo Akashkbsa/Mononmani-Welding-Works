@@ -60,6 +60,9 @@ pub fn financial_year_label() -> String {
     format!("{:02}-{:02}", start % 100, (start + 1) % 100)
 }
 
+/// Two amounts closer than this (half a paisa) are the same amount.
+pub const MONEY_EPS: f64 = 0.005;
+
 /// Document number as printed: prefix, financial year, running number, e.g. "MWW/26-27/009".
 pub fn doc_number(prefix: &str, seq: i64, fy: &str) -> String {
     format!("{}/{}/{:03}", prefix, fy, seq)
