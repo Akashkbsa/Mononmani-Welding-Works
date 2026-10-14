@@ -471,6 +471,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "019_remove_supplier_advances",
         sql: REMOVE_SUPPLIER_ADVANCES_SQL,
     },
+    Migration {
+        version: 20,
+        name: "020_reminders",
+        sql: REMINDERS_SQL,
+    },
 ];
 
 /// Supplier payments no longer keep advances. A payment that kept its extra as an advance now counts
@@ -480,6 +485,44 @@ pub const REMOVE_SUPPLIER_ADVANCES_SQL: &str = r#"
     UPDATE supplier_payments SET excess_action = 'ROUNDOFF' WHERE excess_action = 'CREDIT';
     DROP TABLE IF EXISTS supplier_credit_applications;
     DROP TABLE IF EXISTS supplier_credits;
+"#;
+
+/// Reminders the owner sets: a date, how many days before to start showing it, an optional repeat
+/// and an optional link to one record. Tracked in `change_log` so the backup picks up every change.
+pub const REMINDERS_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        note TEXT NULL,
+        due_date TEXT NOT NULL CHECK (due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+        remind_days INTEGER NOT NULL DEFAULT 0 CHECK (remind_days BETWEEN 0 AND 365),
+        repeat TEXT NOT NULL DEFAULT 'NONE' CHECK (repeat IN ('NONE', 'WEEKLY', 'MONTHLY', 'YEARLY')),
+        repeat_day INTEGER NULL CHECK (repeat_day BETWEEN 1 AND 31),
+        month_end INTEGER NOT NULL DEFAULT 0 CHECK (month_end IN (0, 1)),
+        link_kind TEXT NULL CHECK (link_kind IN ('INVOICE', 'QUOTATION', 'PURCHASE_ORDER', 'PAYMENT', 'SUPPLIER_BILL',
+                                                 'SUPPLIER_PAYMENT', 'COMPANY', 'TENANT', 'PLACE')),
+        link_id INTEGER NULL,
+        dismissed INTEGER NOT NULL DEFAULT 0 CHECK (dismissed IN (0, 1)),
+        done_on TEXT NULL,
+        last_done_on TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(due_date);
+    CREATE INDEX IF NOT EXISTS idx_reminders_link ON reminders(link_kind, link_id);
+
+    CREATE TRIGGER IF NOT EXISTS trg_reminders_insert_log AFTER INSERT ON reminders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('reminders', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_reminders_update_log AFTER UPDATE ON reminders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('reminders', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_reminders_delete_log AFTER DELETE ON reminders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('reminders', OLD.id, 'DELETE', datetime('now'));
+    END;
 "#;
 
 /// Opening WhatsApp with the reminder now counts as sending it, so reminders that were waiting
@@ -1391,7 +1434,7 @@ mod tests {
         drop(conn);
 
         let conn = open(&path);
-        assert_eq!(latest_version(), 19);
+        assert!(latest_version() >= 19);
         let action: String = conn.query_row("SELECT excess_action FROM supplier_payments", [], |r| r.get(0)).unwrap();
         assert_eq!(action, "ROUNDOFF");
         for table in ["supplier_credits", "supplier_credit_applications"] {
@@ -1468,6 +1511,42 @@ mod tests {
         for ok in ["NONE", "CREDIT", "ROUNDOFF"] {
             conn.execute("UPDATE supplier_payments SET excess_action = ?1 WHERE id = ?2", params![ok, payment]).unwrap();
         }
+    }
+
+    #[test]
+    fn migration_20_adds_reminders_and_leaves_data_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        assert_eq!(latest_version(), 20);
+        for table in ["customers", "invoices", "supplier_bills"] {
+            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 1, "{}", table);
+        }
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM reminders", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn reminder_rules_in_the_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let insert = |due: &str, days: i64, repeat: &str, kind: Option<&str>| {
+            conn.execute(
+                "INSERT INTO reminders (title, due_date, remind_days, repeat, link_kind, link_id, created_at, updated_at)
+                 VALUES ('Pay GST', ?1, ?2, ?3, ?4, 1, 'x', 'x')",
+                params![due, days, repeat, kind],
+            )
+        };
+        assert!(insert("31-10-2026", 2, "NONE", None).is_err(), "date must be YYYY-MM-DD");
+        assert!(insert("2026-10-31", 400, "NONE", None).is_err(), "remind days 0 to 365");
+        assert!(insert("2026-10-31", -1, "NONE", None).is_err(), "remind days 0 to 365");
+        assert!(insert("2026-10-31", 2, "DAILY", None).is_err(), "repeat is one of four");
+        assert!(insert("2026-10-31", 2, "NONE", Some("CAR")).is_err(), "link kind is one of nine");
+        insert("2026-10-31", 3, "MONTHLY", Some("TENANT")).unwrap();
+        let logged: i64 = conn
+            .query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'reminders' AND op = 'INSERT'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(logged, 1, "reminders are tracked for backup");
     }
 
     #[test]

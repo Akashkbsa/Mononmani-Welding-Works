@@ -17,6 +17,7 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("rental_tenants", "tenant", "tenants"),
     ("rent_months", "rent month", "rent months"),
     ("rent_reminders", "rent reminder", "rent reminders"),
+    ("reminders", "reminder", "reminders"),
     ("purchase_orders", "purchase order", "purchase orders"),
     ("customer_credits", "advance", "advances"),
 ];
@@ -269,6 +270,15 @@ mod tests {
         .unwrap();
         let p = BackupRepository::pending_changes(&conn, before).unwrap();
         assert_eq!(p.lines, vec!["1 supplier bill added", "1 supplier payment added"]);
+    }
+
+    #[test]
+    fn pending_summary_counts_reminders() {
+        let (_d, conn) = setup();
+        let before = BackupRepository::max_seq(&conn).unwrap();
+        conn.execute("INSERT INTO reminders (title, due_date, created_at, updated_at) VALUES ('Pay GST', '2026-10-31', 'x', 'x')", []).unwrap();
+        let p = BackupRepository::pending_changes(&conn, before).unwrap();
+        assert_eq!(p.lines, vec!["1 reminder added"]);
     }
 
     #[test]
