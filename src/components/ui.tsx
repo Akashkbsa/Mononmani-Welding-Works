@@ -339,7 +339,7 @@ export function PageHeader({
         <h1 className="text-xl font-semibold text-slate-900 tracking-tight">{title}</h1>
         {description && <p className="text-sm text-slate-500 mt-1">{description}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>}
     </div>
   );
 }

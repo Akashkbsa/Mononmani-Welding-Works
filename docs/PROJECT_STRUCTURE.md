@@ -6,7 +6,7 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 
 | Screen | What it does |
 |---|---|
-| Dashboard | Balance due, overdue, invoiced and received this month; invoices waiting for payment; recent payments. |
+| Dashboard | One screen for the whole business. Four figures (customers owe you, received this month, you owe suppliers, rent this month); a "Needs attention" line; charts of invoiced vs received and supplier bills vs payments for the last 6 months; cards for what customers and suppliers owe, by age and biggest balances; and short lists (invoices waiting, supplier bills to pay, quotations with no purchase order, purchase orders in progress, rent, reminders ahead, recent payments). Everything opens the record or screen behind it. |
 | Invoices | Search and status tabs (awaiting payment, overdue, paid, drafts, cancelled). Click a row for details: print Original / Duplicate / Triplicate, edit, record payment, delete. |
 | Quotations | Quotations sent to companies: number, date, company, an internal note and the file that was sent (photo, PDF or Word), with the purchase orders that followed. Click a row for details; open a file, edit, delete. |
 | Purchase orders | Customers' purchase orders (photo, PDF or Word file), their status (Not started, Partially completed, Completed), an internal note, and the invoices raised against each. Click a row for details; open a file, edit, delete. |
@@ -57,6 +57,7 @@ src/                          React UI
   components/customers/       CustomerFormModal, CustomerDetailsModal
   components/purchaseOrders/  PurchaseOrderFormModal, PurchaseOrderDetailsModal, PurchaseOrderStatusBadge
   components/quotations/      QuotationFormModal, QuotationDetailsModal
+  components/dashboard/       charts (MonthlyBars, HBars), ListCard
   components/rentals/         ThisMonthTab, TenantsTab, PlacesTab, MarkPaidModal, TenantFormModal, PlaceFormModal, SendRemindersModal
   components/reminders/       ReminderBanner, ReminderFormModal, RecordReminders, RemindersContext
   components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders, quotations, supplier bills and rentals)
@@ -65,6 +66,7 @@ src/                          React UI
   pages/                      Dashboard, Invoices, Quotations, PurchaseOrders, Payments, SupplierBills, SupplierPayments, Rentals, Reminders, Customers, Settings
   services/api.ts             every Tauri command, one function each
   lib/format.ts, lib/gst.ts   money/date formatting, GST state codes
+  lib/dashboardStats.ts       monthly sums, age buckets, top names for the dashboard charts
   template/                   invoice HTML + CSS used for the PDF
 src-tauri/src/
   lib.rs                      app setup, command list, open PDF / data folder
