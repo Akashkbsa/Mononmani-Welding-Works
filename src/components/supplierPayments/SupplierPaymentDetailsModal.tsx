@@ -3,6 +3,7 @@ import { SupplierPaymentWithAllocations } from "../../types/supplierPayment";
 import { deleteSupplierPayment, getSupplierPayment } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { Alert, Button, ConfirmDialog, Loading, Modal, SectionTitle, useToast } from "../ui";
+import SupplierPaymentFormModal from "./SupplierPaymentFormModal";
 
 interface Props {
   paymentId: number;
@@ -15,6 +16,7 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
   const [data, setData] = useState<SupplierPaymentWithAllocations | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -53,6 +55,9 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
               Delete
             </Button>
             <Button onClick={onClose}>Close</Button>
+            <Button variant="primary" onClick={() => setEditing(true)}>
+              Edit
+            </Button>
           </>
         }
       >
@@ -102,6 +107,19 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
           )}
         </div>
       </Modal>
+
+      {editing && (
+        <SupplierPaymentFormModal
+          payment={data}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            toast("Payment updated");
+            load();
+            onChanged();
+          }}
+        />
+      )}
 
       {confirmDelete && (
         <ConfirmDialog

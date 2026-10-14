@@ -4,6 +4,7 @@ import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { SupplierBillDetail } from "../../types/supplierBill";
 import { Alert, Button, ConfirmDialog, Loading, Modal, rowClass, rowProps, SectionTitle, useToast } from "../ui";
 import FileViewer from "../attachments/FileViewer";
+import SupplierPaymentFormModal from "../supplierPayments/SupplierPaymentFormModal";
 import SupplierBillFormModal from "./SupplierBillFormModal";
 import SupplierBillStatusBadge from "./SupplierBillStatusBadge";
 
@@ -20,6 +21,7 @@ export default function SupplierBillDetailsModal({ id, onClose, onChanged, onOpe
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [paying, setPaying] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -64,9 +66,12 @@ export default function SupplierBillDetailsModal({ id, onClose, onChanged, onOpe
               Delete
             </Button>
             <Button onClick={onClose}>Close</Button>
-            <Button variant="primary" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
+            {data.status !== "PAID" && (
+              <Button variant="primary" onClick={() => setPaying(true)}>
+                Record payment
+              </Button>
+            )}
+            <Button onClick={() => setEditing(true)}>Edit</Button>
           </>
         }
       >
@@ -120,6 +125,20 @@ export default function SupplierBillDetailsModal({ id, onClose, onChanged, onOpe
           onClose={() => setEditing(false)}
           onSaved={async () => {
             setEditing(false);
+            await load();
+            onChanged();
+          }}
+        />
+      )}
+
+      {paying && (
+        <SupplierPaymentFormModal
+          initialSupplierId={bill.supplier_id}
+          initialBillId={id}
+          onClose={() => setPaying(false)}
+          onSaved={async () => {
+            setPaying(false);
+            toast("Payment recorded");
             await load();
             onChanged();
           }}

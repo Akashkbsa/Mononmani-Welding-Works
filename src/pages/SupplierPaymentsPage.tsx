@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { HandCoins, Search } from "lucide-react";
+import { HandCoins, Plus, Search } from "lucide-react";
 import { PAYMENT_METHODS } from "../types/payment";
 import { SupplierPaymentListItem, SupplierPaymentsSummary } from "../types/supplierPayment";
 import { getSupplierPaymentsSummary, listSupplierPayments } from "../services/api";
@@ -18,8 +18,10 @@ import {
   Stat,
   StatStrip,
   theadClass,
+  useToast,
 } from "../components/ui";
 import SupplierPaymentDetailsModal from "../components/supplierPayments/SupplierPaymentDetailsModal";
+import SupplierPaymentFormModal from "../components/supplierPayments/SupplierPaymentFormModal";
 
 interface Props {
   /** A payment to open as soon as the page shows (set by another screen). */
@@ -28,6 +30,8 @@ interface Props {
 }
 
 export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandled }: Props) {
+  const toast = useToast();
+  const [recording, setRecording] = useState(false);
   const [payments, setPayments] = useState<SupplierPaymentListItem[] | null>(null);
   const [summary, setSummary] = useState<SupplierPaymentsSummary | null>(null);
   const [query, setQuery] = useState("");
@@ -64,7 +68,15 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
 
   return (
     <>
-      <PageHeader title="Supplier payments" description="Money you pay to suppliers." />
+      <PageHeader
+        title="Supplier payments"
+        description="Money you pay to suppliers."
+        actions={
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setRecording(true)}>
+            Record payment
+          </Button>
+        }
+      />
 
       {summary && (
         <div className="mb-5">
@@ -122,7 +134,7 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
           <EmptyState
             icon={HandCoins}
             title={filtered ? "No supplier payments match these filters" : "No supplier payments yet"}
-            description={filtered ? undefined : "Record a payment from a supplier bill when you pay a supplier."}
+            description={filtered ? undefined : "Record a payment when you pay a supplier."}
           />
         ) : (
           <table className="mww-fade w-full text-sm">
@@ -165,6 +177,17 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
           </table>
         )}
       </Card>
+
+      {recording && (
+        <SupplierPaymentFormModal
+          onClose={() => setRecording(false)}
+          onSaved={() => {
+            setRecording(false);
+            toast("Payment recorded");
+            load();
+          }}
+        />
+      )}
 
       {viewingId !== null && (
         <SupplierPaymentDetailsModal paymentId={viewingId} onClose={() => setViewingId(null)} onChanged={load} />
