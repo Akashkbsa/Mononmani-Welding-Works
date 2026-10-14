@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
+import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -12,10 +12,12 @@ import PaymentsPage from "./pages/PaymentsPage";
 import SupplierBillsPage from "./pages/SupplierBillsPage";
 import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
 import RentalsPage from "./pages/RentalsPage";
+import RemindersPage from "./pages/RemindersPage";
+import { ReminderLinkKind } from "./types/reminder";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
 
-export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "customers" | "settings";
+export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "reminders" | "customers" | "settings";
 
 const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -26,6 +28,7 @@ const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "supplierBills", label: "Supplier bills", icon: ReceiptText },
   { id: "supplierPayments", label: "Supplier payments", icon: HandCoins },
   { id: "rentals", label: "Rentals", icon: House },
+  { id: "reminders", label: "Reminders", icon: BellRing },
   { id: "customers", label: "Customers & suppliers", icon: Users },
 ];
 
@@ -78,6 +81,44 @@ function App() {
   const openQuotation = (quotationId: number) => {
     setOpenQuotationId(quotationId);
     setPage("quotations");
+  };
+
+  // Bumped after any reminder change so the banner at the top loads again.
+  const [, setRemindersVersion] = useState(0);
+  const remindersChanged = () => setRemindersVersion((v) => v + 1);
+
+  /** Go to the screen of a record a reminder is linked to, and open it there when that screen can. */
+  const openRecord = (kind: ReminderLinkKind, id: number) => {
+    switch (kind) {
+      case "INVOICE":
+        setOpenInvoiceId(id);
+        setPage("invoices");
+        break;
+      case "QUOTATION":
+        openQuotation(id);
+        break;
+      case "PURCHASE_ORDER":
+        setOpenPurchaseOrderId(id);
+        setPage("purchaseOrders");
+        break;
+      case "SUPPLIER_PAYMENT":
+        setOpenSupplierPaymentId(id);
+        setPage("supplierPayments");
+        break;
+      case "PAYMENT":
+        setPage("payments");
+        break;
+      case "SUPPLIER_BILL":
+        setPage("supplierBills");
+        break;
+      case "COMPANY":
+        setPage("customers");
+        break;
+      case "TENANT":
+      case "PLACE":
+        setPage("rentals");
+        break;
+    }
   };
 
   // Reminds the user (a dot on Settings) when something is not backed up yet.
@@ -173,6 +214,7 @@ function App() {
                   />
                 )}
                 {page === "rentals" && <RentalsPage />}
+                {page === "reminders" && <RemindersPage onOpenRecord={openRecord} onChanged={remindersChanged} />}
                 {page === "customers" && <CustomersPage />}
                 {page === "settings" && <SettingsPage />}
               </ErrorBoundary>
