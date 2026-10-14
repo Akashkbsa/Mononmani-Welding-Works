@@ -200,15 +200,8 @@ impl CustomerRepository {
         }
     }
 
-    /// Retrieve all companies with default ordering:
-    /// 1. Favorites first
-    /// 2. Then by last_used_at (most recent first)
-    /// 3. Then by created_at (newest first)
-    pub fn find_all(conn: &Connection) -> Result<Vec<Customer>, String> {
-        Self::list_by_party(conn, None)
-    }
-
-    /// The same list limited to customers (Customer and Both) or suppliers (Supplier and Both).
+    /// All companies with the default ordering (favourites first, then most recently used, then newest),
+    /// limited to customers (Customer and Both) or suppliers (Supplier and Both). `None` means everyone.
     pub fn list_by_party(conn: &Connection, party: Option<&str>) -> Result<Vec<Customer>, String> {
         let sql = format!(
             r#"
@@ -242,11 +235,7 @@ impl CustomerRepository {
         Ok(customers)
     }
 
-    /// Search companies locally by name, gstin, phone, or email
-    pub fn search(conn: &Connection, query: &str) -> Result<Vec<Customer>, String> {
-        Self::search_by_party(conn, query, None)
-    }
-
+    /// Search by name, GSTIN, phone or email, with the same party limit.
     pub fn search_by_party(conn: &Connection, query: &str, party: Option<&str>) -> Result<Vec<Customer>, String> {
         let clean_query = query.trim();
         if clean_query.is_empty() {
@@ -921,16 +910,16 @@ mod tests {
         ).unwrap();
 
         // TEST 8: Search by name
-        let by_name = CustomerRepository::search(&conn, "precision").unwrap();
+        let by_name = CustomerRepository::search_by_party(&conn, "precision", None).unwrap();
         assert_eq!(by_name.len(), 1);
         assert_eq!(by_name[0].name, "Precision Tools Co");
 
         // TEST 9: Search by phone
-        let by_phone = CustomerRepository::search(&conn, "24501234").unwrap();
+        let by_phone = CustomerRepository::search_by_party(&conn, "24501234", None).unwrap();
         assert_eq!(by_phone.len(), 1);
 
         // TEST 10: Search by GSTIN
-        let by_gstin = CustomerRepository::search(&conn, "9999F1ZV").unwrap();
+        let by_gstin = CustomerRepository::search_by_party(&conn, "9999F1ZV", None).unwrap();
         assert_eq!(by_gstin.len(), 1);
     }
 
@@ -1096,7 +1085,7 @@ mod tests {
         {
             let db2 = DatabaseManager::new(&db_path).unwrap();
             let conn2 = db2.get_connection().unwrap();
-            let all = CustomerRepository::find_all(&conn2).unwrap();
+            let all = CustomerRepository::list_by_party(&conn2, None).unwrap();
             assert_eq!(all.len(), 2);
             assert_eq!(all[0].name, "Customer Alpha");
             assert_eq!(all[0].is_favorite, true);
@@ -1150,7 +1139,7 @@ mod tests {
         // 4. Mark c1 as used recently
         CustomerRepository::update_last_used(&conn, c1.id).unwrap();
 
-        let list = CustomerRepository::find_all(&conn).unwrap();
+        let list = CustomerRepository::list_by_party(&conn, None).unwrap();
         // Expect:
         // 1. c3 (Favorite first)
         // 2. c1 (Regular, but used recently)

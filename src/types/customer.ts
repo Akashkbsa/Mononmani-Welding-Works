@@ -1,3 +1,12 @@
+/** What a company is to the business: someone it sells to, buys from, or both. */
+export type PartyType = "CUSTOMER" | "SUPPLIER" | "BOTH";
+
+export const PARTY_TYPE_LABEL: Record<PartyType, string> = {
+  CUSTOMER: "Customer",
+  SUPPLIER: "Supplier",
+  BOTH: "Both",
+};
+
 export interface Customer {
   id: number;
   name: string;
@@ -13,6 +22,7 @@ export interface Customer {
   last_used_at: string | null;
   created_at: string;
   updated_at: string;
+  party_type: PartyType;
 }
 
 /** Same shape for creating and editing a customer. */
@@ -27,6 +37,7 @@ export interface CustomerCreateInput {
   state: string | null;
   postal_code: string | null;
   is_favorite: boolean;
+  party_type: PartyType;
 }
 
 export interface DuplicateCheckResult {

@@ -4,18 +4,19 @@ use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub fn list_customers(state: State<'_, AppState>) -> Result<Vec<Customer>, String> {
+pub fn list_customers(party: Option<String>, state: State<'_, AppState>) -> Result<Vec<Customer>, String> {
     let conn = state.db.get_connection()?;
-    CustomerRepository::find_all(&conn)
+    CustomerRepository::list_by_party(&conn, party.as_deref())
 }
 
 #[tauri::command]
 pub fn search_customers(
     query: String,
+    party: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<Customer>, String> {
     let conn = state.db.get_connection()?;
-    CustomerRepository::search(&conn, &query)
+    CustomerRepository::search_by_party(&conn, &query, party.as_deref())
 }
 
 #[tauri::command]

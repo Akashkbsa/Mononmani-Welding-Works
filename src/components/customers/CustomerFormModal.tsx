@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Customer, CustomerCreateInput } from "../../types/customer";
+import { Customer, CustomerCreateInput, PartyType } from "../../types/customer";
 import { checkDuplicateCustomer, createCustomer, updateCustomer } from "../../services/api";
 import { GST_STATES, HOME_STATE, stateCodeFor, stateName } from "../../lib/gst";
 import { errorMessage } from "../../lib/format";
@@ -44,6 +44,7 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
     state: customer ? customer.state ?? "" : HOME_STATE.name,
     postal_code: customer?.postal_code ?? "",
     is_favorite: customer?.is_favorite ?? false,
+    party_type: (customer?.party_type ?? "CUSTOMER") as PartyType,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [duplicate, setDuplicate] = useState<Customer | null>(null);
@@ -84,6 +85,7 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
       state: clean(form.state),
       postal_code: clean(form.postal_code),
       is_favorite: form.is_favorite,
+      party_type: form.party_type,
     };
 
     const found = validate(input);

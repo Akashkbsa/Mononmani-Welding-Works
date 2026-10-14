@@ -149,7 +149,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listCustomers()
+    listCustomers("CUSTOMER")
       .then(setCustomers)
       .catch((err) => setError(errorMessage(err)));
     if (!invoice) {

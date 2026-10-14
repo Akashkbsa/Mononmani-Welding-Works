@@ -56,8 +56,11 @@ export const openDataFolder = () => call<void>("open_data_folder");
 export const openInvoicePdf = (path: string) => call<void>("open_invoice_pdf", { path });
 
 // Customers
-export const listCustomers = () => call<Customer[]>("list_customers");
-export const searchCustomers = (query: string) => call<Customer[]>("search_customers", { query });
+/** Which companies a list is for: customers (Customer and Both) or suppliers (Supplier and Both). No value means everyone. */
+export type PartyFilter = "CUSTOMER" | "SUPPLIER";
+export const listCustomers = (party?: PartyFilter) => call<Customer[]>("list_customers", { party: party ?? null });
+export const searchCustomers = (query: string, party?: PartyFilter) =>
+  call<Customer[]>("search_customers", { query, party: party ?? null });
 export const checkDuplicateCustomer = (name: string, excludeId?: number) =>
   call<DuplicateCheckResult>("check_duplicate_customer", { name, excludeId: excludeId ?? null });
 export const createCustomer = (input: CustomerCreateInput) => call<Customer>("create_customer", { input });

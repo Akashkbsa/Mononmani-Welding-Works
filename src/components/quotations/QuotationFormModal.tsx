@@ -84,7 +84,7 @@ export default function QuotationFormModal({ quotationId, onClose, onSaved }: Pr
   });
 
   useEffect(() => {
-    listCustomers()
+    listCustomers("CUSTOMER")
       .then(setCustomers)
       .catch((err) => setError(errorMessage(err)));
   }, []);

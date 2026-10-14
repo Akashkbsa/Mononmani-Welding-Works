@@ -115,7 +115,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
   });
 
   useEffect(() => {
-    listCustomers()
+    listCustomers("CUSTOMER")
       .then(setCustomers)
       .catch((err) => setError(errorMessage(err)));
   }, []);

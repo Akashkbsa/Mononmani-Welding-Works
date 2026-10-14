@@ -81,7 +81,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listCustomers()
+    listCustomers("CUSTOMER")
       .then(setCustomers)
       .catch((err) => setError(errorMessage(err)));
     if (!isEdit) {
