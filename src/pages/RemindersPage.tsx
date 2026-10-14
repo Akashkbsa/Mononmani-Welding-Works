@@ -3,7 +3,7 @@ import { BellRing, Plus } from "lucide-react";
 import { deleteReminder, listReminders, markReminderDone, markReminderNotDone, setReminderDismissed } from "../services/api";
 import { errorMessage, formatDate } from "../lib/format";
 import { remindText, repeatText, STATE_STYLE, whenText } from "../lib/reminders";
-import { Reminder, ReminderTab } from "../types/reminder";
+import { LINK_KIND_LABEL, Reminder, ReminderLinkKind, ReminderTab } from "../types/reminder";
 import { Alert, Button, Card, ConfirmDialog, EmptyState, ListSkeleton, PageHeader, theadClass, useToast } from "../components/ui";
 import ReminderFormModal from "../components/reminders/ReminderFormModal";
 
@@ -14,13 +14,15 @@ const TABS: { id: ReminderTab; label: string; empty: string }[] = [
 ];
 
 interface Props {
+  /** Opens the record a reminder is linked to. */
+  onOpenRecord: (kind: ReminderLinkKind, id: number) => void;
   /** Called after any change, so the banner at the top refreshes. */
   onChanged: () => void;
   /** Changes when reminders changed elsewhere (the banner). */
   refreshKey: number;
 }
 
-export default function RemindersPage({ onChanged, refreshKey }: Props) {
+export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<ReminderTab>("DUE");
   const [rows, setRows] = useState<Reminder[] | null>(null);
@@ -128,6 +130,7 @@ export default function RemindersPage({ onChanged, refreshKey }: Props) {
                 <th className="py-2.5 pr-4 font-semibold">What</th>
                 <th className="py-2.5 pr-4 font-semibold">Date</th>
                 <th className="py-2.5 pr-4 font-semibold">Repeat</th>
+                <th className="py-2.5 pr-4 font-semibold">Linked to</th>
                 <th className="py-2.5 px-4 font-semibold text-right">
                   <span className="sr-only">Actions</span>
                 </th>
@@ -153,6 +156,24 @@ export default function RemindersPage({ onChanged, refreshKey }: Props) {
                       </div>
                     </td>
                     <td className="py-3 pr-4 text-slate-600">{repeatText(r) || "—"}</td>
+                    <td className="py-3 pr-4">
+                      {r.link_kind && r.link_id !== null ? (
+                        r.link_missing ? (
+                          <span className="text-slate-500">link removed</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-left text-brand-700 hover:underline"
+                            onClick={() => onOpenRecord(r.link_kind!, r.link_id!)}
+                          >
+                            <span className="text-xs text-slate-500">{LINK_KIND_LABEL[r.link_kind]} </span>
+                            {r.link_label}
+                          </button>
+                        )
+                      ) : (
+                        <span className="text-slate-500">—</span>
+                      )}
+                    </td>
                     <td className="py-2.5 px-4">
                       <div className="flex justify-end gap-1">
                         {r.state === "DONE" ? (

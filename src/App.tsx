@@ -240,7 +240,7 @@ function App() {
                   />
                 )}
                 {page === "rentals" && <RentalsPage openTenantId={otherId("TENANT")} openPlaceId={otherId("PLACE")} onOpenHandled={clearOther} />}
-                {page === "reminders" && <RemindersPage onChanged={remindersChanged} refreshKey={remindersVersion} />}
+                {page === "reminders" && <RemindersPage onOpenRecord={openRecord} onChanged={remindersChanged} refreshKey={remindersVersion} />}
                 {page === "customers" && <CustomersPage openId={otherId("COMPANY")} onOpenHandled={clearOther} />}
                 {page === "settings" && <SettingsPage />}
               </ErrorBoundary>
