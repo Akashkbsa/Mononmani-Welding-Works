@@ -4,6 +4,7 @@ import type { Page } from "../App";
 import { InvoiceListItem } from "../types/invoice";
 import { PaymentListItem, PaymentsSummary } from "../types/payment";
 import { SupplierBillListItem, SupplierBillsSummary } from "../types/supplierBill";
+import { SupplierPaymentListItem } from "../types/supplierPayment";
 import { QuotationListItem } from "../types/quotation";
 import { MonthOverview } from "../types/rental";
 import { Reminder } from "../types/reminder";
@@ -16,13 +17,15 @@ import {
   listQuotations,
   listReminders,
   listSupplierBills,
+  listSupplierPayments,
   printInvoice,
 } from "../services/api";
 import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, monthTitle, todayISO } from "../lib/format";
-import { ageInDays, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
+import { ageBuckets, ageInDays, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
 import { whenText } from "../lib/reminders";
 import { Alert, Button, Card, PageHeader, SectionTitle, Skeleton, Stat, StatStrip, useToast } from "../components/ui";
 import { HBars, MonthlyBars } from "../components/dashboard/charts";
+import Donut from "../components/dashboard/Donut";
 import { ListCard, ListRow } from "../components/dashboard/ListCard";
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
@@ -34,6 +37,12 @@ import { useReminders } from "../components/reminders/RemindersContext";
 let dashboardRevealed = false;
 
 const SHOWN = 5;
+const AGE_STYLE = [
+  { stroke: "stroke-brand-600", dot: "bg-brand-600" },
+  { stroke: "stroke-amber-400", dot: "bg-amber-400" },
+  { stroke: "stroke-orange-500", dot: "bg-orange-500" },
+  { stroke: "stroke-red-600", dot: "bg-red-600" },
+];
 const MONTHS = 6;
 
 interface Data {
@@ -42,6 +51,7 @@ interface Data {
   payments: PaymentListItem[];
   bills: SupplierBillListItem[];
   billsSummary: SupplierBillsSummary | null;
+  supplierPayments: SupplierPaymentListItem[];
   quotations: QuotationListItem[];
   rent: MonthOverview | null;
   reminders: Reminder[];
@@ -73,14 +83,18 @@ function DashboardSkeleton() {
   );
 }
 
-/** The customers with the biggest unpaid balances, so it is clear who to follow up first. */
-function OwedCard({
+/** The biggest unpaid balances, so it is clear who to follow up first. */
+function TopOwedCard({
+  title,
   total,
   items,
+  unit,
   onSeeAll,
 }: {
+  title: string;
   total: number;
   items: { name: string; amount: number }[];
+  unit: string;
   onSeeAll: () => void;
 }) {
   const top = topByName(items, SHOWN);
@@ -89,14 +103,14 @@ function OwedCard({
       <SectionTitle
         action={
           <Button size="sm" variant="ghost" onClick={onSeeAll}>
-            All invoices
+            See all
           </Button>
         }
       >
-        Who owes you most
+        {title}
       </SectionTitle>
       <div className="mb-5 text-2xl font-semibold tabular text-slate-900">{formatMoney(total)}</div>
-      <HBars empty="No unpaid invoices." rows={top.map((t) => ({ label: t.name, note: `${t.count} unpaid invoice${t.count === 1 ? "" : "s"}`, amount: t.amount }))} />
+      <HBars empty="Nothing unpaid." rows={top.map((t) => ({ label: t.name, note: `${t.count} unpaid ${unit}${t.count === 1 ? "" : "s"}`, amount: t.amount }))} />
     </Card>
   );
 }
@@ -119,12 +133,13 @@ export default function DashboardPage({
 
   const load = useCallback(async () => {
     // Each part loads on its own, so one slow or failing part does not blank the whole dashboard.
-    const [summary, invoices, payments, bills, billsSummary, quotations, rent, reminders] = await Promise.allSettled([
+    const [summary, invoices, payments, bills, billsSummary, supplierPayments, quotations, rent, reminders] = await Promise.allSettled([
       getPaymentsSummary(),
       listInvoices(),
       listPayments(),
       listSupplierBills(),
       getSupplierBillsSummary(),
+      listSupplierPayments(),
       listQuotations(),
       getRentMonthOverview(currentMonth()),
       listReminders("UPCOMING"),
@@ -141,6 +156,7 @@ export default function DashboardPage({
       payments: payments.value,
       bills: ok(bills, []),
       billsSummary: ok(billsSummary, null),
+      supplierPayments: ok(supplierPayments, []),
       quotations: ok(quotations, []),
       rent: ok(rent, null),
       reminders: ok(reminders, []),
@@ -186,6 +202,9 @@ export default function DashboardPage({
       toPay,
       months,
       invoiced: monthlySums(issued.map((i) => ({ date: i.invoice_date, amount: i.total_amount })), months),
+      billed: monthlySums(data.bills.map((b) => ({ date: b.bill_date, amount: b.total_amount })), months),
+      paidOut: monthlySums(data.supplierPayments.map((p) => ({ date: p.payment_date, amount: p.amount_paid })), months),
+      ages: ageBuckets(waiting.map((i) => ({ date: i.invoice_date, amount: i.outstanding_amount })), today),
       received: monthlySums(data.payments.map((p) => ({ date: p.payment_date, amount: p.amount_received })), months),
       unsentQuotes,
       unpaidTenants,
@@ -303,10 +322,37 @@ export default function DashboardPage({
                 ]}
               />
             </Card>
-            <OwedCard total={data.summary.total_outstanding} items={view.owedByCustomers} onSeeAll={() => onNavigate("invoices")} />
+            <Card className="h-full p-5">
+              <SectionTitle>Unpaid invoices by age</SectionTitle>
+              <Donut
+                centerLabel="Unpaid"
+                empty="No unpaid invoices."
+                parts={view.ages.map((b, i) => ({
+                  label: b.label,
+                  amount: b.amount,
+                  note: b.count > 0 ? `${b.count} invoice${b.count === 1 ? "" : "s"}` : undefined,
+                  ...AGE_STYLE[i],
+                }))}
+              />
+            </Card>
           </div>
 
-          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(3).className}`} style={reveals(3).style}>
+          <div className={`mb-6 grid grid-cols-3 items-stretch gap-6 ${reveals(3).className}`} style={reveals(3).style}>
+            <Card className="col-span-2 h-full p-5">
+              <SectionTitle>Supplier bills and payments, last {MONTHS} months</SectionTitle>
+              <MonthlyBars
+                label="Supplier bills received and paid by month"
+                months={view.months}
+                series={[
+                  { name: "Bills received", fill: "fill-amber-500", dot: "bg-amber-500", values: view.billed },
+                  { name: "Paid to suppliers", fill: "fill-slate-500", dot: "bg-slate-500", values: view.paidOut },
+                ]}
+              />
+            </Card>
+            <TopOwedCard title="Who owes you most" total={data.summary.total_outstanding} items={view.owedByCustomers} unit="invoice" onSeeAll={() => onNavigate("invoices")} />
+          </div>
+
+          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(4).className}`} style={reveals(4).style}>
             <ListCard
               title="Invoices waiting for payment"
               actionLabel="All invoices"
