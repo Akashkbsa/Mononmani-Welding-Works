@@ -101,7 +101,6 @@ export default function ReminderFormModal({ reminder, link, suggestedTitle, onCl
               aria-label="What to do"
               autoFocus
               className={inputClass}
-              placeholder="For example: Pay GST, Collect rent from Joel"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -166,7 +165,6 @@ export default function ReminderFormModal({ reminder, link, suggestedTitle, onCl
                   setMonthEnd(v);
                 }}
                 label="On the last day of each month"
-                description="For things like GST that fall on the month end, whatever the length of the month."
               />
             )}
           </div>
