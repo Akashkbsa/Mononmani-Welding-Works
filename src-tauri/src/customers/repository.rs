@@ -302,6 +302,18 @@ impl CustomerRepository {
         }
     }
 
+    /// Supplier bills, supplier payments and advances paid that make a company a supplier.
+    fn supplier_record_count(conn: &Connection, id: i64) -> Result<i64, String> {
+        conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM supplier_bills WHERE supplier_id = ?1)
+                  + (SELECT COUNT(*) FROM supplier_payments WHERE supplier_id = ?1)
+                  + (SELECT COUNT(*) FROM supplier_credits WHERE supplier_id = ?1)",
+            params![id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to check supplier records: {}", e))
+    }
+
     /// Invoices, payments, orders, quotations and advances that make a company a customer.
     fn customer_record_count(conn: &Connection, id: i64) -> Result<i64, String> {
         conn.query_row(
@@ -510,6 +522,15 @@ impl CustomerRepository {
                     ));
                 }
             }
+            if new_type == "CUSTOMER" {
+                let n = Self::supplier_record_count(conn, id)?;
+                if n > 0 {
+                    return Err(format!(
+                        "This company has {} supplier record(s) (bills, payments or advances), so it can't be changed to Customer only.",
+                        n
+                    ));
+                }
+            }
         }
 
         let now = Utc::now().to_rfc3339();
@@ -638,6 +659,21 @@ impl CustomerRepository {
             .map_err(|e| format!("Failed to check customer records: {}", e))?;
         if quotations > 0 {
             return Err(format!("This customer has {} quotation(s), so they can't be deleted.", quotations));
+        }
+
+        let (bills, supplier_payments): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM supplier_bills WHERE supplier_id = ?1),
+                        (SELECT COUNT(*) FROM supplier_payments WHERE supplier_id = ?1)",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| format!("Failed to check supplier records: {}", e))?;
+        if bills + supplier_payments > 0 {
+            return Err(format!(
+                "This company has {} supplier bill(s) and {} supplier payment(s), so it can't be deleted.",
+                bills, supplier_payments
+            ));
         }
 
         conn.execute("DELETE FROM customers WHERE id = ?1", params![id])
@@ -1377,5 +1413,75 @@ mod tests {
         let conn = setup_test_db(&dir.path().join("t.db"));
         let id = company(&conn, "A", Some("SUPPLIER")).id;
         assert_eq!(update_type(&conn, id, "A renamed", None).unwrap().party_type, "SUPPLIER");
+    }
+
+    // ---- supplier records ----
+
+    const SUPPLIER_RECORDS: [(&str, &str); 3] = [
+        ("supplier_bills", "INSERT INTO supplier_bills (supplier_id, bill_number, bill_date, total_amount, created_at, updated_at) VALUES (?1, 'B-1', '2026-10-01', 100, 'x', 'x')"),
+        ("supplier_payments", "INSERT INTO supplier_payments (payment_number, supplier_id, payment_date, created_at, updated_at) VALUES ('SP/26-27/001', ?1, '2026-10-02', 'x', 'x')"),
+        ("supplier_credits", "INSERT INTO supplier_credits (supplier_id, original_amount, remaining_amount, created_at, updated_at) VALUES (?1, 5, 5, 'x', 'x')"),
+    ];
+
+    #[test]
+    fn a_company_with_supplier_records_cannot_become_customer_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        for start in ["SUPPLIER", "BOTH"] {
+            let id = company(&conn, &format!("Steel {}", start), Some(start)).id;
+            for (table, insert) in SUPPLIER_RECORDS {
+                conn.execute(insert, params![id]).unwrap();
+                let err = update_type(&conn, id, &format!("Steel {}", start), Some("CUSTOMER")).unwrap_err();
+                assert_eq!(
+                    err,
+                    "This company has 1 supplier record(s) (bills, payments or advances), so it can't be changed to Customer only.",
+                    "{} from {}",
+                    table,
+                    start
+                );
+                assert_eq!(update_type(&conn, id, &format!("Steel {}", start), Some("BOTH")).unwrap().party_type, "BOTH");
+                update_type(&conn, id, &format!("Steel {}", start), Some(start)).unwrap();
+                conn.execute(&format!("DELETE FROM {}", table), []).unwrap();
+            }
+            assert_eq!(update_type(&conn, id, &format!("Steel {}", start), Some("CUSTOMER")).unwrap().party_type, "CUSTOMER");
+        }
+    }
+
+    #[test]
+    fn a_company_with_records_on_both_sides_can_go_neither_way() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        let id = company(&conn, "Both Co", Some("BOTH")).id;
+        conn.execute(
+            "INSERT INTO invoices (invoice_number, invoice_date, customer_id, customer_name, amount_in_words, created_at, updated_at) VALUES ('I-1', '2026-10-01', ?1, 'Both Co', 'x', 'x', 'x')",
+            params![id],
+        )
+        .unwrap();
+        conn.execute(SUPPLIER_RECORDS[0].1, params![id]).unwrap();
+        let to_supplier = update_type(&conn, id, "Both Co", Some("SUPPLIER")).unwrap_err();
+        assert!(to_supplier.contains("customer record(s)"), "{}", to_supplier);
+        let to_customer = update_type(&conn, id, "Both Co", Some("CUSTOMER")).unwrap_err();
+        assert!(to_customer.contains("supplier record(s)"), "{}", to_customer);
+        assert_eq!(CustomerRepository::find_by_id(&conn, id).unwrap().unwrap().party_type, "BOTH");
+    }
+
+    #[test]
+    fn a_company_with_supplier_records_cannot_be_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        let id = company(&conn, "Steel Co", Some("SUPPLIER")).id;
+        conn.execute(SUPPLIER_RECORDS[0].1, params![id]).unwrap();
+        assert_eq!(
+            CustomerRepository::delete(&conn, id).unwrap_err(),
+            "This company has 1 supplier bill(s) and 0 supplier payment(s), so it can't be deleted."
+        );
+        conn.execute("DELETE FROM supplier_bills", []).unwrap();
+        conn.execute(SUPPLIER_RECORDS[1].1, params![id]).unwrap();
+        assert_eq!(
+            CustomerRepository::delete(&conn, id).unwrap_err(),
+            "This company has 0 supplier bill(s) and 1 supplier payment(s), so it can't be deleted."
+        );
+        conn.execute("DELETE FROM supplier_payments", []).unwrap();
+        CustomerRepository::delete(&conn, id).unwrap();
     }
 }
