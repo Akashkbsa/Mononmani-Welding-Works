@@ -25,22 +25,26 @@ Refunds from a supplier, TDS on what is paid, GST or input-credit breakdown, due
 
 ## Data
 
-Never edit an applied migration. One migration per build stage.
+Never edit an applied migration. Two migrations: 14 (company type) and 15 (all supplier tables, so a bill's status can be calculated from the payments as soon as bills exist).
 
 ### Migration 14, `014_party_type`
 - `customers.party_type TEXT NOT NULL DEFAULT 'CUSTOMER' CHECK (party_type IN ('CUSTOMER','SUPPLIER','BOTH'))`, plus an index. Existing rows come out `CUSTOMER`.
 
-### Migration 15, `015_supplier_bills`
+### Migration 15, `015_supplier_tables`
+
+Holds the bill tables and the payment tables below.
+
+#### Bills
 - `supplier_bills`: `id`, `supplier_id` (NOT NULL, FK customers), `bill_number` (NOT NULL), `bill_date` (TEXT `YYYY-MM-DD`, NOT NULL), `total_amount` (REAL NOT NULL, CHECK > 0), `notes`, `created_at`, `updated_at`. Indexes on `supplier_id` and `bill_number COLLATE NOCASE`.
 - `supplier_bill_files`: `id`, `bill_id` (FK `supplier_bills`, `ON DELETE CASCADE`), `file_name`, `mime_type`, `size_bytes`, `data` (BLOB), `created_at`. Index on `bill_id`.
-- Insert/update/delete `change_log` triggers for both tables, written like migration 12/13. `supplier_bills` is added to the backup summary list ("supplier bill" / "supplier bills").
+- Insert/update/delete `change_log` triggers for both tables, written like migration 12/13.
 
-### Migration 16, `016_supplier_payments`
+#### Payments
 - `supplier_payments`: `id`, `payment_number` (TEXT NOT NULL UNIQUE), `supplier_id` (NOT NULL, FK customers), `payment_date`, `payment_method` (default `Bank Transfer`), `reference_number`, `bank_name`, `amount_paid`, `total_settled` (amount paid + written off), `credit_applied`, `excess_amount`, `excess_action` (`NONE` | `CREDIT` | `ROUNDOFF`, CHECK), `writeoff_amount`, `remarks`, `created_at`, `updated_at`.
 - `supplier_payment_allocations`: `id`, `payment_id` (FK, `ON DELETE CASCADE`), `bill_id` (FK `supplier_bills`, no cascade), `amount_allocated` (the amount settled on that bill, including any written-off share), `created_at`.
 - `supplier_credits` (advances paid to a supplier): `id`, `supplier_id`, `source_payment_id`, `original_amount`, `remaining_amount`, `notes`, `created_at`, `updated_at`.
 - `supplier_credit_applications`: `id`, `payment_id` (FK, cascade), `credit_id` (FK, cascade), `amount`, `created_at`.
-- Triggers for `supplier_payments`. `supplier_payments` is added to the backup summary list.
+- Triggers for `supplier_payments`. `supplier_bills` and `supplier_payments` are added to the backup summary list ("supplier bill" / "supplier bills", "supplier payment" / "supplier payments").
 
 Money is REAL, rounded to paise in Rust (`round2`) and compared with the same tolerance the customer payments use. File contents are never selected by list queries.
 
@@ -84,10 +88,10 @@ Money is REAL, rounded to paise in Rust (`round2`) and compared with the same to
 
 ## Screens
 
-- **Customers & suppliers** (the existing Customers page): type badge on each row, a type filter (All / Customers / Suppliers / Both), the form's Type choice, and in the details window a Supplier section (bills, amount payable, advance paid) for Supplier and Both companies. The invoice section stays for Customer and Both. Search shows everyone.
+- **Customers & suppliers** (the existing Customers page): type badge on each row, a type filter (All; Customers = Customer and Both; Suppliers = Supplier and Both; Both = Both only), the form's Type choice, and in the details window a Supplier section (bills, amount payable, advance paid) for Supplier and Both companies. The invoice section stays for Customer and Both. Search shows everyone.
 - **Pickers:** the invoice, payment, purchase order and quotation forms request `CUSTOMER`; the supplier forms request `SUPPLIER`. The shared `CustomerPicker` takes an `ariaLabel` and empty-state text so the supplier pickers say "supplier".
 - **Supplier bills page** (sidebar, after Payments): search; tabs All / Not paid / Partially paid / Fully paid; a summary line (total you owe suppliers, advances paid); rows: bill number, supplier, date, total, outstanding, status badge, files.
-- **Supplier bill form**: supplier picker, bill number with the duplicate warning, date, total, internal note, files (the shared file components). Uses `useDiscardGuard`. Supplier locked once payments exist.
+- **Supplier bill form**: supplier picker with a **New** button (opens the company form with type Supplier or Both, like the invoice form's customer button), bill number with the duplicate warning, date, total, internal note, files (the shared file components). Uses `useDiscardGuard`. Supplier locked once payments exist.
 - **Supplier bill details**: fields, files, the payments settling it (click opens the payment), Edit, Delete, and **Record payment** (opens the payment form with the supplier and this bill already chosen).
 - **Supplier payments page** (sidebar, after Supplier bills): summary strip, search by number or supplier, list; rows: number, supplier, date, method, amount paid, written off, bills covered. Details: allocations, settlement summary (paid, written off, advance used, extra kept as round-off or advance), Edit, Delete.
 - **Supplier payment form**: supplier picker, number, date, amount paid, method, reference or cheque number, bank name; the supplier's open bills with an amount per bill; **Use advance**; a summary (paid, written off, advance used, applied to bills, extra); "Accept as full payment" when short, with the amount filled in and **no warning at any size**; the Round-off / Advance choice when there is an extra; remarks.
@@ -109,7 +113,7 @@ Rust unit tests next to the code, run through the standalone-crate method in `do
 - Advances: created by `CREDIT`, used oldest first, returned on edit and delete; a used advance blocks deleting its payment; a payment with no bills makes an advance.
 - Company type: default Customer; filter results; `require_party` refusal in the invoice, payment, order, quotation, bill and supplier-payment saves; type-change guards both ways; delete guard; duplicate-name hint.
 - Bill rules: duplicate number warns per supplier only; total cannot drop below settled; supplier locked after payments; delete blocked with payments, cascades files otherwise; stale ids give "not found" messages.
-- Migrations 14, 15 and 16 applied to a **copy** of a database that already has customers, invoices, payments, orders and quotations (never the real database): existing rows unchanged, existing companies are Customer, change-log triggers fire.
+- Migrations 14 and 15 applied to a **copy** of a database that already has customers, invoices, payments, orders and quotations (never the real database): existing rows unchanged, existing companies are Customer, change-log triggers fire.
 - UI: `npx tsc --noEmit -p .` and `npm run build`. The owner checks the screens by hand once.
 
 ## Build order
@@ -117,8 +121,8 @@ Rust unit tests next to the code, run through the standalone-crate method in `do
 Branch `feature/supplier-bills`. Each stage ends with the full Rust suite, `cargo check`, `tsc` and `npm run build` passing, and a local commit. Nothing is pushed unless the owner asks.
 
 1. **Company type.** Migration 14 and tests; repository rules (filter, `require_party`, guards) and tests; call `require_party` from the existing saves; commands; UI (form Type, page badge and filter, details Supplier section, picker filter).
-2. **Supplier bills.** Migration 15 and tests; models, repository and tests; commands and `api.ts`; types; page, form and details window; sidebar.
-3. **Supplier payments.** Migration 16 and tests; repository (settlement, advances, edit, delete) and tests; commands and `api.ts`; types; page, form and details window; "Record payment" from a bill; sidebar.
+2. **Supplier bills.** Migration 15 (all supplier tables) and tests; models, repository and tests; commands and `api.ts`; types; page, form and details window; sidebar.
+3. **Supplier payments.** Repository (settlement, advances, edit, delete) and tests; commands and `api.ts`; types; page, form and details window; "Record payment" from a bill; sidebar.
 4. Update `docs/PROJECT_STRUCTURE.md`.
 
 Delegated workers, if used, get only code and sample data, never the real database.
