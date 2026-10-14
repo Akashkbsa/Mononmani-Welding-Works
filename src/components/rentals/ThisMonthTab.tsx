@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, House } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, House, MessageCircle } from "lucide-react";
 import { getRentMonthOverview, undoRentPaid } from "../../services/api";
 import { currentMonth, errorMessage, formatMoney, monthTitle, shiftMonth, shortDate } from "../../lib/format";
 import { MonthOverview, MonthRow } from "../../types/rental";
@@ -17,6 +17,7 @@ import {
   useToast,
 } from "../ui";
 import MarkPaidModal from "./MarkPaidModal";
+import SendRemindersModal from "./SendRemindersModal";
 
 /** Who has paid for a month and who has not, with the buttons to record it. */
 export default function ThisMonthTab() {
@@ -28,6 +29,7 @@ export default function ThisMonthTab() {
   const [version, setVersion] = useState(0);
   const [marking, setMarking] = useState<MonthRow | null>(null);
   const [undoing, setUndoing] = useState<MonthRow | null>(null);
+  const [reminding, setReminding] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,16 +49,29 @@ export default function ThisMonthTab() {
   // While another month is loading, the old rows stay on screen but cannot be acted on.
   const stale = overview?.month !== month;
   const summary = overview?.summary;
+  const unpaid = (overview?.rows ?? []).filter((row) => !row.paid);
 
   return (
     <>
-      <div className="flex items-center gap-2 mb-4">
-        <Button size="sm" aria-label="Previous month" icon={<ChevronLeft className="w-4 h-4" />} onClick={() => setMonth(shiftMonth(month, -1))} />
-        <h2 className="w-44 text-center text-lg font-semibold tracking-tight text-slate-900">{monthTitle(month)}</h2>
-        <Button size="sm" aria-label="Next month" icon={<ChevronRight className="w-4 h-4" />} onClick={() => setMonth(shiftMonth(month, 1))} />
-        {month !== currentMonth() && (
-          <Button size="sm" variant="ghost" onClick={() => setMonth(currentMonth())}>
-            Back to this month
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="flex items-center gap-2">
+          <Button size="sm" aria-label="Previous month" icon={<ChevronLeft className="w-4 h-4" />} onClick={() => setMonth(shiftMonth(month, -1))} />
+          <h2 className="w-44 text-center text-lg font-semibold tracking-tight text-slate-900">{monthTitle(month)}</h2>
+          <Button size="sm" aria-label="Next month" icon={<ChevronRight className="w-4 h-4" />} onClick={() => setMonth(shiftMonth(month, 1))} />
+          {month !== currentMonth() && (
+            <Button size="sm" variant="ghost" onClick={() => setMonth(currentMonth())}>
+              Back to this month
+            </Button>
+          )}
+        </div>
+        {overview !== null && overview.rows.length > 0 && (
+          <Button
+            variant="primary"
+            icon={<MessageCircle className="w-4 h-4" />}
+            disabled={stale || unpaid.length === 0}
+            onClick={() => setReminding(true)}
+          >
+            {unpaid.length === 0 ? "Everyone has paid" : `Send reminders (${unpaid.length})`}
           </Button>
         )}
       </div>
@@ -155,6 +170,8 @@ export default function ThisMonthTab() {
           }}
         />
       )}
+
+      {reminding && <SendRemindersModal month={month} rows={unpaid} onClose={() => setReminding(false)} onChanged={reload} />}
 
       {undoing && (
         <ConfirmDialog
