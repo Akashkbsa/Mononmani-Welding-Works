@@ -13,6 +13,9 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("quotations", "quotation", "quotations"),
     ("supplier_bills", "supplier bill", "supplier bills"),
     ("supplier_payments", "supplier payment", "supplier payments"),
+    ("rental_places", "rental place", "rental places"),
+    ("rental_tenants", "tenant", "tenants"),
+    ("rent_months", "rent month", "rent months"),
     ("purchase_orders", "purchase order", "purchase orders"),
     ("customer_credits", "advance", "advances"),
 ];
@@ -265,6 +268,23 @@ mod tests {
         .unwrap();
         let p = BackupRepository::pending_changes(&conn, before).unwrap();
         assert_eq!(p.lines, vec!["1 supplier bill added", "1 supplier payment added"]);
+    }
+
+    #[test]
+    fn pending_summary_counts_rentals() {
+        let (_d, conn) = setup();
+        let before = BackupRepository::max_seq(&conn).unwrap();
+        conn.execute("INSERT INTO rental_places (name, monthly_rent, created_at, updated_at) VALUES ('Flat 2B', 5000, 'x', 'x')", []).unwrap();
+        let place = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO rental_tenants (place_id, name, whatsapp_number, monthly_rent, created_at, updated_at) VALUES (?1, 'Ravi', '+919876543210', 5000, 'x', 'x')",
+            params![place],
+        )
+        .unwrap();
+        let tenant = conn.last_insert_rowid();
+        conn.execute("INSERT INTO rent_months (tenant_id, month, created_at, updated_at) VALUES (?1, '2026-10', 'x', 'x')", params![tenant]).unwrap();
+        let p = BackupRepository::pending_changes(&conn, before).unwrap();
+        assert_eq!(p.lines, vec!["1 rental place added", "1 tenant added", "1 rent month added"]);
     }
 
     #[test]

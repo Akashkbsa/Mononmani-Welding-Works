@@ -451,6 +451,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "015_supplier_tables",
         sql: SUPPLIER_TABLES_SQL,
     },
+    Migration {
+        version: 16,
+        name: "016_rentals",
+        sql: RENTALS_SQL,
+    },
 ];
 
 /// Purchase orders received from customers (with the files they came in) and the optional link
@@ -685,6 +690,121 @@ pub const SUPPLIER_TABLES_SQL: &str = r#"
     CREATE TRIGGER IF NOT EXISTS trg_supplier_payments_delete_log AFTER DELETE ON supplier_payments
     BEGIN
         INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_payments', OLD.id, 'DELETE', datetime('now'));
+    END;
+"#;
+
+/// Places the owner rents out, their tenants, the rent paid each month, and files for both.
+/// Everything is tracked in `change_log` so the existing backup picks up every change.
+pub const RENTALS_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS rental_places (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        address TEXT NULL,
+        monthly_rent REAL NOT NULL DEFAULT 0.0 CHECK (monthly_rent >= 0),
+        notes TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_rental_places_name ON rental_places(name COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS rental_tenants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        place_id INTEGER NOT NULL REFERENCES rental_places(id),
+        name TEXT NOT NULL,
+        whatsapp_number TEXT NOT NULL,
+        monthly_rent REAL NOT NULL CHECK (monthly_rent > 0),
+        move_in_date TEXT NULL,
+        moved_out_date TEXT NULL,
+        notes TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rental_tenants_place ON rental_tenants(place_id);
+    -- A place has at most one current tenant (one with no moved-out date).
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_rental_tenants_one_current ON rental_tenants(place_id) WHERE moved_out_date IS NULL;
+
+    CREATE TABLE IF NOT EXISTS rent_months (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL REFERENCES rental_tenants(id) ON DELETE CASCADE,
+        month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+        paid_on TEXT NULL,
+        amount REAL NULL,
+        note TEXT NULL,
+        reminded_on TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (tenant_id, month)
+    );
+
+    CREATE TABLE IF NOT EXISTS rental_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_kind TEXT NOT NULL CHECK (owner_kind IN ('PLACE', 'TENANT')),
+        owner_id INTEGER NOT NULL,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rental_files_owner ON rental_files(owner_kind, owner_id);
+
+    -- Files belong to a place or a tenant and go when it goes.
+    CREATE TRIGGER IF NOT EXISTS trg_rental_places_delete_files AFTER DELETE ON rental_places
+    BEGIN
+        DELETE FROM rental_files WHERE owner_kind = 'PLACE' AND owner_id = OLD.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_tenants_delete_files AFTER DELETE ON rental_tenants
+    BEGIN
+        DELETE FROM rental_files WHERE owner_kind = 'TENANT' AND owner_id = OLD.id;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_rental_places_insert_log AFTER INSERT ON rental_places
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_places', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_places_update_log AFTER UPDATE ON rental_places
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_places', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_places_delete_log AFTER DELETE ON rental_places
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_places', OLD.id, 'DELETE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_tenants_insert_log AFTER INSERT ON rental_tenants
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_tenants', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_tenants_update_log AFTER UPDATE ON rental_tenants
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_tenants', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_tenants_delete_log AFTER DELETE ON rental_tenants
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_tenants', OLD.id, 'DELETE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rent_months_insert_log AFTER INSERT ON rent_months
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rent_months', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rent_months_update_log AFTER UPDATE ON rent_months
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rent_months', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rent_months_delete_log AFTER DELETE ON rent_months
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rent_months', OLD.id, 'DELETE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_files_insert_log AFTER INSERT ON rental_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_files', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_files_update_log AFTER UPDATE ON rental_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_files', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rental_files_delete_log AFTER DELETE ON rental_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rental_files', OLD.id, 'DELETE', datetime('now'));
     END;
 "#;
 
@@ -934,6 +1054,70 @@ mod tests {
         path
     }
 
+    /// A database exactly as migration 15 left it: a company with an invoice and a supplier bill.
+    fn database_at_version_15(dir: &Path) -> std::path::PathBuf {
+        let path = dir.join("t15.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, applied_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        for m in MIGRATIONS.iter().filter(|m| m.version <= 15) {
+            conn.execute_batch(m.sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, 'x')",
+                params![m.version, m.name],
+            )
+            .unwrap();
+        }
+        conn.execute("INSERT INTO customers (name, created_at, updated_at) VALUES ('Sample Co', 'x', 'x')", []).unwrap();
+        conn.execute(
+            "INSERT INTO invoices (invoice_number, invoice_date, customer_id, customer_name, amount_in_words, created_at, updated_at)
+             VALUES ('MWW/26-27/001', '2026-10-01', 1, 'Sample Co', 'x', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO supplier_bills (supplier_id, bill_number, bill_date, total_amount, created_at, updated_at)
+             VALUES (1, 'B-1', '2026-10-01', 100, 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        path
+    }
+
+    fn add_rental_place(conn: &Connection, name: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO rental_places (name, monthly_rent, created_at, updated_at) VALUES (?1, 5000, 'x', 'x')",
+            params![name],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn try_add_rental_tenant(conn: &Connection, place: i64, name: &str, moved_out: Option<&str>) -> rusqlite::Result<i64> {
+        conn.execute(
+            "INSERT INTO rental_tenants (place_id, name, whatsapp_number, monthly_rent, moved_out_date, created_at, updated_at)
+             VALUES (?1, ?2, '+919876543210', 5000, ?3, 'x', 'x')",
+            params![place, name, moved_out],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    fn add_rental_file(conn: &Connection, kind: &str, owner: i64) {
+        conn.execute(
+            "INSERT INTO rental_files (owner_kind, owner_id, file_name, mime_type, size_bytes, data, created_at)
+             VALUES (?1, ?2, 'a.pdf', 'application/pdf', 4, x'25504446', 'x')",
+            params![kind, owner],
+        )
+        .unwrap();
+    }
+
+    fn file_count(conn: &Connection, kind: &str) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM rental_files WHERE owner_kind = ?1", params![kind], |r| r.get(0)).unwrap()
+    }
+
     fn add_bill(conn: &Connection, number: &str) -> i64 {
         conn.execute(
             "INSERT INTO supplier_bills (supplier_id, bill_number, bill_date, total_amount, created_at, updated_at)
@@ -1113,7 +1297,7 @@ mod tests {
     fn migration_15_adds_supplier_tables_and_leaves_existing_data_alone() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_14(dir.path()));
-        assert_eq!(latest_version(), 15);
+        assert!(latest_version() >= 15);
         for table in ["customers", "invoices", "payments", "purchase_orders", "quotations"] {
             let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
             assert_eq!(n, 1, "{}", table);
@@ -1192,5 +1376,104 @@ mod tests {
         for ok in ["NONE", "CREDIT", "ROUNDOFF"] {
             conn.execute("UPDATE supplier_payments SET excess_action = ?1 WHERE id = ?2", params![ok, payment]).unwrap();
         }
+    }
+
+    #[test]
+    fn migration_16_adds_rental_tables_and_leaves_existing_data_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        assert_eq!(latest_version(), 16);
+        for table in ["customers", "invoices", "supplier_bills"] {
+            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 1, "{}", table);
+        }
+        for table in ["rental_places", "rental_tenants", "rent_months", "rental_files"] {
+            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 0, "{}", table);
+        }
+    }
+
+    #[test]
+    fn rental_tables_are_tracked_for_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let place = add_rental_place(&conn, "Flat 2B");
+        let tenant = try_add_rental_tenant(&conn, place, "Ravi", None).unwrap();
+        conn.execute("INSERT INTO rent_months (tenant_id, month, created_at, updated_at) VALUES (?1, '2026-10', 'x', 'x')", params![tenant]).unwrap();
+        add_rental_file(&conn, "TENANT", tenant);
+        for table in ["rental_places", "rental_tenants", "rent_months", "rental_files"] {
+            let n: i64 = conn
+                .query_row("SELECT COUNT(*) FROM change_log WHERE table_name = ?1 AND op = 'INSERT'", params![table], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 1, "{} must be tracked so a backup runs after it changes", table);
+        }
+        conn.execute("UPDATE rent_months SET paid_on = '2026-10-03' WHERE tenant_id = ?1", params![tenant]).unwrap();
+        let updates: i64 = conn
+            .query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'rent_months' AND op = 'UPDATE'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(updates, 1);
+    }
+
+    #[test]
+    fn only_one_current_tenant_per_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let place = add_rental_place(&conn, "Flat 2B");
+        try_add_rental_tenant(&conn, place, "Ravi", None).unwrap();
+        assert!(try_add_rental_tenant(&conn, place, "Meena", None).is_err(), "a second current tenant is refused");
+        let old = try_add_rental_tenant(&conn, place, "Old tenant", Some("2026-01-31")).unwrap();
+        assert!(
+            conn.execute("UPDATE rental_tenants SET moved_out_date = NULL WHERE id = ?1", params![old]).is_err(),
+            "moving back in while the place is taken is refused"
+        );
+        let other = add_rental_place(&conn, "Shop 1");
+        assert!(try_add_rental_tenant(&conn, other, "Meena", None).is_ok());
+    }
+
+    #[test]
+    fn rent_month_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let place = add_rental_place(&conn, "Flat 2B");
+        let tenant = try_add_rental_tenant(&conn, place, "Ravi", None).unwrap();
+        let add = |month: &str| {
+            conn.execute("INSERT INTO rent_months (tenant_id, month, created_at, updated_at) VALUES (?1, ?2, 'x', 'x')", params![tenant, month])
+        };
+        for bad in ["November", "2026-1", "2026-13x"] {
+            assert!(add(bad).is_err(), "{}", bad);
+        }
+        assert!(add("2026-11").is_ok());
+        assert!(add("2026-11").is_err(), "one row per tenant and month");
+        assert!(
+            conn.execute("INSERT INTO rental_tenants (place_id, name, whatsapp_number, monthly_rent, created_at, updated_at) VALUES (?1, 'Zero', '+919876543210', 0, 'x', 'x')", params![add_rental_place(&conn, "Shop 9")]).is_err(),
+            "rent must be above zero"
+        );
+    }
+
+    #[test]
+    fn files_go_with_their_place_or_tenant() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let place = add_rental_place(&conn, "Flat 2B");
+        let tenant = try_add_rental_tenant(&conn, place, "Ravi", None).unwrap();
+        add_rental_file(&conn, "PLACE", place);
+        add_rental_file(&conn, "TENANT", tenant);
+        conn.execute("DELETE FROM rental_tenants WHERE id = ?1", params![tenant]).unwrap();
+        assert_eq!((file_count(&conn, "TENANT"), file_count(&conn, "PLACE")), (0, 1));
+        conn.execute("DELETE FROM rental_places WHERE id = ?1", params![place]).unwrap();
+        assert_eq!(file_count(&conn, "PLACE"), 0);
+    }
+
+    #[test]
+    fn a_place_with_a_tenant_cannot_be_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let place = add_rental_place(&conn, "Flat 2B");
+        try_add_rental_tenant(&conn, place, "Ravi", Some("2026-01-31")).unwrap();
+        assert!(conn.execute("DELETE FROM rental_places WHERE id = ?1", params![place]).is_err());
+        assert!(
+            conn.execute("INSERT INTO rental_places (name, created_at, updated_at) VALUES ('flat 2b', 'x', 'x')", []).is_err(),
+            "place names are unique, ignoring case"
+        );
     }
 }
