@@ -21,17 +21,24 @@ import SettingsPage from "./pages/SettingsPage";
 
 export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "reminders" | "customers" | "settings";
 
-const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "invoices", label: "Invoices", icon: FileText },
-  { id: "quotations", label: "Quotations", icon: FileCheck2 },
-  { id: "purchaseOrders", label: "Purchase orders", icon: ClipboardList },
-  { id: "payments", label: "Payments", icon: CreditCard },
-  { id: "supplierBills", label: "Supplier bills", icon: ReceiptText },
-  { id: "supplierPayments", label: "Supplier payments", icon: HandCoins },
-  { id: "rentals", label: "Rentals", icon: House },
-  { id: "reminders", label: "Reminders", icon: BellRing },
-  { id: "customers", label: "Customers & suppliers", icon: Users },
+/** The menu in groups, in the order the work flows; a thin line separates the groups. */
+const NAV_GROUPS: { id: Page; label: string; icon: typeof FileText }[][] = [
+  [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "reminders", label: "Reminders", icon: BellRing },
+  ],
+  [
+    { id: "quotations", label: "Quotations", icon: FileCheck2 },
+    { id: "purchaseOrders", label: "Purchase orders", icon: ClipboardList },
+    { id: "invoices", label: "Invoices", icon: FileText },
+    { id: "payments", label: "Payments", icon: CreditCard },
+  ],
+  [
+    { id: "supplierBills", label: "Supplier bills", icon: ReceiptText },
+    { id: "supplierPayments", label: "Supplier payments", icon: HandCoins },
+  ],
+  [{ id: "customers", label: "Customers & suppliers", icon: Users }],
+  [{ id: "rentals", label: "Rentals", icon: House }],
 ];
 
 function NavButton({
@@ -151,15 +158,19 @@ function App() {
               <div className="text-xs text-slate-400">Welding Works</div>
             </div>
           </div>
-          <nav className="flex-1 px-3 space-y-0.5">
-            {NAV.map((item) => (
-              <NavButton
-                key={item.id}
-                active={page === item.id}
-                onClick={() => setPage(item.id)}
-                icon={item.icon}
-                label={item.label}
-              />
+          <nav className="flex-1 overflow-y-auto px-3">
+            {NAV_GROUPS.map((group, i) => (
+              <div key={i} className={`space-y-0.5 ${i > 0 ? "mt-2 border-t border-white/10 pt-2" : ""}`}>
+                {group.map((item) => (
+                  <NavButton
+                    key={item.id}
+                    active={page === item.id}
+                    onClick={() => setPage(item.id)}
+                    icon={item.icon}
+                    label={item.label}
+                  />
+                ))}
+              </div>
             ))}
           </nav>
           <div className="px-3 pb-3">
