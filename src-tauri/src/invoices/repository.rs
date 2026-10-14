@@ -6,6 +6,8 @@ use crate::util::{
     doc_number, doc_sequence, financial_year_label, normalize_date, normalize_vehicle_number, parse_date, round2, rupees,
 };
 use crate::purchase_orders::repository::PurchaseOrderRepository;
+use crate::customers::models::PartyRole;
+use crate::customers::repository::CustomerRepository;
 use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -346,6 +348,11 @@ impl InvoiceRepository {
                 "This invoice is linked to a purchase order, so its customer can't be changed. Remove the purchase order first."
                     .to_string(),
             );
+        }
+
+        // Only a customer (or a company that is both) can be invoiced.
+        if let Some(cid) = input.customer_id {
+            CustomerRepository::require_party(conn, cid, PartyRole::Customer)?;
         }
 
         let clean = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
@@ -1265,6 +1272,25 @@ mod tests {
         let detail = PurchaseOrderRepository::get(&conn, po).unwrap().unwrap();
         assert_eq!(detail.invoices.len(), 1);
         assert_eq!(detail.invoices[0].payment_status, "DRAFT");
+    }
+
+    fn add_company_of_type(conn: &Connection, name: &str, kind: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO customers (name, party_type, created_at, updated_at) VALUES (?1, ?2, 'x', 'x')",
+            rusqlite::params![name, kind],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn an_invoice_cannot_be_raised_for_a_supplier_only_company() {
+        let conn = setup_test_db();
+        let supplier = add_company_of_type(&conn, "Steel Supplier", "SUPPLIER");
+        let both = add_company_of_type(&conn, "Both Co", "BOTH");
+        let err = InvoiceRepository::create(&conn, link_input(supplier, "Steel Supplier", "MWW/26-27/001", None, None)).unwrap_err();
+        assert!(err.contains("supplier only"), "{}", err);
+        assert!(InvoiceRepository::create(&conn, link_input(both, "Both Co", "MWW/26-27/002", None, None)).is_ok());
     }
 }
 

@@ -3,6 +3,8 @@ use super::models::{
     DuplicatePoCheck, LinkedInvoice, PurchaseOrder, PurchaseOrderDetail, PurchaseOrderFileInfo, PurchaseOrderFilter,
     PurchaseOrderInput, PurchaseOrderListItem, STATUSES,
 };
+use crate::customers::models::PartyRole;
+use crate::customers::repository::CustomerRepository;
 use crate::invoices::repository::InvoiceRepository;
 use crate::quotations::repository::QuotationRepository;
 use crate::util::{display_date, normalize_date, round2};
@@ -35,6 +37,7 @@ impl PurchaseOrderRepository {
         if customer == 0 {
             return Err("Customer not found.".to_string());
         }
+        CustomerRepository::require_party(conn, input.customer_id, PartyRole::Customer)?;
         if !STATUSES.contains(&input.status.as_str()) {
             return Err("Choose a valid status.".to_string());
         }
@@ -722,5 +725,24 @@ mod tests {
         PurchaseOrderRepository::remove_file(&conn, info.id).unwrap();
         assert!(PurchaseOrderRepository::read_file(&conn, info.id).unwrap_err().contains("no longer"));
         assert!(PurchaseOrderRepository::remove_file(&conn, info.id).unwrap_err().contains("no longer"));
+    }
+
+    fn add_company_of_type(conn: &Connection, name: &str, kind: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO customers (name, party_type, created_at, updated_at) VALUES (?1, ?2, 'x', 'x')",
+            params![name, kind],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn an_order_cannot_be_raised_for_a_supplier_only_company() {
+        let (_d, conn) = setup();
+        let supplier = add_company_of_type(&conn, "Steel Supplier", "SUPPLIER");
+        let both = add_company_of_type(&conn, "Both Co", "BOTH");
+        let err = PurchaseOrderRepository::create(&conn, input(supplier, "PO-1", None)).unwrap_err();
+        assert!(err.contains("supplier only"), "{}", err);
+        assert!(PurchaseOrderRepository::create(&conn, input(both, "PO-2", None)).is_ok());
     }
 }

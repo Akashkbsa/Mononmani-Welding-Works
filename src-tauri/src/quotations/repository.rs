@@ -3,6 +3,8 @@ use super::models::{
     QuotationListItem,
 };
 use crate::attachments::{clean_file_name, validate_file};
+use crate::customers::models::PartyRole;
+use crate::customers::repository::CustomerRepository;
 use crate::util::normalize_date;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -30,6 +32,7 @@ impl QuotationRepository {
         if customer == 0 {
             return Err("Customer not found.".to_string());
         }
+        CustomerRepository::require_party(conn, input.customer_id, PartyRole::Customer)?;
         let notes = input.notes.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(str::to_string);
         Ok((number, date, notes))
     }
@@ -616,5 +619,24 @@ mod tests {
         QuotationRepository::remove_file(&conn, info.id).unwrap();
         assert_eq!(QuotationRepository::remove_file(&conn, info.id).unwrap_err(), "That file is no longer there.");
         assert_eq!(QuotationRepository::read_file(&conn, info.id).unwrap_err(), "That file is no longer there.");
+    }
+
+    fn add_company_of_type(conn: &Connection, name: &str, kind: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO customers (name, party_type, created_at, updated_at) VALUES (?1, ?2, 'x', 'x')",
+            params![name, kind],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn a_quotation_cannot_be_raised_for_a_supplier_only_company() {
+        let (_d, conn) = setup();
+        let supplier = add_company_of_type(&conn, "Steel Supplier", "SUPPLIER");
+        let both = add_company_of_type(&conn, "Both Co", "BOTH");
+        let err = QuotationRepository::create(&conn, input(supplier, "Q-1", "2026-10-01")).unwrap_err();
+        assert!(err.contains("supplier only"), "{}", err);
+        assert!(QuotationRepository::create(&conn, input(both, "Q-2", "2026-10-01")).is_ok());
     }
 }

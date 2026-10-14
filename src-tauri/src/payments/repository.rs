@@ -3,6 +3,8 @@ use super::models::{
     PaymentFilterInput, PaymentInput, PaymentListItem, PaymentWithAllocations, PaymentsKpiSummary,
     UnpaidInvoiceSummary,
 };
+use crate::customers::models::PartyRole;
+use crate::customers::repository::CustomerRepository;
 use crate::invoices::repository::InvoiceRepository;
 use crate::util::{doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today};
 use chrono::{Datelike, Utc};
@@ -133,6 +135,7 @@ impl PaymentRepository {
             .optional()
             .map_err(|e| e.to_string())?
             .ok_or("Select a customer.")?;
+        CustomerRepository::require_party(conn, customer_id, PartyRole::Customer)?;
 
         let payment_date = normalize_date(&input.payment_date, "Payment date")?;
         let amount_received = round2(input.amount_received);
@@ -1241,5 +1244,24 @@ mod tests {
         assert_eq!(p.allocations.len(), 2);
         assert_eq!(outstanding(&conn, a), 0.0);
         assert_eq!(outstanding(&conn, b), 0.0);
+    }
+
+    fn add_company_of_type(conn: &Connection, name: &str, kind: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO customers (name, party_type, created_at, updated_at) VALUES (?1, ?2, 'x', 'x')",
+            params![name, kind],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn a_payment_cannot_be_recorded_for_a_supplier_only_company() {
+        let conn = setup();
+        let supplier = add_company_of_type(&conn, "Steel Supplier", "SUPPLIER");
+        let both = add_company_of_type(&conn, "Both Co", "BOTH");
+        let err = PaymentRepository::create_payment(&conn, payment(supplier, 100.0, &[], 0.0, "CREDIT")).unwrap_err();
+        assert!(err.contains("supplier only"), "{}", err);
+        assert!(PaymentRepository::create_payment(&conn, payment(both, 100.0, &[], 0.0, "CREDIT")).is_ok());
     }
 }
