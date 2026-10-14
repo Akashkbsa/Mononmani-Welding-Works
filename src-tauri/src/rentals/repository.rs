@@ -1,11 +1,12 @@
 use super::models::{
-    Place, PlaceDetail, PlaceInput, PlaceListItem, RentalFileInfo, Tenant, TenantDetail, TenantInput, TenantListItem,
+    MarkPaidInput, MonthOverview, MonthRow, MonthSummary, Place, PlaceDetail, PlaceInput, PlaceListItem, RentReminder,
+    RentalFileInfo, Tenant, TenantDetail, TenantInput, TenantListItem,
 };
-use super::reminder::normalize_whatsapp_number;
+use super::reminder::{month_label, normalize_whatsapp_number, rent_reminder_text, whatsapp_link};
 use crate::attachments::{clean_file_name, validate_file};
 use crate::util::{normalize_date, round2};
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{named_params, params, Connection, OptionalExtension};
 
 const FILE_GONE: &str = "That file is no longer there.";
 const PLACE_NOT_FOUND: &str = "Place not found.";
@@ -374,6 +375,152 @@ impl RentalRepository {
 }
 
 
+/// A tenant is on a month's list from the month they moved in (or were added) until the month they
+/// moved out. A month already marked paid always stays, so rent received never drops off the list.
+/// Expects `t` for the tenant and the `:month` parameter.
+const LISTED_IN_MONTH: &str = "(substr(COALESCE(t.move_in_date, t.created_at), 1, 7) <= :month
+        AND (t.moved_out_date IS NULL OR substr(t.moved_out_date, 1, 7) >= :month))
+    OR EXISTS (SELECT 1 FROM rent_months pm WHERE pm.tenant_id = t.id AND pm.month = :month AND pm.paid_on IS NOT NULL)";
+
+impl RentalRepository {
+    /// The tenant and the month's label ("November 2026"), if the tenant is on that month's list.
+    fn tenant_for_month(conn: &Connection, tenant_id: i64, month: &str) -> Result<(Tenant, String), String> {
+        let label = month_label(month)?;
+        let tenant = Self::get_tenant(conn, tenant_id)?.ok_or_else(|| TENANT_NOT_FOUND.to_string())?.tenant;
+        let listed: i64 = conn
+            .query_row(
+                &format!("SELECT COUNT(*) FROM rental_tenants t WHERE t.id = :id AND ({})", LISTED_IN_MONTH),
+                named_params! { ":id": tenant_id, ":month": month },
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("Failed to check the month: {}", e))?;
+        if listed == 0 {
+            return Err("That tenant is not on the list for that month.".to_string());
+        }
+        Ok((tenant, label))
+    }
+
+    /// Everyone on the month's list with paid / not paid, by tenant name. Saves nothing.
+    pub fn month_overview(conn: &Connection, month: &str) -> Result<MonthOverview, String> {
+        month_label(month)?;
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT t.id, t.name, p.name, t.whatsapp_number, t.monthly_rent, m.paid_on, m.amount, m.note, m.reminded_on
+                 FROM rental_tenants t
+                 JOIN rental_places p ON p.id = t.place_id
+                 LEFT JOIN rent_months m ON m.tenant_id = t.id AND m.month = :month
+                 WHERE ({})
+                 ORDER BY t.name COLLATE NOCASE, t.id",
+                LISTED_IN_MONTH
+            ))
+            .map_err(|e| format!("Failed to load the month: {}", e))?;
+        let rows = stmt
+            .query_map(named_params! { ":month": month }, |r| {
+                let rent: f64 = r.get(4)?;
+                let paid_on: Option<String> = r.get(5)?;
+                let amount: Option<f64> = r.get(6)?;
+                let paid = paid_on.is_some();
+                Ok(MonthRow {
+                    tenant_id: r.get(0)?,
+                    tenant_name: r.get(1)?,
+                    place_name: r.get(2)?,
+                    whatsapp_number: r.get(3)?,
+                    rent_amount: if paid { amount.unwrap_or(rent) } else { rent },
+                    paid,
+                    paid_on,
+                    paid_amount: if paid { amount } else { None },
+                    note: r.get(7)?,
+                    reminded_on: r.get(8)?,
+                })
+            })
+            .map_err(|e| format!("Failed to load the month: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to read the month: {}", e))?;
+
+        let sum = |paid: bool| round2(rows.iter().filter(|r| r.paid == paid).map(|r| r.rent_amount).sum());
+        let summary = MonthSummary {
+            paid_count: rows.iter().filter(|r| r.paid).count() as i64,
+            total_count: rows.len() as i64,
+            collected: sum(true),
+            pending: sum(false),
+        };
+        Ok(MonthOverview { month: month.to_string(), rows, summary })
+    }
+
+    /// Record that the tenant paid for the month; marking again replaces the earlier entry.
+    pub fn mark_paid(conn: &Connection, input: MarkPaidInput) -> Result<(), String> {
+        let (tenant, _) = Self::tenant_for_month(conn, input.tenant_id, &input.month)?;
+        let paid_on = normalize_date(&input.paid_on, "Date paid")?;
+        let amount = match input.amount {
+            Some(a) => round2(a),
+            None => tenant.monthly_rent,
+        };
+        if !(amount > 0.0) {
+            return Err("Amount must be more than zero.".to_string());
+        }
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO rent_months (tenant_id, month, paid_on, amount, note, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+             ON CONFLICT(tenant_id, month) DO UPDATE SET paid_on = excluded.paid_on, amount = excluded.amount,
+                 note = excluded.note, updated_at = excluded.updated_at",
+            params![input.tenant_id, input.month, paid_on, amount, clean(&input.note), now],
+        )
+        .map_err(|e| format!("Failed to save the payment: {}", e))?;
+        Ok(())
+    }
+
+    /// Back to not paid. The reminder date stays; a month with nothing left to remember is removed.
+    pub fn undo_paid(conn: &Connection, tenant_id: i64, month: &str) -> Result<(), String> {
+        month_label(month)?;
+        if Self::get_tenant(conn, tenant_id)?.is_none() {
+            return Err(TENANT_NOT_FOUND.to_string());
+        }
+        conn.execute(
+            "UPDATE rent_months SET paid_on = NULL, amount = NULL, note = NULL, updated_at = ?1 WHERE tenant_id = ?2 AND month = ?3",
+            params![Utc::now().to_rfc3339(), tenant_id, month],
+        )
+        .map_err(|e| format!("Failed to undo the payment: {}", e))?;
+        conn.execute(
+            "DELETE FROM rent_months WHERE tenant_id = ?1 AND month = ?2 AND paid_on IS NULL AND reminded_on IS NULL",
+            params![tenant_id, month],
+        )
+        .map_err(|e| format!("Failed to undo the payment: {}", e))?;
+        Ok(())
+    }
+
+    /// The fixed message and WhatsApp link for a tenant who has not paid the month. Saves nothing.
+    pub fn reminder_for(conn: &Connection, tenant_id: i64, month: &str) -> Result<RentReminder, String> {
+        let (tenant, label) = Self::tenant_for_month(conn, tenant_id, month)?;
+        let paid: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rent_months WHERE tenant_id = ?1 AND month = ?2 AND paid_on IS NOT NULL",
+                params![tenant_id, month],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("Failed to check the month: {}", e))?;
+        if paid > 0 {
+            return Err(format!("{} has already paid for {}.", tenant.name, label));
+        }
+        let message = rent_reminder_text(&tenant.name, &label, tenant.monthly_rent, &tenant.place_name);
+        let link = whatsapp_link(&tenant.whatsapp_number, &message);
+        Ok(RentReminder { tenant_id, tenant_name: tenant.name, number: tenant.whatsapp_number, message, link })
+    }
+
+    /// Remember the day a reminder was opened for the month. Does not change paid status.
+    pub fn stamp_reminded(conn: &Connection, tenant_id: i64, month: &str, date: &str) -> Result<(), String> {
+        Self::tenant_for_month(conn, tenant_id, month)?;
+        let date = normalize_date(date, "Reminder date")?;
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO rent_months (tenant_id, month, reminded_on, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
+             ON CONFLICT(tenant_id, month) DO UPDATE SET reminded_on = excluded.reminded_on, updated_at = excluded.updated_at",
+            params![tenant_id, month, date, now],
+        )
+        .map_err(|e| format!("Failed to save the reminder date: {}", e))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +562,231 @@ mod tests {
 
     fn count(conn: &Connection, sql: &str) -> i64 {
         conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    /// A tenant who moved in at the start of 2026, so every month of 2026 is on their list.
+    fn tenant_on(conn: &Connection, place_id: i64, name: &str, rent: f64) -> i64 {
+        let mut input = tenant_input(place_id, name);
+        input.monthly_rent = rent;
+        input.move_in_date = Some("2026-01-01".to_string());
+        RentalRepository::create_tenant(conn, input).unwrap().tenant.id
+    }
+
+    fn pay(tenant_id: i64, month: &str) -> MarkPaidInput {
+        MarkPaidInput { tenant_id, month: month.to_string(), paid_on: "2026-10-05".to_string(), amount: None, note: None }
+    }
+
+    fn row(conn: &Connection, month: &str, tenant_id: i64) -> MonthRow {
+        RentalRepository::month_overview(conn, month).unwrap().rows.into_iter().find(|r| r.tenant_id == tenant_id).unwrap()
+    }
+
+    #[test]
+    fn a_tenant_is_listed_only_for_their_months() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let listed = |month: &str, id: i64| RentalRepository::month_overview(&conn, month).unwrap().rows.iter().any(|r| r.tenant_id == id);
+
+        // Moved in 10 Sep, out 5 Oct: September and October only.
+        let mut input = tenant_input(p, "Ravi");
+        input.move_in_date = Some("2026-09-10".to_string());
+        let ravi = RentalRepository::create_tenant(&conn, input).unwrap().tenant.id;
+        RentalRepository::set_moved_out(&conn, ravi, Some("2026-10-05")).unwrap();
+        assert!(!listed("2026-08", ravi));
+        assert!(listed("2026-09", ravi));
+        assert!(listed("2026-10", ravi));
+        assert!(!listed("2026-11", ravi));
+
+        // No move-in date: from the month they were added.
+        let q = place(&conn, "Shop 1");
+        let meena = tenant(&conn, q, "Meena");
+        conn.execute("UPDATE rental_tenants SET created_at = '2026-11-20T10:00:00+00:00' WHERE id = ?1", params![meena]).unwrap();
+        assert!(!listed("2026-10", meena));
+        assert!(listed("2026-11", meena));
+        assert!(listed("2027-01", meena));
+
+        // December into January.
+        let r = place(&conn, "Shop 2");
+        let mut input = tenant_input(r, "Dev");
+        input.move_in_date = Some("2026-12-15".to_string());
+        let dev = RentalRepository::create_tenant(&conn, input).unwrap().tenant.id;
+        RentalRepository::set_moved_out(&conn, dev, Some("2027-01-10")).unwrap();
+        assert!(!listed("2026-11", dev));
+        assert!(listed("2026-12", dev));
+        assert!(listed("2027-01", dev));
+        assert!(!listed("2027-02", dev));
+
+        assert_eq!(RentalRepository::month_overview(&conn, "2026-13").unwrap_err(), "Month must look like 2026-11.");
+    }
+
+    #[test]
+    fn new_months_start_unpaid() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let q = place(&conn, "Shop 1");
+        tenant_on(&conn, p, "Ravi", 5000.0);
+        tenant_on(&conn, q, "Meena", 7000.5);
+        let o = RentalRepository::month_overview(&conn, "2026-10").unwrap();
+        assert_eq!(o.month, "2026-10");
+        assert_eq!(o.rows.iter().map(|r| r.tenant_name.as_str()).collect::<Vec<_>>(), vec!["Meena", "Ravi"]);
+        assert!(o.rows.iter().all(|r| !r.paid && r.paid_on.is_none() && r.paid_amount.is_none() && r.reminded_on.is_none()));
+        assert_eq!((o.summary.paid_count, o.summary.total_count), (0, 2));
+        assert_eq!((o.summary.collected, o.summary.pending), (0.0, 12000.5));
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 0, "looking at a month saves nothing");
+    }
+
+    #[test]
+    fn mark_paid_records_date_amount_and_note() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let q = place(&conn, "Shop 1");
+        let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
+        tenant_on(&conn, q, "Meena", 7000.0);
+
+        let mut input = pay(ravi, "2026-10");
+        input.paid_on = "05-10-2026".to_string();
+        RentalRepository::mark_paid(&conn, input).unwrap();
+        let r = row(&conn, "2026-10", ravi);
+        assert!(r.paid);
+        assert_eq!((r.paid_on.as_deref(), r.paid_amount, r.rent_amount, r.note.as_deref()), (Some("2026-10-05"), Some(5000.0), 5000.0, None));
+        let s = RentalRepository::month_overview(&conn, "2026-10").unwrap().summary;
+        assert_eq!((s.paid_count, s.total_count, s.collected, s.pending), (1, 2, 5000.0, 7000.0));
+
+        // Marking again replaces; it never duplicates.
+        let mut again = pay(ravi, "2026-10");
+        again.paid_on = "2026-10-07".to_string();
+        again.amount = Some(4500.5);
+        again.note = Some("  part by UPI ".to_string());
+        RentalRepository::mark_paid(&conn, again).unwrap();
+        let r = row(&conn, "2026-10", ravi);
+        assert_eq!((r.paid_on.as_deref(), r.paid_amount, r.note.as_deref()), (Some("2026-10-07"), Some(4500.5), Some("part by UPI")));
+        let s = RentalRepository::month_overview(&conn, "2026-10").unwrap().summary;
+        assert_eq!((s.collected, s.pending), (4500.5, 7000.0));
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 1);
+
+        let mut bad = pay(ravi, "2026-10");
+        bad.paid_on = "not a date".to_string();
+        assert_eq!(RentalRepository::mark_paid(&conn, bad).unwrap_err(), "Date paid is not a valid date.");
+        for amount in [0.0, -5.0] {
+            let mut bad = pay(ravi, "2026-10");
+            bad.amount = Some(amount);
+            assert_eq!(RentalRepository::mark_paid(&conn, bad).unwrap_err(), "Amount must be more than zero.");
+        }
+        assert_eq!(RentalRepository::mark_paid(&conn, pay(ravi, "2026-1")).unwrap_err(), "Month must look like 2026-11.");
+    }
+
+    #[test]
+    fn undo_returns_to_not_paid_and_keeps_the_reminder_date() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let q = place(&conn, "Shop 1");
+        let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
+        let meena = tenant_on(&conn, q, "Meena", 7000.0);
+
+        RentalRepository::stamp_reminded(&conn, ravi, "2026-10", "2026-10-03").unwrap();
+        let mut input = pay(ravi, "2026-10");
+        input.note = Some("cash".to_string());
+        RentalRepository::mark_paid(&conn, input).unwrap();
+        RentalRepository::undo_paid(&conn, ravi, "2026-10").unwrap();
+        let r = row(&conn, "2026-10", ravi);
+        assert!(!r.paid);
+        assert_eq!((r.paid_on, r.paid_amount, r.note), (None, None, None));
+        assert_eq!(r.reminded_on.as_deref(), Some("2026-10-03"));
+        assert_eq!(r.rent_amount, 5000.0);
+
+        // A mistaken mark that is undone leaves no trace, so the tenant can still be deleted.
+        RentalRepository::mark_paid(&conn, pay(meena, "2026-10")).unwrap();
+        RentalRepository::undo_paid(&conn, meena, "2026-10").unwrap();
+        assert_eq!(count(&conn, &format!("SELECT COUNT(*) FROM rent_months WHERE tenant_id = {}", meena)), 0);
+        RentalRepository::undo_paid(&conn, meena, "2026-10").unwrap();
+        RentalRepository::delete_tenant(&conn, meena).unwrap();
+
+        assert_eq!(RentalRepository::undo_paid(&conn, 9999, "2026-10").unwrap_err(), "Tenant not found.");
+    }
+
+    #[test]
+    fn marking_a_month_the_tenant_is_not_on_is_refused() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
+        let not_listed = "That tenant is not on the list for that month.";
+        assert_eq!(RentalRepository::mark_paid(&conn, pay(ravi, "2025-12")).unwrap_err(), not_listed);
+        assert_eq!(RentalRepository::reminder_for(&conn, ravi, "2025-12").unwrap_err(), not_listed);
+        assert_eq!(RentalRepository::stamp_reminded(&conn, ravi, "2025-12", "2026-01-02").unwrap_err(), not_listed);
+        assert_eq!(RentalRepository::mark_paid(&conn, pay(9999, "2026-10")).unwrap_err(), "Tenant not found.");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 0);
+    }
+
+    #[test]
+    fn later_rent_changes_do_not_rewrite_paid_months() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
+        RentalRepository::mark_paid(&conn, pay(ravi, "2026-09")).unwrap();
+
+        let mut input = tenant_input(p, "Ravi");
+        input.monthly_rent = 6000.0;
+        input.move_in_date = Some("2026-01-01".to_string());
+        RentalRepository::update_tenant(&conn, ravi, input).unwrap();
+
+        let paid = row(&conn, "2026-09", ravi);
+        assert_eq!((paid.rent_amount, paid.paid_amount), (5000.0, Some(5000.0)));
+        let unpaid = row(&conn, "2026-10", ravi);
+        assert_eq!((unpaid.rent_amount, unpaid.paid_amount), (6000.0, None));
+        let s = RentalRepository::month_overview(&conn, "2026-09").unwrap().summary;
+        assert_eq!((s.collected, s.pending), (5000.0, 0.0));
+    }
+
+    #[test]
+    fn a_paid_month_stays_listed_after_the_dates_change() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
+        RentalRepository::mark_paid(&conn, pay(ravi, "2026-11")).unwrap();
+        // The owner later sets an earlier moved-out date: the rent already received must not vanish.
+        RentalRepository::set_moved_out(&conn, ravi, Some("2026-10-31")).unwrap();
+        let o = RentalRepository::month_overview(&conn, "2026-11").unwrap();
+        assert_eq!((o.summary.paid_count, o.summary.collected), (1, 5000.0));
+        assert!(RentalRepository::month_overview(&conn, "2026-12").unwrap().rows.is_empty(), "unpaid months after moving out stay off the list");
+    }
+
+    #[test]
+    fn reminders_are_for_unpaid_tenants_only() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let ravi = tenant_on(&conn, p, "Ravi", 12000.0);
+
+        let reminder = RentalRepository::reminder_for(&conn, ravi, "2026-11").unwrap();
+        assert_eq!((reminder.tenant_id, reminder.tenant_name.as_str(), reminder.number.as_str()), (ravi, "Ravi", "+919876543210"));
+        assert_eq!(
+            reminder.message,
+            "Hello Ravi, this is a reminder for your November 2026 rent of ₹12,000 for Flat 2B. Please pay at your earliest convenience. Thank you."
+        );
+        assert!(reminder.link.starts_with("https://wa.me/919876543210?text=Hello%20Ravi"), "{}", reminder.link);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 0, "building a reminder saves nothing");
+
+        RentalRepository::mark_paid(&conn, pay(ravi, "2026-11")).unwrap();
+        assert_eq!(RentalRepository::reminder_for(&conn, ravi, "2026-11").unwrap_err(), "Ravi has already paid for November 2026.");
+        RentalRepository::undo_paid(&conn, ravi, "2026-11").unwrap();
+        assert!(RentalRepository::reminder_for(&conn, ravi, "2026-11").is_ok());
+        assert_eq!(RentalRepository::reminder_for(&conn, ravi, "2026-13").unwrap_err(), "Month must look like 2026-11.");
+    }
+
+    #[test]
+    fn stamping_a_reminder_sets_the_date_without_marking_paid() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
+        RentalRepository::stamp_reminded(&conn, ravi, "2026-11", "03-11-2026").unwrap();
+        let r = row(&conn, "2026-11", ravi);
+        assert!(!r.paid);
+        assert_eq!(r.reminded_on.as_deref(), Some("2026-11-03"));
+        let s = RentalRepository::month_overview(&conn, "2026-11").unwrap().summary;
+        assert_eq!((s.paid_count, s.pending), (0, 5000.0));
+
+        RentalRepository::stamp_reminded(&conn, ravi, "2026-11", "2026-11-08").unwrap();
+        assert_eq!(row(&conn, "2026-11", ravi).reminded_on.as_deref(), Some("2026-11-08"));
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 1);
+        assert_eq!(RentalRepository::stamp_reminded(&conn, ravi, "2026-11", "soon").unwrap_err(), "Reminder date is not a valid date.");
     }
 
     #[test]

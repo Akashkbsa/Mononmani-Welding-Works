@@ -88,3 +88,57 @@ pub struct TenantDetail {
     pub tenant: Tenant,
     pub files: Vec<RentalFileInfo>,
 }
+
+/// One tenant on one month's list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonthRow {
+    pub tenant_id: i64,
+    pub tenant_name: String,
+    pub place_name: String,
+    pub whatsapp_number: String,
+    /// What was recorded for a paid month, else the tenant's current rent.
+    pub rent_amount: f64,
+    pub paid: bool,
+    pub paid_on: Option<String>,
+    pub paid_amount: Option<f64>,
+    pub note: Option<String>,
+    /// The day the owner last opened a reminder for this month.
+    pub reminded_on: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonthSummary {
+    pub paid_count: i64,
+    pub total_count: i64,
+    pub collected: f64,
+    pub pending: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonthOverview {
+    /// `YYYY-MM`.
+    pub month: String,
+    pub rows: Vec<MonthRow>,
+    pub summary: MonthSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkPaidInput {
+    pub tenant_id: i64,
+    /// `YYYY-MM`.
+    pub month: String,
+    pub paid_on: String,
+    /// Blank means the tenant's rent.
+    pub amount: Option<f64>,
+    pub note: Option<String>,
+}
+
+/// The message for one unpaid tenant and the WhatsApp link that opens it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RentReminder {
+    pub tenant_id: i64,
+    pub tenant_name: String,
+    pub number: String,
+    pub message: String,
+    pub link: String,
+}
