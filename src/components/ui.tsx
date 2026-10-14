@@ -585,8 +585,7 @@ interface ModalProps {
   children: React.ReactNode;
 }
 
-const WIDE_ZOOM = 1.12;
-const modalWidths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl", wide: "max-w-5xl", xl: "max-w-5xl" };
+const modalWidths = { sm: "max-w-md", md: "max-w-2xl", lg: "max-w-4xl", wide: "max-w-6xl", xl: "max-w-6xl" };
 
 // Open modals, newest last, so Escape only closes the one on top.
 const openModals: number[] = [];
@@ -648,8 +647,6 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        // The wide dialogs (the "new" forms) are shown 12% larger: text, spacing and width scale together.
-        style={size === "wide" ? { zoom: WIDE_ZOOM, maxHeight: `calc((100vh - 3rem) / ${WIDE_ZOOM})` } : undefined}
         className={`mww-dialog w-full ${modalWidths[size]} max-h-full flex flex-col bg-white rounded-lg shadow-xl`}
       >
         <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-200">

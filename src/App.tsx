@@ -125,7 +125,7 @@ function App() {
         </aside>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-6xl mx-auto px-8 py-6">
+          <div className="mx-auto max-w-[120rem] px-10 py-7">
             <div key={page} className="mww-page">
               <ErrorBoundary>
                 {page === "dashboard" && <DashboardPage onNavigate={setPage} onOpenQuotation={openQuotation} />}

@@ -118,6 +118,11 @@
     height: 100%;
   }
 
+  /* Everything is sized in rem, so this one line makes all text, spacing and dialogs 12.5% larger. */
+  html {
+    font-size: 112.5%;
+  }
+
   body {
     @apply bg-canvas text-slate-900 antialiased overflow-hidden;
     font-size: 14px;
