@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Customer, formatCustomerAddress } from "../../types/customer";
 import { InvoiceListItem } from "../../types/invoice";
-import { deleteCustomer, getCustomerCredits, listInvoices } from "../../services/api";
+import { SupplierBillListItem } from "../../types/supplierBill";
+import { deleteCustomer, getCustomerCredits, listInvoices, listSupplierBills } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { Alert, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge } from "../ui";
 import PartyTypeBadge from "./PartyTypeBadge";
+import SupplierBillStatusBadge from "../supplierBills/SupplierBillStatusBadge";
 
 interface Props {
   customer: Customer;
@@ -16,6 +18,7 @@ interface Props {
 export default function CustomerDetailsModal({ customer, onClose, onEdit, onDeleted }: Props) {
   const [invoices, setInvoices] = useState<InvoiceListItem[] | null>(null);
   const [advance, setAdvance] = useState(0);
+  const [bills, setBills] = useState<SupplierBillListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -28,6 +31,15 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
       .catch((err) => setError(errorMessage(err)));
   }, [customer.id]);
 
+  // Bills this company has sent us, for suppliers and companies that are both.
+  useEffect(() => {
+    if (customer.party_type === "CUSTOMER") return;
+    listSupplierBills({ supplier_id: customer.id })
+      .then(setBills)
+      .catch((err) => setError(errorMessage(err)));
+  }, [customer.id, customer.party_type]);
+
+  const owedToSupplier = (bills ?? []).reduce((sum, b) => sum + b.outstanding_amount, 0);
   const outstanding = (invoices ?? []).reduce((sum, i) => sum + (i.status === "ISSUED" ? i.outstanding_amount : 0), 0);
   const address = formatCustomerAddress(customer);
 
@@ -119,6 +131,50 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
             )}
           </div>
           </>
+          )}
+
+          {customer.party_type !== "CUSTOMER" && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-md bg-slate-50 px-4 py-3">
+                  <div className="text-xs text-slate-500">Amount you owe</div>
+                  <div className="text-lg font-semibold tabular">{formatMoney(owedToSupplier)}</div>
+                </div>
+              </div>
+              <div>
+                <SectionTitle>Supplier bills</SectionTitle>
+                {bills === null ? (
+                  <Loading />
+                ) : bills.length === 0 ? (
+                  <p className="text-sm text-slate-500">No supplier bills yet.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                        <th className="py-2 font-medium">Bill</th>
+                        <th className="py-2 font-medium">Date</th>
+                        <th className="py-2 font-medium text-right">Amount</th>
+                        <th className="py-2 font-medium text-right">Balance</th>
+                        <th className="py-2 font-medium text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {bills.map((b) => (
+                        <tr key={b.id}>
+                          <td className="py-2 font-medium">{b.bill_number}</td>
+                          <td className="py-2 text-slate-600">{formatDate(b.bill_date)}</td>
+                          <td className="py-2 text-right tabular">{formatMoney(b.total_amount)}</td>
+                          <td className="py-2 text-right tabular">{b.outstanding_amount > 0 ? formatMoney(b.outstanding_amount) : "—"}</td>
+                          <td className="py-2 text-right">
+                            <SupplierBillStatusBadge status={b.status} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
           )}
         </div>
       </Modal>

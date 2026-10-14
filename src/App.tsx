@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { ClipboardList, CreditCard, FileCheck2, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
+import { ClipboardList, CreditCard, FileCheck2, FileText, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -9,10 +9,11 @@ import InvoicesPage from "./pages/InvoicesPage";
 import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import QuotationsPage from "./pages/QuotationsPage";
 import PaymentsPage from "./pages/PaymentsPage";
+import SupplierBillsPage from "./pages/SupplierBillsPage";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
 
-export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "customers" | "settings";
+export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "customers" | "settings";
 
 const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -20,6 +21,7 @@ const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "quotations", label: "Quotations", icon: FileCheck2 },
   { id: "purchaseOrders", label: "Purchase orders", icon: ClipboardList },
   { id: "payments", label: "Payments", icon: CreditCard },
+  { id: "supplierBills", label: "Supplier bills", icon: ReceiptText },
   { id: "customers", label: "Customers & suppliers", icon: Users },
 ];
 
@@ -151,6 +153,7 @@ function App() {
                   />
                 )}
                 {page === "payments" && <PaymentsPage />}
+                {page === "supplierBills" && <SupplierBillsPage />}
                 {page === "customers" && <CustomersPage />}
                 {page === "settings" && <SettingsPage />}
               </ErrorBoundary>
