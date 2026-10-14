@@ -152,6 +152,15 @@ pub fn run() {
             supplier_bills::get_supplier_bill_file_preview,
             supplier_bills::open_supplier_bill_file,
             supplier_bills::get_supplier_bills_summary,
+            supplier_payments::list_supplier_payments,
+            supplier_payments::get_supplier_payment,
+            supplier_payments::create_supplier_payment,
+            supplier_payments::update_supplier_payment,
+            supplier_payments::delete_supplier_payment,
+            supplier_payments::get_next_supplier_payment_number,
+            supplier_payments::get_unpaid_bills_for_supplier,
+            supplier_payments::get_supplier_credits,
+            supplier_payments::get_supplier_payments_summary,
             settings::get_settings,
             settings::save_settings
         ])

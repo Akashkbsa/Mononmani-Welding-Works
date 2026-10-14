@@ -45,6 +45,15 @@ import {
   SupplierBillListItem,
   SupplierBillsSummary,
 } from "../types/supplierBill";
+import {
+  SupplierCredit,
+  SupplierPaymentFilter,
+  SupplierPaymentInput,
+  SupplierPaymentListItem,
+  SupplierPaymentsSummary,
+  SupplierPaymentWithAllocations,
+  UnpaidBill,
+} from "../types/supplierPayment";
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
@@ -190,6 +199,25 @@ export const getSupplierBillFilePreview = (fileId: number) => call<string>("get_
 /** Opens a PDF or Word file (or a photo) in the program Windows uses for it. */
 export const openSupplierBillFile = (fileId: number) => call<void>("open_supplier_bill_file", { fileId });
 export const getSupplierBillsSummary = () => call<SupplierBillsSummary>("get_supplier_bills_summary");
+
+// Supplier payments
+export const listSupplierPayments = (filter: SupplierPaymentFilter = {}) =>
+  call<SupplierPaymentListItem[]>("list_supplier_payments", { filter });
+export const getSupplierPayment = (id: number) =>
+  call<SupplierPaymentWithAllocations | null>("get_supplier_payment", { id });
+export const createSupplierPayment = (input: SupplierPaymentInput) =>
+  call<SupplierPaymentWithAllocations>("create_supplier_payment", { input });
+export const updateSupplierPayment = (id: number, input: SupplierPaymentInput) =>
+  call<SupplierPaymentWithAllocations>("update_supplier_payment", { id, input });
+export const deleteSupplierPayment = (id: number) => call<void>("delete_supplier_payment", { id });
+export const getNextSupplierPaymentNumber = () => call<string>("get_next_supplier_payment_number");
+/** The supplier's bills a payment can be applied to. When editing, pass the payment's id. */
+export const getUnpaidBillsForSupplier = (supplierId: number, excludePaymentId?: number) =>
+  call<UnpaidBill[]>("get_unpaid_bills_for_supplier", { supplierId, excludePaymentId: excludePaymentId ?? null });
+/** Advances paid to the supplier that can still be used. When editing, pass the payment's id. */
+export const getSupplierCredits = (supplierId: number, excludePaymentId?: number) =>
+  call<SupplierCredit[]>("get_supplier_credits", { supplierId, excludePaymentId: excludePaymentId ?? null });
+export const getSupplierPaymentsSummary = () => call<SupplierPaymentsSummary>("get_supplier_payments_summary");
 
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });
