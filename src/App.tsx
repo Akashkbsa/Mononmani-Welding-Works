@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
+import { ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -11,10 +11,11 @@ import QuotationsPage from "./pages/QuotationsPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import SupplierBillsPage from "./pages/SupplierBillsPage";
 import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
+import RentalsPage from "./pages/RentalsPage";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
 
-export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "customers" | "settings";
+export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "customers" | "settings";
 
 const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -24,6 +25,7 @@ const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "supplierBills", label: "Supplier bills", icon: ReceiptText },
   { id: "supplierPayments", label: "Supplier payments", icon: HandCoins },
+  { id: "rentals", label: "Rentals", icon: House },
   { id: "customers", label: "Customers & suppliers", icon: Users },
 ];
 
@@ -170,6 +172,7 @@ function App() {
                     onOpenHandled={() => setOpenSupplierPaymentId(null)}
                   />
                 )}
+                {page === "rentals" && <RentalsPage />}
                 {page === "customers" && <CustomersPage />}
                 {page === "settings" && <SettingsPage />}
               </ErrorBoundary>

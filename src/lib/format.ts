@@ -46,6 +46,46 @@ export function formatDate(value: string | null | undefined): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : value;
 }
 
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** The current month as YYYY-MM. */
+export function currentMonth(): string {
+  return todayISO().slice(0, 7);
+}
+
+/** Move a YYYY-MM month forward or back: ("2026-12", 1) -> "2027-01". */
+export function shiftMonth(month: string, delta: number): string {
+  const [year, number] = month.split("-").map(Number);
+  const index = year * 12 + (number - 1) + delta;
+  return `${Math.floor(index / 12)}-${pad((index % 12) + 1)}`;
+}
+
+/** "2026-11" -> "November 2026". */
+export function monthTitle(month: string): string {
+  const [year, number] = month.split("-").map(Number);
+  return `${MONTH_NAMES[number - 1] ?? month} ${year}`;
+}
+
+/** "2026-11-03" -> "3 Nov", for small notes where the year is clear from the page. */
+export function shortDate(value: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
+  const name = m ? MONTH_NAMES[Number(m[2]) - 1] : undefined;
+  return m && name ? `${Number(m[3])} ${name.slice(0, 3)}` : "—";
+}
+
 /**
  * Indian vehicle registration number in the usual written form, or null when it isn't one:
  * "tn09ab1234" -> "TN 09 AB 1234", "dl1cab1234" -> "DL 1C AB 1234", "22bh1234aa" -> "22 BH 1234 AA".
