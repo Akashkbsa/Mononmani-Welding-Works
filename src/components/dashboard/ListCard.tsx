@@ -21,7 +21,7 @@ export function ListCard({
   children: ReactNode;
 }) {
   return (
-    <Card className="self-start p-5">
+    <Card className="flex h-full flex-col p-5">
       <SectionTitle
         action={
           <Button size="sm" variant="ghost" onClick={onAction}>
@@ -32,7 +32,11 @@ export function ListCard({
         {title}
       </SectionTitle>
       {isEmpty ? <p className="py-6 text-center text-sm text-slate-500">{empty}</p> : <table className="w-full text-sm"><tbody className="divide-y divide-slate-100">{children}</tbody></table>}
-      {note && <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">{note}</p>}
+      {note && (
+        <div className="mt-auto pt-3">
+          <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">{note}</p>
+        </div>
+      )}
     </Card>
   );
 }

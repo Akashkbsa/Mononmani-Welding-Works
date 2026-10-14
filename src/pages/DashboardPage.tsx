@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellRing, CheckCircle2, CreditCard, House, Plus, ReceiptText, Wallet } from "lucide-react";
+import { CheckCircle2, CreditCard, House, Plus, ReceiptText, Wallet } from "lucide-react";
 import type { Page } from "../App";
 import { InvoiceListItem } from "../types/invoice";
 import { PaymentListItem, PaymentsSummary } from "../types/payment";
 import { SupplierBillListItem, SupplierBillsSummary } from "../types/supplierBill";
-import { SupplierPaymentListItem } from "../types/supplierPayment";
-import { PurchaseOrderListItem } from "../types/purchaseOrder";
 import { QuotationListItem } from "../types/quotation";
 import { MonthOverview } from "../types/rental";
 import { Reminder } from "../types/reminder";
@@ -15,15 +13,13 @@ import {
   getSupplierBillsSummary,
   listInvoices,
   listPayments,
-  listPurchaseOrders,
   listQuotations,
   listReminders,
   listSupplierBills,
-  listSupplierPayments,
   printInvoice,
 } from "../services/api";
 import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, monthTitle, todayISO } from "../lib/format";
-import { ageBuckets, ageInDays, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
+import { ageBuckets, ageInDays, lastMonths, monthlySums } from "../lib/dashboardStats";
 import { whenText } from "../lib/reminders";
 import { Alert, Button, Card, PageHeader, SectionTitle, Skeleton, Stat, StatStrip, useToast } from "../components/ui";
 import { HBars, MonthlyBars } from "../components/dashboard/charts";
@@ -31,9 +27,6 @@ import { ListCard, ListRow } from "../components/dashboard/ListCard";
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
-import QuotationFormModal from "../components/quotations/QuotationFormModal";
-import SupplierBillFormModal from "../components/supplierBills/SupplierBillFormModal";
-import ReminderFormModal from "../components/reminders/ReminderFormModal";
 import { useReminders } from "../components/reminders/RemindersContext";
 
 // The first dashboard load of a session gets one gentle reveal. Coming back to the dashboard, or
@@ -50,8 +43,6 @@ interface Data {
   payments: PaymentListItem[];
   bills: SupplierBillListItem[];
   billsSummary: SupplierBillsSummary | null;
-  supplierPayments: SupplierPaymentListItem[];
-  orders: PurchaseOrderListItem[];
   quotations: QuotationListItem[];
   rent: MonthOverview | null;
   reminders: Reminder[];
@@ -83,58 +74,40 @@ function DashboardSkeleton() {
   );
 }
 
-/** What is owed, how old it is and who owes most: the same card for customers and for suppliers. */
+/** What customers owe, and how old the unpaid invoices are. */
 function OwedCard({
-  title,
-  unit,
   total,
   items,
   today,
-  emptyText,
   onSeeAll,
 }: {
-  title: string;
-  /** What one entry is called: "invoice" or "bill". */
-  unit: string;
   total: number;
-  items: { name: string; date: string; amount: number }[];
+  items: { date: string; amount: number }[];
   today: string;
-  emptyText: string;
   onSeeAll: () => void;
 }) {
-  const buckets = ageBuckets(items.map((i) => ({ date: i.date, amount: i.amount })), today);
-  const top = topByName(items, SHOWN);
+  const buckets = ageBuckets(items, today);
   return (
-    <Card className="self-start p-5">
+    <Card className="flex h-full flex-col p-5">
       <SectionTitle
         action={
           <Button size="sm" variant="ghost" onClick={onSeeAll}>
-            See all
+            All invoices
           </Button>
         }
       >
-        {title}
+        How old is the unpaid money
       </SectionTitle>
-      <div className="mb-4 text-2xl font-semibold tabular text-slate-900">{formatMoney(total)}</div>
-      <div className="mb-1.5 text-xs font-medium text-slate-500">By age of the {unit}</div>
+      <div className="mb-5 text-2xl font-semibold tabular text-slate-900">{formatMoney(total)}</div>
       <HBars
-        empty={emptyText}
+        empty="No unpaid invoices."
         rows={buckets.map((b, i) => ({
           label: b.label,
-          note: b.count > 0 ? `${b.count} ${unit}${b.count === 1 ? "" : "s"}` : undefined,
+          note: b.count > 0 ? `${b.count} invoice${b.count === 1 ? "" : "s"}` : undefined,
           amount: b.amount,
           bar: AGE_BARS[i],
         }))}
       />
-      {top.length > 0 && (
-        <>
-          <div className="mb-2 mt-5 border-t border-slate-100 pt-4 text-xs font-medium text-slate-500">Biggest balances</div>
-          <HBars
-            empty=""
-            rows={top.map((t) => ({ label: t.name, note: `${t.count} unpaid`, amount: t.amount }))}
-          />
-        </>
-      )}
     </Card>
   );
 }
@@ -151,20 +124,18 @@ export default function DashboardPage({
   const reveal = useRef(!dashboardRevealed).current;
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState<null | "invoice" | "payment" | "quotation" | "bill" | "reminder">(null);
+  const [creating, setCreating] = useState<null | "invoice" | "payment">(null);
   const [viewingInvoiceId, setViewingInvoiceId] = useState<number | null>(null);
   const today = todayISO();
 
   const load = useCallback(async () => {
     // Each part loads on its own, so one slow or failing part does not blank the whole dashboard.
-    const [summary, invoices, payments, bills, billsSummary, supplierPayments, orders, quotations, rent, reminders] = await Promise.allSettled([
+    const [summary, invoices, payments, bills, billsSummary, quotations, rent, reminders] = await Promise.allSettled([
       getPaymentsSummary(),
       listInvoices(),
       listPayments(),
       listSupplierBills(),
       getSupplierBillsSummary(),
-      listSupplierPayments(),
-      listPurchaseOrders(),
       listQuotations(),
       getRentMonthOverview(currentMonth()),
       listReminders("UPCOMING"),
@@ -181,8 +152,6 @@ export default function DashboardPage({
       payments: payments.value,
       bills: ok(bills, []),
       billsSummary: ok(billsSummary, null),
-      supplierPayments: ok(supplierPayments, []),
-      orders: ok(orders, []),
       quotations: ok(quotations, []),
       rent: ok(rent, null),
       reminders: ok(reminders, []),
@@ -222,7 +191,6 @@ export default function DashboardPage({
     const toPay = data.bills.filter((b) => b.outstanding_amount > 0).sort((a, b) => a.bill_date.localeCompare(b.bill_date));
     const months = lastMonths(today, MONTHS);
     const unsentQuotes = data.quotations.filter((q) => q.order_count === 0).sort((a, b) => a.quotation_date.localeCompare(b.quotation_date));
-    const openOrders = data.orders.filter((o) => o.status !== "COMPLETED").sort((a, b) => (a.po_date ?? "9999").localeCompare(b.po_date ?? "9999"));
     const unpaidTenants = (data.rent?.rows ?? []).filter((r) => !r.paid);
     return {
       waiting,
@@ -230,15 +198,11 @@ export default function DashboardPage({
       months,
       invoiced: monthlySums(issued.map((i) => ({ date: i.invoice_date, amount: i.total_amount })), months),
       received: monthlySums(data.payments.map((p) => ({ date: p.payment_date, amount: p.amount_received })), months),
-      billed: monthlySums(data.bills.map((b) => ({ date: b.bill_date, amount: b.total_amount })), months),
-      paidOut: monthlySums(data.supplierPayments.map((p) => ({ date: p.payment_date, amount: p.amount_paid })), months),
       unsentQuotes,
-      openOrders,
       unpaidTenants,
       oldWaiting: waiting.filter((i) => ageInDays(i.invoice_date, today) > 30).length,
       drafts: data.invoices.filter((i) => i.status === "DRAFT").length,
-      owedByCustomers: waiting.map((i) => ({ name: i.customer_name, date: i.invoice_date, amount: i.outstanding_amount })),
-      owedToSuppliers: toPay.map((b) => ({ name: b.supplier_name, date: b.bill_date, amount: b.outstanding_amount })),
+      owedByCustomers: waiting.map((i) => ({ date: i.invoice_date, amount: i.outstanding_amount })),
     };
   }, [data, today]);
 
@@ -264,11 +228,6 @@ export default function DashboardPage({
               New invoice
             </Button>
             <Button onClick={() => setCreating("payment")}>Record payment</Button>
-            <Button onClick={() => setCreating("quotation")}>New quotation</Button>
-            <Button onClick={() => setCreating("bill")}>New supplier bill</Button>
-            <Button icon={<BellRing className="w-4 h-4" />} onClick={() => setCreating("reminder")}>
-              Remind me
-            </Button>
           </>
         }
       />
@@ -343,8 +302,8 @@ export default function DashboardPage({
             </Card>
           </div>
 
-          <div className={`mb-6 grid grid-cols-3 gap-5 ${reveals(2).className}`} style={reveals(2).style}>
-            <Card className="col-span-2 self-start p-5">
+          <div className={`mb-6 grid grid-cols-3 items-stretch gap-6 ${reveals(2).className}`} style={reveals(2).style}>
+            <Card className="col-span-2 h-full p-5">
               <SectionTitle>Invoiced and received, last {MONTHS} months</SectionTitle>
               <MonthlyBars
                 label="Invoiced and received by month"
@@ -355,48 +314,17 @@ export default function DashboardPage({
                 ]}
               />
             </Card>
-            <OwedCard
-              title="Customers owe you"
-              unit="invoice"
-              total={data.summary.total_outstanding}
-              items={view.owedByCustomers}
-              today={today}
-              emptyText="No unpaid invoices."
-              onSeeAll={() => onNavigate("invoices")}
-            />
+            <OwedCard total={data.summary.total_outstanding} items={view.owedByCustomers} today={today} onSeeAll={() => onNavigate("invoices")} />
           </div>
 
-          <div className={`mb-6 grid grid-cols-3 gap-5 ${reveals(3).className}`} style={reveals(3).style}>
-            <Card className="col-span-2 self-start p-5">
-              <SectionTitle>Supplier bills and payments, last {MONTHS} months</SectionTitle>
-              <MonthlyBars
-                label="Supplier bills received and paid by month"
-                months={view.months}
-                series={[
-                  { name: "Bills received", fill: "fill-amber-500", dot: "bg-amber-500", values: view.billed },
-                  { name: "Paid to suppliers", fill: "fill-slate-500", dot: "bg-slate-500", values: view.paidOut },
-                ]}
-              />
-            </Card>
-            <OwedCard
-              title="You owe suppliers"
-              unit="bill"
-              total={data.billsSummary?.total_outstanding ?? 0}
-              items={view.owedToSuppliers}
-              today={today}
-              emptyText="No supplier bills to pay."
-              onSeeAll={() => onNavigate("supplierBills")}
-            />
-          </div>
-
-          <div className={`grid grid-cols-2 gap-5 ${reveals(4).className}`} style={reveals(4).style}>
+          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(3).className}`} style={reveals(3).style}>
             <ListCard
-              title="Waiting for payment, oldest first"
+              title="Invoices waiting for payment"
               actionLabel="All invoices"
               onAction={() => onNavigate("invoices")}
               empty="Nothing is waiting. Every issued invoice is paid."
               isEmpty={view.waiting.length === 0}
-              note={view.waiting.length > SHOWN ? `Showing the oldest ${SHOWN} of ${view.waiting.length} waiting invoices.` : undefined}
+              note={view.waiting.length > SHOWN ? `Oldest ${SHOWN} of ${view.waiting.length} shown.` : undefined}
             >
               {view.waiting.slice(0, SHOWN).map((inv) => (
                 <ListRow
@@ -412,12 +340,12 @@ export default function DashboardPage({
             </ListCard>
 
             <ListCard
-              title="Supplier bills to pay, oldest first"
+              title="Supplier bills to pay"
               actionLabel="All supplier bills"
               onAction={() => onNavigate("supplierBills")}
               empty="No supplier bills to pay."
               isEmpty={view.toPay.length === 0}
-              note={view.toPay.length > SHOWN ? `Showing the oldest ${SHOWN} of ${view.toPay.length} bills to pay.` : undefined}
+              note={view.toPay.length > SHOWN ? `Oldest ${SHOWN} of ${view.toPay.length} shown.` : undefined}
             >
               {view.toPay.slice(0, SHOWN).map((b) => (
                 <ListRow
@@ -433,54 +361,13 @@ export default function DashboardPage({
             </ListCard>
 
             <ListCard
-              title="Quotations with no purchase order yet"
-              actionLabel="All quotations"
-              onAction={() => onNavigate("quotations")}
-              empty="Every quotation has a purchase order."
-              isEmpty={view.unsentQuotes.length === 0}
-              note={view.unsentQuotes.length > SHOWN ? `Showing the oldest ${SHOWN} of ${view.unsentQuotes.length}.` : undefined}
-            >
-              {view.unsentQuotes.slice(0, SHOWN).map((q) => (
-                <ListRow
-                  key={q.id}
-                  title={q.customer_name}
-                  detail={`${q.quotation_number} · ${formatDate(q.quotation_date)}`}
-                  right=""
-                  rightNote={ageLabel(q.quotation_date)}
-                  rightTone={daysSince(q.quotation_date) > 30 ? "warn" : "default"}
-                  onOpen={() => onOpenQuotation(q.id)}
-                />
-              ))}
-            </ListCard>
-
-            <ListCard
-              title="Purchase orders in progress"
-              actionLabel="All purchase orders"
-              onAction={() => onNavigate("purchaseOrders")}
-              empty="No purchase orders in progress."
-              isEmpty={view.openOrders.length === 0}
-              note={view.openOrders.length > SHOWN ? `Showing ${SHOWN} of ${view.openOrders.length}.` : undefined}
-            >
-              {view.openOrders.slice(0, SHOWN).map((o) => (
-                <ListRow
-                  key={o.id}
-                  title={o.customer_name}
-                  detail={`${o.po_number}${o.po_date ? ` · ${formatDate(o.po_date)}` : ""}`}
-                  right={o.status === "NOT_STARTED" ? "Not started" : "Part done"}
-                  rightNote={`${o.invoice_count} invoice${o.invoice_count === 1 ? "" : "s"}`}
-                  onOpen={() => openRecord("PURCHASE_ORDER", o.id)}
-                />
-              ))}
-            </ListCard>
-
-            <ListCard
               title={`Rent, ${monthTitle(currentMonth())}`}
               actionLabel="Rentals"
               onAction={() => onNavigate("rentals")}
               empty="No tenants yet."
               isEmpty={!data.rent || data.rent.rows.length === 0}
             >
-              {(data.rent?.rows ?? []).map((r) => (
+              {(data.rent?.rows ?? []).slice(0, SHOWN).map((r) => (
                 <ListRow
                   key={r.tenant_id}
                   title={r.tenant_name}
@@ -499,7 +386,7 @@ export default function DashboardPage({
               onAction={() => onNavigate("reminders")}
               empty="No later reminders. Due ones show at the top of the screen."
               isEmpty={data.reminders.length === 0}
-              note={data.reminders.length > SHOWN ? `Showing the next ${SHOWN} of ${data.reminders.length}.` : undefined}
+              note={data.reminders.length > SHOWN ? `Next ${SHOWN} of ${data.reminders.length} shown.` : undefined}
             >
               {data.reminders.slice(0, SHOWN).map((r) => (
                 <ListRow
@@ -509,42 +396,6 @@ export default function DashboardPage({
                   right={formatDate(r.due_date)}
                   rightNote={whenText(r.days_away)}
                   onOpen={() => onNavigate("reminders")}
-                />
-              ))}
-            </ListCard>
-
-            <ListCard
-              title="Recent payments"
-              actionLabel="All payments"
-              onAction={() => onNavigate("payments")}
-              empty="No payments yet. Use Record payment when a customer pays."
-              isEmpty={data.payments.length === 0}
-            >
-              {data.payments.slice(0, SHOWN).map((p) => (
-                <ListRow
-                  key={p.id}
-                  title={p.customer_name}
-                  detail={`${formatDate(p.payment_date)} · ${p.payment_method}`}
-                  right={formatMoney(p.amount_received)}
-                  onOpen={() => openRecord("PAYMENT", p.id)}
-                />
-              ))}
-            </ListCard>
-
-            <ListCard
-              title="Recent supplier payments"
-              actionLabel="All supplier payments"
-              onAction={() => onNavigate("supplierPayments")}
-              empty="No payments to suppliers yet."
-              isEmpty={data.supplierPayments.length === 0}
-            >
-              {data.supplierPayments.slice(0, SHOWN).map((p) => (
-                <ListRow
-                  key={p.id}
-                  title={p.supplier_name}
-                  detail={`${formatDate(p.payment_date)} · ${p.payment_method}`}
-                  right={formatMoney(p.amount_paid)}
-                  onOpen={() => openRecord("SUPPLIER_PAYMENT", p.id)}
                 />
               ))}
             </ListCard>
@@ -579,34 +430,6 @@ export default function DashboardPage({
           }}
         />
       )}
-      {creating === "quotation" && (
-        <QuotationFormModal
-          onClose={() => setCreating(null)}
-          onSaved={() => {
-            setCreating(null);
-            load();
-          }}
-        />
-      )}
-      {creating === "bill" && (
-        <SupplierBillFormModal
-          onClose={() => setCreating(null)}
-          onSaved={() => {
-            setCreating(null);
-            load();
-          }}
-        />
-      )}
-      {creating === "reminder" && (
-        <ReminderFormModal
-          onClose={() => setCreating(null)}
-          onSaved={() => {
-            setCreating(null);
-            load();
-          }}
-        />
-      )}
-
       {viewingInvoiceId !== null && (
         <InvoiceDetailsModal invoiceId={viewingInvoiceId} onClose={() => setViewingInvoiceId(null)} onChanged={load} onOpenQuotation={onOpenQuotation} />
       )}

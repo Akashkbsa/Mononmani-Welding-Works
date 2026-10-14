@@ -6,7 +6,7 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 
 | Screen | What it does |
 |---|---|
-| Dashboard | One screen for the whole business. Four figures (customers owe you, received this month, you owe suppliers, rent this month); a "Needs attention" line; charts of invoiced vs received and supplier bills vs payments for the last 6 months; cards for what customers and suppliers owe, by age and biggest balances; and short lists (invoices waiting, supplier bills to pay, quotations with no purchase order, purchase orders in progress, rent, reminders ahead, recent payments). Everything opens the record or screen behind it. |
+| Dashboard | The day at a glance: four figures (customers owe you, received this month, you owe suppliers, rent this month); a "Needs attention" line; a 6-month chart of invoiced vs received beside how old the unpaid invoices are; and four short lists (invoices waiting for payment, supplier bills to pay, this month's rent, reminders ahead). Everything opens the record or screen behind it. |
 | Invoices | Search and status tabs (awaiting payment, overdue, paid, drafts, cancelled). Click a row for details: print Original / Duplicate / Triplicate, edit, record payment, delete. |
 | Quotations | Quotations sent to companies: number, date, company, an internal note and the file that was sent (photo, PDF or Word), with the purchase orders that followed. Click a row for details; open a file, edit, delete. |
 | Purchase orders | Customers' purchase orders (photo, PDF or Word file), their status (Not started, Partially completed, Completed), an internal note, and the invoices raised against each. Click a row for details; open a file, edit, delete. |
