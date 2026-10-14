@@ -183,6 +183,15 @@ pub fn run() {
             rentals::remove_rental_file,
             rentals::get_rental_file_preview,
             rentals::open_rental_file,
+            reminders::list_reminders,
+            reminders::get_reminder_banner,
+            reminders::get_reminders_for_record,
+            reminders::create_reminder,
+            reminders::update_reminder,
+            reminders::delete_reminder,
+            reminders::mark_reminder_done,
+            reminders::mark_reminder_not_done,
+            reminders::set_reminder_dismissed,
             settings::get_settings,
             settings::save_settings
         ])

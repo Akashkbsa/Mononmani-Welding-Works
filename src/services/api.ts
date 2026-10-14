@@ -67,6 +67,7 @@ import {
   SupplierPaymentWithAllocations,
   UnpaidBill,
 } from "../types/supplierPayment";
+import { Reminder, ReminderInput, ReminderLinkKind, ReminderTab } from "../types/reminder";
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
@@ -266,6 +267,21 @@ export const addRentalFile =(ownerKind: RentalOwnerKind, ownerId: number, fileNa
 export const removeRentalFile = (fileId: number) => call<void>("remove_rental_file", { fileId });
 export const getRentalFilePreview = (fileId: number) => call<string>("get_rental_file_preview", { fileId });
 export const openRentalFile = (fileId: number) => call<void>("open_rental_file", { fileId });
+
+// Reminders
+export const listReminders = (tab: ReminderTab) => call<Reminder[]>("list_reminders", { tab });
+/** The reminders the top banner shows now. */
+export const getReminderBanner = () => call<Reminder[]>("get_reminder_banner");
+export const getRemindersForRecord = (linkKind: ReminderLinkKind, linkId: number) =>
+  call<Reminder[]>("get_reminders_for_record", { linkKind, linkId });
+export const createReminder = (input: ReminderInput) => call<Reminder>("create_reminder", { input });
+export const updateReminder = (id: number, input: ReminderInput) => call<Reminder>("update_reminder", { id, input });
+export const deleteReminder = (id: number) => call<void>("delete_reminder", { id });
+export const markReminderDone = (id: number) => call<Reminder>("mark_reminder_done", { id });
+export const markReminderNotDone = (id: number) => call<Reminder>("mark_reminder_not_done", { id });
+/** Take a reminder off the banner (true) or put it back (false). */
+export const setReminderDismissed = (id: number, dismissed: boolean) =>
+  call<Reminder>("set_reminder_dismissed", { id, dismissed });
 
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });
