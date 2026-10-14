@@ -36,6 +36,15 @@ import {
   QuotationInput,
   QuotationListItem,
 } from "../types/quotation";
+import {
+  DuplicateBillCheck,
+  SupplierBillDetail,
+  SupplierBillFileInfo,
+  SupplierBillFilter,
+  SupplierBillInput,
+  SupplierBillListItem,
+  SupplierBillsSummary,
+} from "../types/supplierBill";
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
@@ -159,6 +168,28 @@ export const listUnlinkedPurchaseOrdersForCustomer = (customerId: number) =>
 /** Link a purchase order to a quotation, or unlink it with null. */
 export const setPurchaseOrderQuotation = (purchaseOrderId: number, quotationId: number | null) =>
   call<void>("set_purchase_order_quotation", { purchaseOrderId, quotationId });
+
+// Supplier bills
+export const listSupplierBills = (filter: SupplierBillFilter = {}) =>
+  call<SupplierBillListItem[]>("list_supplier_bills", { filter });
+export const getSupplierBill = (id: number) => call<SupplierBillDetail | null>("get_supplier_bill", { id });
+export const createSupplierBill = (input: SupplierBillInput) =>
+  call<SupplierBillDetail>("create_supplier_bill", { input });
+export const updateSupplierBill = (id: number, input: SupplierBillInput) =>
+  call<SupplierBillDetail>("update_supplier_bill", { id, input });
+export const deleteSupplierBill = (id: number) => call<void>("delete_supplier_bill", { id });
+/** A warning only: this supplier already has a bill with this number. */
+export const checkDuplicateSupplierBillNumber = (supplierId: number, billNumber: string, excludeId?: number) =>
+  call<DuplicateBillCheck>("check_duplicate_supplier_bill_number", { supplierId, billNumber, excludeId: excludeId ?? null });
+/** `dataBase64` is the file's bytes as base64 text, without a "data:" prefix. */
+export const addSupplierBillFile = (billId: number, fileName: string, dataBase64: string) =>
+  call<SupplierBillFileInfo>("add_supplier_bill_file", { billId, fileName, dataBase64 });
+export const removeSupplierBillFile = (fileId: number) => call<void>("remove_supplier_bill_file", { fileId });
+/** A photo as a data: URL to show in the app (photos only). */
+export const getSupplierBillFilePreview = (fileId: number) => call<string>("get_supplier_bill_file_preview", { fileId });
+/** Opens a PDF or Word file (or a photo) in the program Windows uses for it. */
+export const openSupplierBillFile = (fileId: number) => call<void>("open_supplier_bill_file", { fileId });
+export const getSupplierBillsSummary = () => call<SupplierBillsSummary>("get_supplier_bills_summary");
 
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });

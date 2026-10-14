@@ -140,6 +140,17 @@ pub fn run() {
             quotations::open_quotation_file,
             quotations::list_unlinked_purchase_orders_for_customer,
             quotations::set_purchase_order_quotation,
+            supplier_bills::list_supplier_bills,
+            supplier_bills::get_supplier_bill,
+            supplier_bills::create_supplier_bill,
+            supplier_bills::update_supplier_bill,
+            supplier_bills::delete_supplier_bill,
+            supplier_bills::check_duplicate_supplier_bill_number,
+            supplier_bills::add_supplier_bill_file,
+            supplier_bills::remove_supplier_bill_file,
+            supplier_bills::get_supplier_bill_file_preview,
+            supplier_bills::open_supplier_bill_file,
+            supplier_bills::get_supplier_bills_summary,
             settings::get_settings,
             settings::save_settings
         ])
