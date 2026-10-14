@@ -11,6 +11,8 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("invoices", "invoice", "invoices"),
     ("payments", "payment", "payments"),
     ("quotations", "quotation", "quotations"),
+    ("supplier_bills", "supplier bill", "supplier bills"),
+    ("supplier_payments", "supplier payment", "supplier payments"),
     ("purchase_orders", "purchase order", "purchase orders"),
     ("customer_credits", "advance", "advances"),
 ];
@@ -244,6 +246,25 @@ mod tests {
         .unwrap();
         let p = BackupRepository::pending_changes(&conn, before).unwrap();
         assert_eq!(p.lines, vec!["1 quotation added"]);
+    }
+
+    #[test]
+    fn pending_summary_counts_supplier_bills_and_payments() {
+        let (_d, conn) = setup();
+        let c = add_customer(&conn, "A");
+        let before = BackupRepository::max_seq(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO supplier_bills (supplier_id, bill_number, bill_date, total_amount, created_at, updated_at) VALUES (?1, 'B-1', '2026-10-01', 100, 'x', 'x')",
+            params![c],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO supplier_payments (payment_number, supplier_id, payment_date, created_at, updated_at) VALUES ('SP/26-27/001', ?1, '2026-10-02', 'x', 'x')",
+            params![c],
+        )
+        .unwrap();
+        let p = BackupRepository::pending_changes(&conn, before).unwrap();
+        assert_eq!(p.lines, vec!["1 supplier bill added", "1 supplier payment added"]);
     }
 
     #[test]

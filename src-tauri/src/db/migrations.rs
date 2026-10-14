@@ -446,6 +446,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "014_party_type",
         sql: PARTY_TYPE_SQL,
     },
+    Migration {
+        version: 15,
+        name: "015_supplier_tables",
+        sql: SUPPLIER_TABLES_SQL,
+    },
 ];
 
 /// Purchase orders received from customers (with the files they came in) and the optional link
@@ -562,6 +567,125 @@ pub const PARTY_TYPE_SQL: &str = r#"
     ALTER TABLE customers ADD COLUMN party_type TEXT NOT NULL DEFAULT 'CUSTOMER'
         CHECK (party_type IN ('CUSTOMER', 'SUPPLIER', 'BOTH'));
     CREATE INDEX IF NOT EXISTS idx_customers_party_type ON customers(party_type);
+"#;
+
+/// Bills received from suppliers (with their files), the payments made to suppliers, how each
+/// payment is shared out over bills, and advances paid to a supplier. A bill's status is worked out
+/// from its allocations, never stored.
+pub const SUPPLIER_TABLES_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS supplier_bills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_id INTEGER NOT NULL REFERENCES customers(id),
+        bill_number TEXT NOT NULL,
+        bill_date TEXT NOT NULL,
+        total_amount REAL NOT NULL CHECK (total_amount > 0),
+        notes TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_supplier_bills_supplier ON supplier_bills(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_supplier_bills_number ON supplier_bills(bill_number COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS supplier_bill_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_id INTEGER NOT NULL REFERENCES supplier_bills(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_supplier_bill_files_bill ON supplier_bill_files(bill_id);
+
+    CREATE TABLE IF NOT EXISTS supplier_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payment_number TEXT NOT NULL UNIQUE,
+        supplier_id INTEGER NOT NULL REFERENCES customers(id),
+        payment_date TEXT NOT NULL,
+        payment_method TEXT NOT NULL DEFAULT 'Bank Transfer',
+        reference_number TEXT NULL,
+        bank_name TEXT NULL,
+        amount_paid REAL NOT NULL DEFAULT 0.0,
+        total_settled REAL NOT NULL DEFAULT 0.0,
+        credit_applied REAL NOT NULL DEFAULT 0.0,
+        excess_amount REAL NOT NULL DEFAULT 0.0,
+        excess_action TEXT NOT NULL DEFAULT 'NONE' CHECK (excess_action IN ('NONE', 'CREDIT', 'ROUNDOFF')),
+        writeoff_amount REAL NOT NULL DEFAULT 0.0,
+        remarks TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_supplier_payments_supplier ON supplier_payments(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_supplier_payments_date ON supplier_payments(payment_date DESC);
+
+    CREATE TABLE IF NOT EXISTS supplier_payment_allocations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payment_id INTEGER NOT NULL REFERENCES supplier_payments(id) ON DELETE CASCADE,
+        bill_id INTEGER NOT NULL REFERENCES supplier_bills(id),
+        amount_allocated REAL NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_supplier_allocations_payment ON supplier_payment_allocations(payment_id);
+    CREATE INDEX IF NOT EXISTS idx_supplier_allocations_bill ON supplier_payment_allocations(bill_id);
+
+    CREATE TABLE IF NOT EXISTS supplier_credits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_id INTEGER NOT NULL REFERENCES customers(id),
+        source_payment_id INTEGER NULL REFERENCES supplier_payments(id) ON DELETE CASCADE,
+        original_amount REAL NOT NULL DEFAULT 0.0,
+        remaining_amount REAL NOT NULL DEFAULT 0.0,
+        notes TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_supplier_credits_supplier ON supplier_credits(supplier_id);
+
+    CREATE TABLE IF NOT EXISTS supplier_credit_applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payment_id INTEGER NOT NULL REFERENCES supplier_payments(id) ON DELETE CASCADE,
+        credit_id INTEGER NOT NULL REFERENCES supplier_credits(id) ON DELETE CASCADE,
+        amount REAL NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_supplier_credit_applications_payment ON supplier_credit_applications(payment_id);
+    CREATE INDEX IF NOT EXISTS idx_supplier_credit_applications_credit ON supplier_credit_applications(credit_id);
+
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_bills_insert_log AFTER INSERT ON supplier_bills
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_bills', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_bills_update_log AFTER UPDATE ON supplier_bills
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_bills', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_bills_delete_log AFTER DELETE ON supplier_bills
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_bills', OLD.id, 'DELETE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_bill_files_insert_log AFTER INSERT ON supplier_bill_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_bill_files', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_bill_files_update_log AFTER UPDATE ON supplier_bill_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_bill_files', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_bill_files_delete_log AFTER DELETE ON supplier_bill_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_bill_files', OLD.id, 'DELETE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_payments_insert_log AFTER INSERT ON supplier_payments
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_payments', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_payments_update_log AFTER UPDATE ON supplier_payments
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_payments', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_payments_delete_log AFTER DELETE ON supplier_payments
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_payments', OLD.id, 'DELETE', datetime('now'));
+    END;
 "#;
 
 /// Invoice totals are no longer rounded to the rupee. Invoices that are not fully paid yet are
@@ -771,6 +895,65 @@ mod tests {
         path
     }
 
+    /// A database exactly as migration 14 left it: one company with an invoice, a payment, a purchase order and a quotation.
+    fn database_at_version_14(dir: &Path) -> std::path::PathBuf {
+        let path = dir.join("t14.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, applied_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        for m in MIGRATIONS.iter().filter(|m| m.version <= 14) {
+            conn.execute_batch(m.sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, 'x')",
+                params![m.version, m.name],
+            )
+            .unwrap();
+        }
+        conn.execute("INSERT INTO customers (name, created_at, updated_at) VALUES ('Sample Co', 'x', 'x')", []).unwrap();
+        conn.execute(
+            "INSERT INTO invoices (invoice_number, invoice_date, customer_id, customer_name, amount_in_words, created_at, updated_at)
+             VALUES ('MWW/26-27/001', '2026-10-01', 1, 'Sample Co', 'x', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO payments (payment_number, customer_id, customer_name, payment_date, created_at, updated_at)
+             VALUES ('PAY/26-27/001', 1, 'Sample Co', '2026-10-02', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO purchase_orders (customer_id, po_number, created_at, updated_at) VALUES (1, 'PO-1', 'x', 'x')", []).unwrap();
+        conn.execute(
+            "INSERT INTO quotations (customer_id, quotation_number, quotation_date, created_at, updated_at) VALUES (1, 'Q-1', '2026-10-01', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        path
+    }
+
+    fn add_bill(conn: &Connection, number: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO supplier_bills (supplier_id, bill_number, bill_date, total_amount, created_at, updated_at)
+             VALUES (1, ?1, '2026-10-01', 11550.0, 'x', 'x')",
+            params![number],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn add_supplier_payment(conn: &Connection, number: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO supplier_payments (payment_number, supplier_id, payment_date, created_at, updated_at)
+             VALUES (?1, 1, '2026-10-02', 'x', 'x')",
+            params![number],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
     fn add_quotation(conn: &Connection, number: &str) -> i64 {
         conn.execute(
             "INSERT INTO quotations (customer_id, quotation_number, quotation_date, created_at, updated_at) VALUES (1, ?1, '2026-10-01', 'x', 'x')",
@@ -909,7 +1092,7 @@ mod tests {
     fn migration_14_makes_existing_companies_customers() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_13(dir.path()));
-        assert_eq!(latest_version(), 14);
+        assert!(latest_version() >= 14);
         let kind: String = conn.query_row("SELECT party_type FROM customers WHERE id = 1", [], |r| r.get(0)).unwrap();
         assert_eq!(kind, "CUSTOMER");
         let invoices: i64 = conn.query_row("SELECT COUNT(*) FROM invoices WHERE customer_id = 1", [], |r| r.get(0)).unwrap();
@@ -924,5 +1107,90 @@ mod tests {
             conn.execute("UPDATE customers SET party_type = ?1 WHERE id = 1", params![ok]).unwrap();
         }
         assert!(conn.execute("UPDATE customers SET party_type = 'VENDOR' WHERE id = 1", []).is_err());
+    }
+
+    #[test]
+    fn migration_15_adds_supplier_tables_and_leaves_existing_data_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_14(dir.path()));
+        assert_eq!(latest_version(), 15);
+        for table in ["customers", "invoices", "payments", "purchase_orders", "quotations"] {
+            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 1, "{}", table);
+        }
+        let kind: String = conn.query_row("SELECT party_type FROM customers", [], |r| r.get(0)).unwrap();
+        assert_eq!(kind, "CUSTOMER");
+        for table in ["supplier_bills", "supplier_bill_files", "supplier_payments", "supplier_payment_allocations", "supplier_credits", "supplier_credit_applications"] {
+            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 0, "{}", table);
+        }
+    }
+
+    #[test]
+    fn supplier_tables_log_changes_and_files_follow_their_bill() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_14(dir.path()));
+        let bill = add_bill(&conn, "B-1");
+        conn.execute(
+            "INSERT INTO supplier_bill_files (bill_id, file_name, mime_type, size_bytes, data, created_at) VALUES (?1, 'a.pdf', 'application/pdf', 4, x'25504446', 'x')",
+            params![bill],
+        )
+        .unwrap();
+        let payment = add_supplier_payment(&conn, "SP/26-27/001");
+        conn.execute("UPDATE supplier_payments SET remarks = 'x' WHERE id = ?1", params![payment]).unwrap();
+        let ops = |table: &str| -> Vec<String> {
+            conn.prepare("SELECT op FROM change_log WHERE table_name = ?1 ORDER BY seq")
+                .unwrap()
+                .query_map(params![table], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert_eq!(ops("supplier_bills"), vec!["INSERT"]);
+        assert_eq!(ops("supplier_bill_files"), vec!["INSERT"]);
+        assert_eq!(ops("supplier_payments"), vec!["INSERT", "UPDATE"]);
+
+        conn.execute("DELETE FROM supplier_bills WHERE id = ?1", params![bill]).unwrap();
+        let files: i64 = conn.query_row("SELECT COUNT(*) FROM supplier_bill_files", [], |r| r.get(0)).unwrap();
+        assert_eq!(files, 0, "files go with their bill");
+        assert_eq!(ops("supplier_bills"), vec!["INSERT", "DELETE"]);
+    }
+
+    #[test]
+    fn database_protects_supplier_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_14(dir.path()));
+        assert!(
+            conn.execute(
+                "INSERT INTO supplier_bills (supplier_id, bill_number, bill_date, total_amount, created_at, updated_at) VALUES (1, 'B-0', '2026-10-01', 0, 'x', 'x')",
+                [],
+            )
+            .is_err(),
+            "a bill must be for more than zero"
+        );
+        let bill = add_bill(&conn, "B-1");
+        let payment = add_supplier_payment(&conn, "SP/26-27/001");
+        conn.execute(
+            "INSERT INTO supplier_payment_allocations (payment_id, bill_id, amount_allocated, created_at) VALUES (?1, ?2, 100, 'x')",
+            params![payment, bill],
+        )
+        .unwrap();
+        assert!(conn.execute("DELETE FROM supplier_bills WHERE id = ?1", params![bill]).is_err(), "a bill with an allocation stays");
+        assert!(conn.execute("DELETE FROM customers WHERE id = 1", []).is_err(), "a company with supplier records stays");
+        assert!(
+            conn.execute(
+                "INSERT INTO supplier_payments (payment_number, supplier_id, payment_date, created_at, updated_at) VALUES ('SP/26-27/001', 1, '2026-10-03', 'x', 'x')",
+                [],
+            )
+            .is_err(),
+            "payment numbers are unique"
+        );
+        assert!(
+            conn.execute("UPDATE supplier_payments SET excess_action = 'REFUND' WHERE id = ?1", params![payment]).is_err(),
+            "there is no refund option"
+        );
+        for ok in ["NONE", "CREDIT", "ROUNDOFF"] {
+            conn.execute("UPDATE supplier_payments SET excess_action = ?1 WHERE id = ?2", params![ok, payment]).unwrap();
+        }
     }
 }
