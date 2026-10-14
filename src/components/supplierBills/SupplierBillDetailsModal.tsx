@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteSupplierBill, getSupplierBill, getSupplierBillFilePreview, openSupplierBillFile } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { SupplierBillDetail } from "../../types/supplierBill";
-import { Alert, Button, ConfirmDialog, Loading, Modal, SectionTitle, useToast } from "../ui";
+import { Alert, Button, ConfirmDialog, Loading, Modal, rowClass, rowProps, SectionTitle, useToast } from "../ui";
 import FileViewer from "../attachments/FileViewer";
 import SupplierBillFormModal from "./SupplierBillFormModal";
 import SupplierBillStatusBadge from "./SupplierBillStatusBadge";
@@ -11,9 +11,10 @@ interface Props {
   id: number;
   onClose: () => void;
   onChanged: () => void;
+  onOpenPayment: (paymentId: number) => void;
 }
 
-export default function SupplierBillDetailsModal({ id, onClose, onChanged }: Props) {
+export default function SupplierBillDetailsModal({ id, onClose, onChanged, onOpenPayment }: Props) {
   const toast = useToast();
   const [data, setData] = useState<SupplierBillDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +100,7 @@ export default function SupplierBillDetailsModal({ id, onClose, onChanged }: Pro
               <table className="w-full">
                 <tbody className="divide-y divide-slate-100">
                   {data.payments.map((p) => (
-                    <tr key={p.payment_id}>
+                    <tr key={p.payment_id} {...rowProps(() => onOpenPayment(p.payment_id))} className={rowClass}>
                       <td className="py-2 font-medium">{p.payment_number}</td>
                       <td className="py-2 text-slate-600">{formatDate(p.payment_date)}</td>
                       <td className="py-2 text-slate-600">{[p.payment_method, p.reference_number].filter(Boolean).join(" · ")}</td>

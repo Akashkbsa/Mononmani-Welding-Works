@@ -31,7 +31,7 @@ const TABS: { id: Tab; label: string; match: (b: SupplierBillListItem) => boolea
   { id: "paid", label: "Fully paid", match: (b) => b.status === "PAID" },
 ];
 
-export default function SupplierBillsPage() {
+export default function SupplierBillsPage({ onOpenPayment }: { onOpenPayment: (paymentId: number) => void }) {
   const [bills, setBills] = useState<SupplierBillListItem[] | null>(null);
   const [summary, setSummary] = useState<SupplierBillsSummary | null>(null);
   const [query, setQuery] = useState("");
@@ -240,7 +240,15 @@ export default function SupplierBillsPage() {
       )}
 
       {viewingId !== null && (
-        <SupplierBillDetailsModal id={viewingId} onClose={() => setViewingId(null)} onChanged={load} />
+        <SupplierBillDetailsModal
+          id={viewingId}
+          onClose={() => setViewingId(null)}
+          onChanged={load}
+          onOpenPayment={(paymentId) => {
+            setViewingId(null);
+            onOpenPayment(paymentId);
+          }}
+        />
       )}
     </>
   );
