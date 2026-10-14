@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, CreditCard, House, Plus, ReceiptText, Wallet } from "lucide-react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, ChevronRight, CreditCard, House, Plus, ReceiptText, Wallet } from "lucide-react";
 import type { Page } from "../App";
 import { InvoiceListItem } from "../types/invoice";
 import { PaymentListItem, PaymentsSummary } from "../types/payment";
@@ -7,7 +7,6 @@ import { SupplierBillListItem, SupplierBillsSummary } from "../types/supplierBil
 import { SupplierPaymentListItem } from "../types/supplierPayment";
 import { QuotationListItem } from "../types/quotation";
 import { MonthOverview } from "../types/rental";
-import { Reminder } from "../types/reminder";
 import {
   getPaymentsSummary,
   getRentMonthOverview,
@@ -15,17 +14,14 @@ import {
   listInvoices,
   listPayments,
   listQuotations,
-  listReminders,
   listSupplierBills,
   listSupplierPayments,
   printInvoice,
 } from "../services/api";
-import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, monthTitle, todayISO } from "../lib/format";
-import { ageBuckets, ageInDays, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
-import { whenText } from "../lib/reminders";
-import { Alert, Button, Card, PageHeader, SectionTitle, Skeleton, Stat, StatStrip, useToast } from "../components/ui";
-import { HBars, MonthlyBars } from "../components/dashboard/charts";
-import Donut from "../components/dashboard/Donut";
+import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, todayISO } from "../lib/format";
+import { ageInDays, compactMoney, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
+import { Alert, Button, Card, PageHeader, SectionTitle, Skeleton, useToast } from "../components/ui";
+import { BarChart, ProgressBar, Segment, SegmentBar, SharePart, ShareRing, Sparkline } from "../components/dashboard/charts";
 import { ListCard, ListRow } from "../components/dashboard/ListCard";
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
@@ -37,13 +33,17 @@ import { useReminders } from "../components/reminders/RemindersContext";
 let dashboardRevealed = false;
 
 const SHOWN = 5;
-const AGE_STYLE = [
-  { stroke: "stroke-brand-600", dot: "bg-brand-600" },
-  { stroke: "stroke-amber-400", dot: "bg-amber-400" },
-  { stroke: "stroke-orange-500", dot: "bg-orange-500" },
-  { stroke: "stroke-red-600", dot: "bg-red-600" },
-];
 const MONTHS = 6;
+
+/** Steel shades for the parts of a ring, darkest first; "Others" is grey. */
+const RING_COLOURS = [
+  { stroke: "stroke-brand-800", dot: "bg-brand-800" },
+  { stroke: "stroke-brand-600", dot: "bg-brand-600" },
+  { stroke: "stroke-brand-500", dot: "bg-brand-500" },
+  { stroke: "stroke-brand-200", dot: "bg-brand-200" },
+  { stroke: "stroke-brand-100", dot: "bg-brand-100" },
+];
+const OTHERS = { stroke: "stroke-slate-300", dot: "bg-slate-300" };
 
 interface Data {
   summary: PaymentsSummary;
@@ -54,66 +54,115 @@ interface Data {
   supplierPayments: SupplierPaymentListItem[];
   quotations: QuotationListItem[];
   rent: MonthOverview | null;
-  reminders: Reminder[];
+}
+
+/** Unpaid money split by age: up to 30 days, 31 to 90, over 90. Steel, amber, red. */
+function ageSegments(items: { date: string; amount: number }[], today: string): Segment[] {
+  const parts = [
+    { label: "Up to 30 days", amount: 0, color: "bg-brand-500" },
+    { label: "31 to 90 days", amount: 0, color: "bg-amber-400" },
+    { label: "Over 90 days", amount: 0, color: "bg-red-500" },
+  ];
+  for (const item of items) {
+    const days = ageInDays(item.date, today);
+    parts[days <= 30 ? 0 : days <= 90 ? 1 : 2].amount += item.amount;
+  }
+  return parts;
+}
+
+/** The first five by amount and the rest as "Others", coloured for a ring. */
+function ringParts(items: { name: string; amount: number }[]): SharePart[] {
+  const top = topByName(items, SHOWN);
+  const total = items.reduce((s, i) => s + i.amount, 0);
+  const rest = Math.round((total - top.reduce((s, t) => s + t.amount, 0)) * 100) / 100;
+  const parts: SharePart[] = top.map((t, i) => ({ label: t.name, amount: t.amount, ...RING_COLOURS[i] }));
+  if (rest > 0.5) parts.push({ label: "Others", amount: rest, ...OTHERS });
+  return parts;
+}
+
+/** 1 April of the current financial year, as YYYY-MM-DD. */
+function financialYearStart(today: string): string {
+  const [y, m] = today.split("-").map(Number);
+  return `${m >= 4 ? y : y - 1}-04-01`;
+}
+
+/** "₹24,94,720.93" with the paise set smaller, so the rupees read first. Same figure, same format. */
+function Amount({ value }: { value: number }) {
+  const text = formatMoney(value);
+  const dot = text.lastIndexOf(".");
+  return (
+    <span className="tabular">
+      {dot > 0 ? text.slice(0, dot) : text}
+      {dot > 0 && <span className="text-[0.6em] font-medium text-slate-400">{text.slice(dot)}</span>}
+    </span>
+  );
+}
+
+function Kpi({
+  icon: Icon,
+  label,
+  value,
+  owed,
+  visual,
+  caption,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: ReactNode;
+  /** Money still owed to the business: the one figure the arc colour marks. */
+  owed?: boolean;
+  visual: ReactNode;
+  caption: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={caption}
+      className="flex h-full min-w-0 flex-col rounded-lg border border-slate-200 bg-white px-4 py-4 text-left shadow-card transition-colors hover:border-brand-200 hover:bg-brand-50/40 2xl:px-5"
+    >
+      <span className="flex min-w-0 items-center gap-2 text-[0.8rem] font-medium text-slate-600">
+        <Icon className={`h-4 w-4 shrink-0 ${owed ? "text-arc-600" : "text-brand-600"}`} />
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="mt-2 truncate text-[1.3rem] font-semibold leading-tight tracking-tight text-slate-900 2xl:text-[1.6rem]">{value}</span>
+      <span className="mt-3 block">{visual}</span>
+      <span className="mt-2 line-clamp-2 text-xs leading-snug text-slate-500">{caption}</span>
+    </button>
+  );
 }
 
 function DashboardSkeleton() {
   return (
-    <div role="status" aria-label="Loading the dashboard">
-      <Card className="mb-6 grid grid-cols-4 divide-x divide-slate-200 overflow-hidden">
+    <div role="status" aria-label="Loading the dashboard" className="space-y-6">
+      <div className="grid grid-cols-4 gap-6">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex items-start gap-3 px-5 py-4">
-            <Skeleton className="mt-0.5 h-8 w-8" />
-            <div className="space-y-2">
-              <Skeleton className="h-3 w-24" />
-              <Skeleton className="h-6 w-32" />
-            </div>
-          </div>
-        ))}
-      </Card>
-      <div className="grid grid-cols-3 gap-5">
-        {[2, 1].map((span) => (
-          <Card key={span} className={`${span === 2 ? "col-span-2" : "col-span-1"} space-y-4 p-5`}>
-            <Skeleton className="h-4 w-48" />
-            <Skeleton className="h-40 w-full" />
+          <Card key={i} className="space-y-3 p-5">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="h-2 w-full" />
           </Card>
         ))}
+      </div>
+      <div className="grid grid-cols-3 gap-6">
+        <Card className="col-span-2 space-y-4 p-5">
+          <Skeleton className="h-4 w-56" />
+          <Skeleton className="h-60 w-full" />
+        </Card>
+        <Card className="space-y-4 p-5">
+          <Skeleton className="h-4 w-32" />
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </Card>
       </div>
     </div>
   );
 }
 
-/** The biggest unpaid balances, so it is clear who to follow up first. */
-function TopOwedCard({
-  title,
-  total,
-  items,
-  unit,
-  onSeeAll,
-}: {
-  title: string;
-  total: number;
-  items: { name: string; amount: number }[];
-  unit: string;
-  onSeeAll: () => void;
-}) {
-  const top = topByName(items, SHOWN);
-  return (
-    <Card className="flex h-full flex-col p-5">
-      <SectionTitle
-        action={
-          <Button size="sm" variant="ghost" onClick={onSeeAll}>
-            See all
-          </Button>
-        }
-      >
-        {title}
-      </SectionTitle>
-      <div className="mb-5 text-2xl font-semibold tabular text-slate-900">{formatMoney(total)}</div>
-      <HBars empty="Nothing unpaid." rows={top.map((t) => ({ label: t.name, note: `${t.count} unpaid ${unit}${t.count === 1 ? "" : "s"}`, amount: t.amount }))} />
-    </Card>
-  );
-}
+type ChartView = "cash" | "sales";
 
 export default function DashboardPage({
   onNavigate,
@@ -129,11 +178,12 @@ export default function DashboardPage({
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState<null | "invoice" | "payment">(null);
   const [viewingInvoiceId, setViewingInvoiceId] = useState<number | null>(null);
+  const [chart, setChart] = useState<ChartView>("cash");
   const today = todayISO();
 
   const load = useCallback(async () => {
     // Each part loads on its own, so one slow or failing part does not blank the whole dashboard.
-    const [summary, invoices, payments, bills, billsSummary, supplierPayments, quotations, rent, reminders] = await Promise.allSettled([
+    const [summary, invoices, payments, bills, billsSummary, supplierPayments, quotations, rent] = await Promise.allSettled([
       getPaymentsSummary(),
       listInvoices(),
       listPayments(),
@@ -142,7 +192,6 @@ export default function DashboardPage({
       listSupplierPayments(),
       listQuotations(),
       getRentMonthOverview(currentMonth()),
-      listReminders("UPCOMING"),
     ]);
     if (summary.status === "rejected" || invoices.status === "rejected" || payments.status === "rejected") {
       const failed = [summary, invoices, payments].find((r) => r.status === "rejected") as PromiseRejectedResult;
@@ -159,7 +208,6 @@ export default function DashboardPage({
       supplierPayments: ok(supplierPayments, []),
       quotations: ok(quotations, []),
       rent: ok(rent, null),
-      reminders: ok(reminders, []),
     });
     setError(null);
   }, []);
@@ -190,40 +238,64 @@ export default function DashboardPage({
   const view = useMemo(() => {
     if (!data) return null;
     const issued = data.invoices.filter((i) => i.status === "ISSUED");
-    const waiting = issued
-      .filter((i) => i.outstanding_amount > 0)
-      .sort((a, b) => a.invoice_date.localeCompare(b.invoice_date));
+    const waiting = issued.filter((i) => i.outstanding_amount > 0).sort((a, b) => a.invoice_date.localeCompare(b.invoice_date));
     const toPay = data.bills.filter((b) => b.outstanding_amount > 0).sort((a, b) => a.bill_date.localeCompare(b.bill_date));
     const months = lastMonths(today, MONTHS);
-    const unsentQuotes = data.quotations.filter((q) => q.order_count === 0).sort((a, b) => a.quotation_date.localeCompare(b.quotation_date));
-    const unpaidTenants = (data.rent?.rows ?? []).filter((r) => !r.paid);
+    const fyStart = financialYearStart(today);
+    const lateInvoices = waiting.filter((i) => ageInDays(i.invoice_date, today) > 30);
+    const lateBills = toPay.filter((b) => ageInDays(b.bill_date, today) > 30);
+    const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
     return {
       waiting,
       toPay,
       months,
       invoiced: monthlySums(issued.map((i) => ({ date: i.invoice_date, amount: i.total_amount })), months),
-      billed: monthlySums(data.bills.map((b) => ({ date: b.bill_date, amount: b.total_amount })), months),
-      paidOut: monthlySums(data.supplierPayments.map((p) => ({ date: p.payment_date, amount: p.amount_paid })), months),
-      ages: ageBuckets(waiting.map((i) => ({ date: i.invoice_date, amount: i.outstanding_amount })), today),
       received: monthlySums(data.payments.map((p) => ({ date: p.payment_date, amount: p.amount_received })), months),
-      unsentQuotes,
-      unpaidTenants,
-      oldWaiting: waiting.filter((i) => ageInDays(i.invoice_date, today) > 30).length,
-      drafts: data.invoices.filter((i) => i.status === "DRAFT").length,
-      owedByCustomers: waiting.map((i) => ({ name: i.customer_name, amount: i.outstanding_amount })),
+      paidOut: monthlySums(data.supplierPayments.map((p) => ({ date: p.payment_date, amount: p.amount_paid })), months),
+      owedAges: ageSegments(waiting.map((i) => ({ date: i.invoice_date, amount: i.outstanding_amount })), today),
+      oweAges: ageSegments(toPay.map((b) => ({ date: b.bill_date, amount: b.outstanding_amount })), today),
+      customers: ringParts(issued.filter((i) => i.invoice_date >= fyStart).map((i) => ({ name: i.customer_name, amount: i.total_amount }))),
+      suppliers: ringParts(data.bills.filter((b) => b.bill_date >= fyStart).map((b) => ({ name: b.supplier_name, amount: b.total_amount }))),
+      attention: [
+        {
+          count: lateInvoices.length,
+          text: "Invoices unpaid over 30 days",
+          amount: sum(lateInvoices.map((i) => ({ amount: i.outstanding_amount }))),
+          page: "invoices" as Page,
+        },
+        {
+          count: lateBills.length,
+          text: "Supplier bills over 30 days",
+          amount: sum(lateBills.map((b) => ({ amount: b.outstanding_amount }))),
+          page: "supplierBills" as Page,
+        },
+        {
+          count: (data.rent?.rows ?? []).filter((r) => !r.paid).length,
+          text: "Tenants yet to pay rent",
+          amount: data.rent?.summary.pending ?? 0,
+          page: "rentals" as Page,
+        },
+        {
+          count: data.quotations.filter((q) => q.order_count === 0).length,
+          text: "Quotations with no order yet",
+          amount: null,
+          page: "quotations" as Page,
+        },
+        {
+          count: data.invoices.filter((i) => i.status === "DRAFT").length,
+          text: "Draft invoices not issued",
+          amount: null,
+          page: "invoices" as Page,
+        },
+      ].filter((a) => a.count > 0),
     };
   }, [data, today]);
 
-  const attention = view
-    ? [
-        { n: view.oldWaiting, text: (n: number) => `${n} invoice${n === 1 ? "" : "s"} unpaid for over 30 days`, page: "invoices" as Page },
-        { n: view.unpaidTenants.length, text: (n: number) => `${n} tenant${n === 1 ? " has" : "s have"} not paid rent this month`, page: "rentals" as Page },
-        { n: view.unsentQuotes.length, text: (n: number) => `${n} quotation${n === 1 ? "" : "s"} with no purchase order yet`, page: "quotations" as Page },
-        { n: view.drafts, text: (n: number) => `${n} draft invoice${n === 1 ? "" : "s"} not issued`, page: "invoices" as Page },
-      ].filter((a) => a.n > 0)
-    : [];
-
   const reveals = (i: number) => ({ className: reveal ? "mww-reveal" : "", style: { "--i": i } as React.CSSProperties });
+  const fyLabel = (() => {
+    const start = Number(financialYearStart(today).slice(0, 4));
+    return `${String(start).slice(2)}-${String(start + 1).slice(2)}`;
+  })();
 
   return (
     <>
@@ -249,112 +321,181 @@ export default function DashboardPage({
       {!data || !view ? (
         error ? null : <DashboardSkeleton />
       ) : (
-        <>
-          <div className={`mb-6 ${reveals(0).className}`} style={reveals(0).style}>
-            <StatStrip cols={4}>
-              <Stat
-                icon={Wallet}
-                tone={data.summary.total_outstanding > 0 ? "attention" : "default"}
-                label="Customers owe you"
-                value={formatMoney(data.summary.total_outstanding)}
-                note={`${data.summary.unpaid_invoices_count} unpaid invoice${data.summary.unpaid_invoices_count === 1 ? "" : "s"}`}
-                onClick={() => onNavigate("invoices")}
-              />
-              <Stat
-                icon={CreditCard}
-                label="Received this month"
-                value={formatMoney(data.summary.received_this_month)}
-                note={`${formatMoney(data.summary.invoiced_this_month)} invoiced`}
-                onClick={() => onNavigate("payments")}
-              />
-              <Stat
-                icon={ReceiptText}
-                tone={(data.billsSummary?.total_outstanding ?? 0) > 0 ? "attention" : "default"}
-                label="You owe suppliers"
-                value={formatMoney(data.billsSummary?.total_outstanding ?? 0)}
-                note={`${data.billsSummary?.open_bills_count ?? 0} bill${data.billsSummary?.open_bills_count === 1 ? "" : "s"} to pay`}
-                onClick={() => onNavigate("supplierBills")}
-              />
-              <Stat
-                icon={House}
-                label={`Rent, ${monthTitle(currentMonth())}`}
-                value={data.rent ? formatMoney(data.rent.summary.collected) : "—"}
-                note={data.rent ? `${data.rent.summary.paid_count} of ${data.rent.summary.total_count} paid · ${formatMoney(data.rent.summary.pending)} pending` : "No rentals yet"}
-                onClick={() => onNavigate("rentals")}
-              />
-            </StatStrip>
+        <div className="space-y-6">
+          {/* 1. The money position, each figure with a small picture of what is behind it. */}
+          <div className={`grid grid-cols-4 gap-6 ${reveals(0).className}`} style={reveals(0).style}>
+            <Kpi
+              icon={Wallet}
+              owed
+              label="Customers owe you"
+              value={<Amount value={data.summary.total_outstanding} />}
+              visual={<SegmentBar parts={view.owedAges} />}
+              caption={`${data.summary.unpaid_invoices_count} unpaid · ${compactMoney(view.owedAges[2].amount)} over 90 days`}
+              onClick={() => onNavigate("invoices")}
+            />
+            <Kpi
+              icon={CreditCard}
+              label="Received this month"
+              value={<Amount value={data.summary.received_this_month} />}
+              visual={<Sparkline values={view.received} label={`Received in the last ${MONTHS} months`} />}
+              caption={`${compactMoney(data.summary.invoiced_this_month)} invoiced this month`}
+              onClick={() => onNavigate("payments")}
+            />
+            <Kpi
+              icon={ReceiptText}
+              label="You owe suppliers"
+              value={<Amount value={data.billsSummary?.total_outstanding ?? 0} />}
+              visual={<SegmentBar parts={view.oweAges} />}
+              caption={`${data.billsSummary?.open_bills_count ?? 0} unpaid · ${compactMoney(view.oweAges[2].amount)} over 90 days`}
+              onClick={() => onNavigate("supplierBills")}
+            />
+            <Kpi
+              icon={House}
+              label="Rent this month"
+              value={data.rent && data.rent.rows.length > 0 ? <Amount value={data.rent.summary.collected} /> : "—"}
+              visual={
+                <ProgressBar
+                  done={data.rent?.summary.collected ?? 0}
+                  total={(data.rent?.summary.collected ?? 0) + (data.rent?.summary.pending ?? 0)}
+                  label="Rent collected this month"
+                />
+              }
+              caption={
+                data.rent && data.rent.rows.length > 0
+                  ? `${data.rent.summary.paid_count} of ${data.rent.summary.total_count} paid · ${compactMoney(data.rent.summary.pending)} to collect`
+                  : "No tenants yet"
+              }
+              onClick={() => onNavigate("rentals")}
+            />
           </div>
 
-          <div className={`mb-6 ${reveals(1).className}`} style={reveals(1).style}>
-            <Card className="overflow-hidden">
-              {attention.length === 0 ? (
-                <div className="flex items-center gap-2 px-5 py-3 text-sm text-slate-600">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  All clear. Nothing needs your attention right now.
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-l-4 border-amber-400 bg-amber-50/60 px-5 py-3 text-sm">
-                  <span className="font-semibold text-slate-900">Needs attention</span>
-                  {attention.map((a) => (
+          {/* 2. The trend, and what to act on. */}
+          <div className={`grid grid-cols-5 items-stretch gap-6 2xl:grid-cols-3 ${reveals(1).className}`} style={reveals(1).style}>
+            <Card className="col-span-3 flex flex-col p-5 2xl:col-span-2">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-900">Last {MONTHS} months</h3>
+                <div role="tablist" aria-label="Chart" className="flex rounded-md bg-slate-100 p-0.5 text-xs">
+                  {(
+                    [
+                      ["cash", "Money in and out"],
+                      ["sales", "Invoiced and received"],
+                    ] as const
+                  ).map(([id, text]) => (
                     <button
-                      key={a.text(a.n)}
+                      key={id}
                       type="button"
-                      onClick={() => onNavigate(a.page)}
-                      className="rounded-md bg-white px-2.5 py-1 text-slate-800 shadow-sm ring-1 ring-amber-200 hover:bg-amber-50"
+                      role="tab"
+                      aria-selected={chart === id}
+                      onClick={() => setChart(id)}
+                      className={`rounded px-2.5 py-1 font-medium transition-colors ${chart === id ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
                     >
-                      {a.text(a.n)}
+                      {text}
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="mb-3 flex gap-4 text-xs text-slate-600">
+                {(chart === "cash"
+                  ? [
+                      ["bg-brand-600", "Received from customers"],
+                      ["bg-slate-300", "Paid to suppliers"],
+                    ]
+                  : [
+                      ["bg-brand-200", "Invoiced"],
+                      ["bg-brand-600", "Received"],
+                    ]
+                ).map(([dot, text]) => (
+                  <span key={text} className="inline-flex items-center gap-1.5">
+                    <span className={`h-2.5 w-2.5 rounded-sm ${dot}`} />
+                    {text}
+                  </span>
+                ))}
+              </div>
+              <div className="min-h-0 flex-1">
+                <BarChart
+                  months={view.months}
+                  label={chart === "cash" ? "Money received and paid by month" : "Invoiced and received by month"}
+                  series={
+                    chart === "cash"
+                      ? [
+                          { name: "Received", fill: "fill-brand-600", dot: "bg-brand-600", values: view.received },
+                          { name: "Paid out", fill: "fill-slate-300", dot: "bg-slate-300", values: view.paidOut },
+                        ]
+                      : [
+                          { name: "Invoiced", fill: "fill-brand-200", dot: "bg-brand-200", values: view.invoiced },
+                          { name: "Received", fill: "fill-brand-600", dot: "bg-brand-600", values: view.received },
+                        ]
+                  }
+                />
+              </div>
+            </Card>
+
+            <Card className="col-span-2 flex flex-col p-5 2xl:col-span-1">
+              <SectionTitle>Needs attention</SectionTitle>
+              {view.attention.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center text-sm text-slate-600">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+                  All clear. Nothing needs your attention.
+                </div>
+              ) : (
+                <ul className="-mx-2 space-y-1">
+                  {view.attention.map((a) => (
+                    <li key={a.text}>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(a.page)}
+                        className="group flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-slate-50"
+                      >
+                        <span className="grid h-8 min-w-8 place-items-center rounded-md bg-amber-50 px-1.5 text-sm font-semibold tabular text-amber-800">
+                          {a.count}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm leading-snug text-slate-800" title={a.text}>
+                            {a.text}
+                          </span>
+                          {a.amount !== null && a.amount > 0 && <span className="block text-xs text-slate-500 tabular">{formatMoney(a.amount)}</span>}
+                        </span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-brand-600" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
             </Card>
           </div>
 
-          <div className={`mb-6 grid grid-cols-3 items-stretch gap-6 ${reveals(2).className}`} style={reveals(2).style}>
-            <Card className="col-span-2 h-full p-5">
-              <SectionTitle>Invoiced and received, last {MONTHS} months</SectionTitle>
-              <MonthlyBars
-                label="Invoiced and received by month"
-                months={view.months}
-                series={[
-                  { name: "Invoiced", fill: "fill-brand-600", dot: "bg-brand-600", values: view.invoiced },
-                  { name: "Received", fill: "fill-emerald-500", dot: "bg-emerald-500", values: view.received },
-                ]}
-              />
+          {/* 3. Who the money comes from and goes to this financial year. */}
+          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(2).className}`} style={reveals(2).style}>
+            <Card className="p-5">
+              <SectionTitle
+                action={
+                  <Button size="sm" variant="ghost" onClick={() => onNavigate("customers")}>
+                    Customers
+                  </Button>
+                }
+              >
+                Biggest customers, {fyLabel}
+              </SectionTitle>
+              <ShareRing parts={view.customers} centerLabel="Invoiced" empty="No invoices this financial year yet." />
             </Card>
-            <Card className="h-full p-5">
-              <SectionTitle>Unpaid invoices by age</SectionTitle>
-              <Donut
-                centerLabel="Unpaid"
-                empty="No unpaid invoices."
-                parts={view.ages.map((b, i) => ({
-                  label: b.label,
-                  amount: b.amount,
-                  note: b.count > 0 ? `${b.count} invoice${b.count === 1 ? "" : "s"}` : undefined,
-                  ...AGE_STYLE[i],
-                }))}
-              />
+            <Card className="p-5">
+              <SectionTitle
+                action={
+                  <Button size="sm" variant="ghost" onClick={() => onNavigate("supplierBills")}>
+                    Supplier bills
+                  </Button>
+                }
+              >
+                Biggest suppliers, {fyLabel}
+              </SectionTitle>
+              <ShareRing parts={view.suppliers} centerLabel="Billed" empty="No supplier bills this financial year yet." />
             </Card>
           </div>
 
-          <div className={`mb-6 grid grid-cols-3 items-stretch gap-6 ${reveals(3).className}`} style={reveals(3).style}>
-            <Card className="col-span-2 h-full p-5">
-              <SectionTitle>Supplier bills and payments, last {MONTHS} months</SectionTitle>
-              <MonthlyBars
-                label="Supplier bills received and paid by month"
-                months={view.months}
-                series={[
-                  { name: "Bills received", fill: "fill-amber-500", dot: "bg-amber-500", values: view.billed },
-                  { name: "Paid to suppliers", fill: "fill-slate-500", dot: "bg-slate-500", values: view.paidOut },
-                ]}
-              />
-            </Card>
-            <TopOwedCard title="Who owes you most" total={data.summary.total_outstanding} items={view.owedByCustomers} unit="invoice" onSeeAll={() => onNavigate("invoices")} />
-          </div>
-
-          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(4).className}`} style={reveals(4).style}>
+          {/* 4. The oldest things to settle. */}
+          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(3).className}`} style={reveals(3).style}>
             <ListCard
-              title="Invoices waiting for payment"
+              title="Invoices to chase, oldest first"
               actionLabel="All invoices"
               onAction={() => onNavigate("invoices")}
               empty="Nothing is waiting. Every issued invoice is paid."
@@ -373,9 +514,8 @@ export default function DashboardPage({
                 />
               ))}
             </ListCard>
-
             <ListCard
-              title="Supplier bills to pay"
+              title="Supplier bills to pay, oldest first"
               actionLabel="All supplier bills"
               onAction={() => onNavigate("supplierBills")}
               empty="No supplier bills to pay."
@@ -394,48 +534,8 @@ export default function DashboardPage({
                 />
               ))}
             </ListCard>
-
-            <ListCard
-              title={`Rent, ${monthTitle(currentMonth())}`}
-              actionLabel="Rentals"
-              onAction={() => onNavigate("rentals")}
-              empty="No tenants yet."
-              isEmpty={!data.rent || data.rent.rows.length === 0}
-            >
-              {(data.rent?.rows ?? []).slice(0, SHOWN).map((r) => (
-                <ListRow
-                  key={r.tenant_id}
-                  title={r.tenant_name}
-                  detail={r.place_name}
-                  right={formatMoney(r.rent_amount)}
-                  rightNote={r.paid ? `Paid ${formatDate(r.paid_on)}` : r.reminders_sent > 0 ? `Not paid · ${r.reminders_sent} reminder${r.reminders_sent === 1 ? "" : "s"} sent` : "Not paid"}
-                  rightTone={r.paid ? "good" : "warn"}
-                  onOpen={() => openRecord("TENANT", r.tenant_id)}
-                />
-              ))}
-            </ListCard>
-
-            <ListCard
-              title="Reminders ahead"
-              actionLabel="All reminders"
-              onAction={() => onNavigate("reminders")}
-              empty="No later reminders. Due ones show at the top of the screen."
-              isEmpty={data.reminders.length === 0}
-              note={data.reminders.length > SHOWN ? `Next ${SHOWN} of ${data.reminders.length} shown.` : undefined}
-            >
-              {data.reminders.slice(0, SHOWN).map((r) => (
-                <ListRow
-                  key={r.id}
-                  title={r.title}
-                  detail={r.link_label ?? undefined}
-                  right={formatDate(r.due_date)}
-                  rightNote={whenText(r.days_away)}
-                  onOpen={() => onNavigate("reminders")}
-                />
-              ))}
-            </ListCard>
           </div>
-        </>
+        </div>
       )}
 
       {creating === "invoice" && (
@@ -471,4 +571,3 @@ export default function DashboardPage({
     </>
   );
 }
-

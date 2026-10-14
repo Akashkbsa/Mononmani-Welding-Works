@@ -6,7 +6,7 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 
 | Screen | What it does |
 |---|---|
-| Dashboard | The day at a glance: four figures (customers owe you, received this month, you owe suppliers, rent this month); a "Needs attention" line; charts for the last 6 months (invoiced vs received, supplier bills vs payments), a ring of unpaid invoices by age and the five customers who owe most; and four short lists (invoices waiting, supplier bills to pay, this month's rent, reminders ahead). Everything opens the record or screen behind it. |
+| Dashboard | Four figures, each with a small picture: customers owe you and you owe suppliers (a bar split by age: up to 30, 31 to 90, over 90 days), received this month (a 6-month trend line) and rent this month (a progress bar). A 6-month bar chart that switches between money in and out and invoiced and received (point at a month for exact amounts) beside a Needs attention list; rings for the biggest customers and suppliers this financial year; and the oldest invoices to chase and supplier bills to pay. Everything opens the record or screen behind it. |
 | Invoices | Search and status tabs (awaiting payment, overdue, paid, drafts, cancelled). Click a row for details: print Original / Duplicate / Triplicate, edit, record payment, delete. |
 | Quotations | Quotations sent to companies: number, date, company, an internal note and the file that was sent (photo, PDF or Word), with the purchase orders that followed. Click a row for details; open a file, edit, delete. |
 | Purchase orders | Customers' purchase orders (photo, PDF or Word file), their status (Not started, Partially completed, Completed), an internal note, and the invoices raised against each. Click a row for details; open a file, edit, delete. |
@@ -57,7 +57,7 @@ src/                          React UI
   components/customers/       CustomerFormModal, CustomerDetailsModal
   components/purchaseOrders/  PurchaseOrderFormModal, PurchaseOrderDetailsModal, PurchaseOrderStatusBadge
   components/quotations/      QuotationFormModal, QuotationDetailsModal
-  components/dashboard/       charts (MonthlyBars, HBars), ListCard
+  components/dashboard/       charts (BarChart, Sparkline, SegmentBar, ProgressBar, ShareRing), ListCard
   components/rentals/         ThisMonthTab, TenantsTab, PlacesTab, MarkPaidModal, TenantFormModal, PlaceFormModal, SendRemindersModal
   components/reminders/       ReminderBanner, ReminderFormModal, RecordReminders, RemindersContext
   components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders, quotations, supplier bills and rentals)
