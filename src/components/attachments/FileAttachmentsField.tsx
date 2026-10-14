@@ -1,8 +1,8 @@
-import { useRef } from "react";
-import { Paperclip, Trash2 } from "lucide-react";
-import { formatFileSize } from "../../lib/format";
+import { useRef, useState } from "react";
+import { ExternalLink, Paperclip, Trash2 } from "lucide-react";
+import { errorMessage, formatFileSize } from "../../lib/format";
 import { AttachmentInfo } from "../../types/attachment";
-import { Alert, Button } from "../ui";
+import { Alert, Button, useToast } from "../ui";
 import { FileAttachments } from "./useFileAttachments";
 
 /** The upload problems from `useFileAttachments`, shown where the form shows its other errors. */
@@ -25,12 +25,28 @@ interface Props {
   onRequestRemove: (file: AttachmentInfo) => void;
   description: string;
   disabled?: boolean;
+  /** When given, each saved file gets an Open button that opens it in the program Windows uses for it. */
+  openFile?: (fileId: number) => Promise<void>;
 }
 
 /** The "Files" section of a form: add files, see the saved and the waiting ones, remove them. */
-export default function FileAttachmentsField({ stored, attachments, onRequestRemove, description, disabled }: Props) {
+export default function FileAttachmentsField({ stored, attachments, onRequestRemove, description, disabled, openFile }: Props) {
+  const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [openingFileId, setOpeningFileId] = useState<number | null>(null);
   const { pending, uploading, busyFileName } = attachments;
+
+  const open = async (file: AttachmentInfo) => {
+    if (!openFile) return;
+    setOpeningFileId(file.id);
+    try {
+      await openFile(file.id);
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    } finally {
+      setOpeningFileId(null);
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -62,15 +78,22 @@ export default function FileAttachmentsField({ stored, attachments, onRequestRem
                 <div className="truncate font-medium text-slate-800">{file.file_name}</div>
                 <div className="text-xs text-slate-500">{formatFileSize(file.size_bytes)}</div>
               </div>
-              <Button
-                size="sm"
-                variant="dangerText"
-                icon={<Trash2 className="w-4 h-4" />}
-                disabled={busyFileName === file.file_name}
-                onClick={() => onRequestRemove(file)}
-              >
-                Remove
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                {openFile && (
+                  <Button size="sm" icon={<ExternalLink className="w-4 h-4" />} loading={openingFileId === file.id} onClick={() => open(file)}>
+                    Open
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="dangerText"
+                  icon={<Trash2 className="w-4 h-4" />}
+                  disabled={busyFileName === file.file_name}
+                  onClick={() => onRequestRemove(file)}
+                >
+                  Remove
+                </Button>
+              </div>
             </div>
           ))}
         </div>

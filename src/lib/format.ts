@@ -46,6 +46,12 @@ export function formatDate(value: string | null | undefined): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : value;
 }
 
+/** "+919876543210" -> "+91 98765 43210". Numbers from other countries are shown as stored. */
+export function formatPhone(value: string): string {
+  const m = /^\+91(\d{5})(\d{5})$/.exec(value);
+  return m ? `+91 ${m[1]} ${m[2]}` : value;
+}
+
 const MONTH_NAMES = [
   "January",
   "February",
