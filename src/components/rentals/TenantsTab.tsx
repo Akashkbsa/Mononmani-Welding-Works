@@ -7,7 +7,7 @@ import { Alert, Badge, Button, Card, Checkbox, EmptyState, ListSkeleton, RowChev
 import TenantFormModal from "./TenantFormModal";
 
 /** The people who rent from you. Tap a row to see or change their details and files. */
-export default function TenantsTab() {
+export default function TenantsTab({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
   const [tenants, setTenants] = useState<TenantListItem[] | null>(null);
   const [showMovedOut, setShowMovedOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,6 +15,12 @@ export default function TenantsTab() {
   const [version, setVersion] = useState(0);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (openId === null) return;
+    setEditingId(openId);
+    onOpenHandled?.();
+  }, [openId, onOpenHandled]);
 
   useEffect(() => {
     let cancelled = false;

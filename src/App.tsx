@@ -14,6 +14,8 @@ import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
 import RentalsPage from "./pages/RentalsPage";
 import RemindersPage from "./pages/RemindersPage";
 import { ReminderLinkKind } from "./types/reminder";
+import ReminderBanner from "./components/reminders/ReminderBanner";
+import { RemindersContext } from "./components/reminders/RemindersContext";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
 
@@ -84,10 +86,15 @@ function App() {
   };
 
   // Bumped after any reminder change so the banner at the top loads again.
-  const [, setRemindersVersion] = useState(0);
+  const [remindersVersion, setRemindersVersion] = useState(0);
   const remindersChanged = () => setRemindersVersion((v) => v + 1);
 
-  /** Go to the screen of a record a reminder is linked to, and open it there when that screen can. */
+  // A record on a screen without its own handoff (payment, supplier bill, company, tenant, place) to open once.
+  const [openOther, setOpenOther] = useState<{ kind: ReminderLinkKind; id: number } | null>(null);
+  const otherId = (kind: ReminderLinkKind) => (openOther?.kind === kind ? openOther.id : null);
+  const clearOther = () => setOpenOther(null);
+
+  /** Go to the screen of a record a reminder is linked to, and open it there. */
   const openRecord = (kind: ReminderLinkKind, id: number) => {
     switch (kind) {
       case "INVOICE":
@@ -106,16 +113,20 @@ function App() {
         setPage("supplierPayments");
         break;
       case "PAYMENT":
+        setOpenOther({ kind, id });
         setPage("payments");
         break;
       case "SUPPLIER_BILL":
+        setOpenOther({ kind, id });
         setPage("supplierBills");
         break;
       case "COMPANY":
+        setOpenOther({ kind, id });
         setPage("customers");
         break;
       case "TENANT":
       case "PLACE":
+        setOpenOther({ kind, id });
         setPage("rentals");
         break;
     }
@@ -130,6 +141,7 @@ function App() {
 
   return (
     <ToastProvider>
+      <RemindersContext.Provider value={{ changed: remindersChanged, openRecord }}>
       <div className="h-full flex">
         <aside className="w-60 shrink-0 bg-ink-900 flex flex-col">
           <div className="px-4 py-5 mb-3 border-b border-white/10 flex items-center gap-3">
@@ -167,6 +179,7 @@ function App() {
 
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[120rem] px-10 py-7">
+            <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />
             <div key={page} className="mww-page">
               <ErrorBoundary>
                 {page === "dashboard" && <DashboardPage onNavigate={setPage} onOpenQuotation={openQuotation} />}
@@ -198,9 +211,11 @@ function App() {
                     }}
                   />
                 )}
-                {page === "payments" && <PaymentsPage />}
+                {page === "payments" && <PaymentsPage openId={otherId("PAYMENT")} onOpenHandled={clearOther} />}
                 {page === "supplierBills" && (
                   <SupplierBillsPage
+                    openId={otherId("SUPPLIER_BILL")}
+                    onOpenHandled={clearOther}
                     onOpenPayment={(paymentId) => {
                       setOpenSupplierPaymentId(paymentId);
                       setPage("supplierPayments");
@@ -213,15 +228,16 @@ function App() {
                     onOpenHandled={() => setOpenSupplierPaymentId(null)}
                   />
                 )}
-                {page === "rentals" && <RentalsPage />}
-                {page === "reminders" && <RemindersPage onOpenRecord={openRecord} onChanged={remindersChanged} />}
-                {page === "customers" && <CustomersPage />}
+                {page === "rentals" && <RentalsPage openTenantId={otherId("TENANT")} openPlaceId={otherId("PLACE")} onOpenHandled={clearOther} />}
+                {page === "reminders" && <RemindersPage onOpenRecord={openRecord} onChanged={remindersChanged} refreshKey={remindersVersion} />}
+                {page === "customers" && <CustomersPage openId={otherId("COMPANY")} onOpenHandled={clearOther} />}
                 {page === "settings" && <SettingsPage />}
               </ErrorBoundary>
             </div>
           </div>
         </main>
       </div>
+      </RemindersContext.Provider>
     </ToastProvider>
   );
 }

@@ -7,13 +7,19 @@ import { Alert, Button, Card, EmptyState, ListSkeleton, RowChevron, rowClass, ro
 import PlaceFormModal from "./PlaceFormModal";
 
 /** The properties you rent out and who lives in each. Tap a row to see or change it. */
-export default function PlacesTab() {
+export default function PlacesTab({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
   const [places, setPlaces] = useState<PlaceListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Bumped after a change so the list loads again.
   const [version, setVersion] = useState(0);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (openId === null) return;
+    setEditingId(openId);
+    onOpenHandled?.();
+  }, [openId, onOpenHandled]);
 
   useEffect(() => {
     let cancelled = false;

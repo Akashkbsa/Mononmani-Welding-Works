@@ -18,9 +18,11 @@ interface Props {
   onOpenRecord: (kind: ReminderLinkKind, id: number) => void;
   /** Called after any change, so the banner at the top refreshes. */
   onChanged: () => void;
+  /** Changes when reminders changed elsewhere (the banner). */
+  refreshKey: number;
 }
 
-export default function RemindersPage({ onOpenRecord, onChanged }: Props) {
+export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<ReminderTab>("DUE");
   const [rows, setRows] = useState<Reminder[] | null>(null);
@@ -46,7 +48,7 @@ export default function RemindersPage({ onOpenRecord, onChanged }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [tab, version]);
+  }, [tab, version, refreshKey]);
 
   useLayoutEffect(() => {
     const el = tabRefs.current[tab];

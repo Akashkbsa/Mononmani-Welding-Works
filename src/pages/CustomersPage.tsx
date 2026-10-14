@@ -18,7 +18,7 @@ const TYPE_FILTERS: { id: TypeFilter; label: string; match: (c: Customer) => boo
   { id: "BOTH", label: "Both", match: (c) => c.party_type === "BOTH" },
 ];
 
-export default function CustomersPage() {
+export default function CustomersPage({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
   const toast = useToast();
   const [customers, setCustomers] = useState<Customer[] | null>(null);
   const [query, setQuery] = useState("");
@@ -29,6 +29,14 @@ export default function CustomersPage() {
   const [balances, setBalances] = useState<Map<number, number> | null>(null);
   const [owingOnly, setOwingOnly] = useState(false);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
+
+  // Open a company another screen asked for (for example from a reminder) once the list has loaded.
+  useEffect(() => {
+    if (openId === null || customers === null) return;
+    const found = customers.find((c) => c.id === openId);
+    if (found) setViewing(found);
+    onOpenHandled?.();
+  }, [openId, customers, onOpenHandled]);
 
   const load = useCallback(async () => {
     try {

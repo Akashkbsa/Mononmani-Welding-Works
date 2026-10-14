@@ -31,7 +31,16 @@ const TABS: { id: Tab; label: string; match: (b: SupplierBillListItem) => boolea
   { id: "paid", label: "Fully paid", match: (b) => b.status === "PAID" },
 ];
 
-export default function SupplierBillsPage({ onOpenPayment }: { onOpenPayment: (paymentId: number) => void }) {
+export default function SupplierBillsPage({
+  onOpenPayment,
+  openId = null,
+  onOpenHandled,
+}: {
+  onOpenPayment: (paymentId: number) => void;
+  /** A bill to open once (for example from a reminder). */
+  openId?: number | null;
+  onOpenHandled?: () => void;
+}) {
   const [bills, setBills] = useState<SupplierBillListItem[] | null>(null);
   const [summary, setSummary] = useState<SupplierBillsSummary | null>(null);
   const [query, setQuery] = useState("");
@@ -39,6 +48,12 @@ export default function SupplierBillsPage({ onOpenPayment }: { onOpenPayment: (p
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewingId, setViewingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (openId === null) return;
+    setViewingId(openId);
+    onOpenHandled?.();
+  }, [openId, onOpenHandled]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [slider, setSlider] = useState<{ x: number; w: number } | null>(null);
   const [sliderReady, setSliderReady] = useState(false);

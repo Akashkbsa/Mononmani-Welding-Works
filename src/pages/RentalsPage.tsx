@@ -12,8 +12,20 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "places", label: "Places" },
 ];
 
-export default function RentalsPage() {
-  const [tab, setTab] = useState<Tab>("month");
+interface Props {
+  /** A tenant or place to open once (for example from a reminder). */
+  openTenantId?: number | null;
+  openPlaceId?: number | null;
+  onOpenHandled?: () => void;
+}
+
+export default function RentalsPage({ openTenantId = null, openPlaceId = null, onOpenHandled }: Props) {
+  const [tab, setTab] = useState<Tab>(openTenantId !== null ? "tenants" : openPlaceId !== null ? "places" : "month");
+
+  useEffect(() => {
+    if (openTenantId !== null) setTab("tenants");
+    else if (openPlaceId !== null) setTab("places");
+  }, [openTenantId, openPlaceId]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [slider, setSlider] = useState<{ x: number; w: number } | null>(null);
   const [sliderReady, setSliderReady] = useState(false);
@@ -62,8 +74,8 @@ export default function RentalsPage() {
 
       <div role="tabpanel">
         {tab === "month" && <ThisMonthTab />}
-        {tab === "tenants" && <TenantsTab />}
-        {tab === "places" && <PlacesTab />}
+        {tab === "tenants" && <TenantsTab openId={openTenantId} onOpenHandled={onOpenHandled} />}
+        {tab === "places" && <PlacesTab openId={openPlaceId} onOpenHandled={onOpenHandled} />}
       </div>
     </>
   );

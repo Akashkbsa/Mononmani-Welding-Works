@@ -7,7 +7,7 @@ import { Alert, Badge, Button, Card, EmptyState, inputClass, ListSkeleton, PageH
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 import PaymentDetailsModal from "../components/payments/PaymentDetailsModal";
 
-export default function PaymentsPage() {
+export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
   const toast = useToast();
   const [payments, setPayments] = useState<PaymentListItem[] | null>(null);
   const [summary, setSummary] = useState<PaymentsSummary | null>(null);
@@ -17,6 +17,13 @@ export default function PaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [viewingId, setViewingId] = useState<number | null>(null);
+
+  // Open a payment another screen asked for (for example from a reminder).
+  useEffect(() => {
+    if (openId === null) return;
+    setViewingId(openId);
+    onOpenHandled?.();
+  }, [openId, onOpenHandled]);
 
   const load = useCallback(async () => {
     try {
