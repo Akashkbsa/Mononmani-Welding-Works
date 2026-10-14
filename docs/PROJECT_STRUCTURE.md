@@ -13,6 +13,7 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 | Payments | Monthly and total receipts, advances held, cheques not yet cleared. Click a row for details, edit or delete. |
 | Supplier bills | Bills received from suppliers: number, date, supplier, total, files, and a status worked out from the payments (Not paid, Partially paid, Fully paid). Click a row for details, files and the payments that settled it; record a payment from there. |
 | Supplier payments | Money paid to suppliers, one payment across several bills, with write-off, round-off and advances. Click a row for details, edit or delete. |
+| Rentals | Three tabs. **This month**: each tenant marked Paid or Not paid for a month (with date, amount and note), totals, and a **Send reminders** window that opens WhatsApp with a fixed message for each tenant who has not paid. **Tenants**: name, place, WhatsApp number, rent, move-in date, files, moved out / back in. **Places**: the properties you rent out, with files. |
 | Customers & suppliers | Every company with a type (Customer, Supplier or Both) and a filter for it; search, frequent star, details with balance due and advance held (customers) or amount owed, advance paid and supplier bills (suppliers). |
 | Settings | Where the data folder is, with a button to open it for backups. |
 
@@ -26,6 +27,8 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 - **Company type:** every company is a Customer, a Supplier or Both (`customers.party_type`, migration 14; existing companies are Customers). Invoices, payments, purchase orders and quotations accept only Customer or Both; supplier bills and supplier payments accept only Supplier or Both (`CustomerRepository::require_party`, called from each save). The type can't be changed to drop a side while records of that side exist (a Both company with invoices and supplier bills can go neither way), and a company with supplier bills or payments can't be deleted.
 - **Supplier bills** hold the supplier, the supplier's own bill number (typed; a repeat for the same supplier is a warning only), date, one total amount, an internal note and files (same rules as quotation files). The status is worked out from the payments allocated to the bill, never stored. The total can't go below what is already settled, the supplier can't change once a payment is allocated, and a bill with payments can't be deleted.
 - **Supplier payments** (`SP/26-27/001`) mirror customer payments without TDS: one payment can be applied to several of one supplier's bills, using the supplier's advance if wanted. Paying less can be accepted as full payment (a write-off, never more than what is actually short); paying more can be kept as a round-off (counted as paid) or as an advance with the supplier (used oldest-first on later bills). **There is no limit on a write-off or a round-off.** A payment with no bills becomes an advance. Editing recalculates as if the payment had never been recorded; deleting reopens its bills; a payment whose advance a later payment used can't be deleted or shrunk below what was used.
+- **Rentals** (migration 16; tables `rental_places`, `rental_tenants`, `rent_months`, `rental_files`) are separate from invoices and companies. A place has at most one **current** tenant (no moved-out date; a partial unique index plus a message), so a new tenant needs the old one marked as moved out first. A tenant is on a month's list from the month they moved in (the month they were added when there is no move-in date) until the month they moved out; a month already marked paid always stays listed. **Paid** means the month's row has a paid date; a month with no row is Not paid. The recorded amount of a paid month never changes when the tenant's rent is edited later. Undoing a payment clears the date, amount and note and keeps the reminder date; a month left with nothing is removed. A place that has had tenants and a tenant with any rent record cannot be deleted (mark the tenant as moved out instead); files go with their place or tenant. Files follow the shared attachment rules (`rental_files`, `owner_kind` PLACE or TENANT, 10 MB, same types and checks).
+- **Rent reminders:** the text is fixed: `Hello {name}, this is a reminder for your {Month Year} rent of {amount} for {place}. Please pay at your earliest convenience. Thank you.` (`₹12,000`, but `₹12,000.50`). Numbers are stored as `+` and digits: ten digits starting 6 to 9 become `+91…`, a typed `+` number keeps its country code. The app only opens `https://wa.me/<number>?text=<message>` (percent-encoded UTF-8) in the default program and remembers the day it was opened; the owner presses Send in WhatsApp, and nothing is ever sent automatically. A tenant who has paid never gets a reminder. Rental data has no PIN or encryption; it is in the same database, so every rental change is tracked in `change_log` and the Google Drive backup includes it.
 - **Invoice <-> purchase order:** `invoices.purchase_order_id` (nullable). One order can have many invoices; an invoice has at most one order, and it must be the same customer's. Linking fills the invoice's "PO number & date" text (`number & dd-mm-yyyy`, or just the number when the order has no date), so the printed invoice is unchanged. Unlinking, or later editing the order, leaves that text alone. An invoice that stays linked cannot change customer; removing the order first (even in the same save) allows it. An order with linked invoices cannot be deleted, and a customer with orders cannot be deleted. Cancelled and draft invoices can be linked.
 - **PO / DC numbers** are entered as a number and a date and stored as `number & dd-mm-yyyy`; left empty they print as a dash.
 - **TDS** can be entered as a percentage (0.1, 1, 2, 5, 10 or another rate) taken on the amount before GST or on the invoice total, worked out per invoice from the part each invoice is paid; or as a rupee amount. The payment still stores one `tds_amount`.
@@ -51,26 +54,28 @@ src/                          React UI
   components/customers/       CustomerFormModal, CustomerDetailsModal
   components/purchaseOrders/  PurchaseOrderFormModal, PurchaseOrderDetailsModal, PurchaseOrderStatusBadge
   components/quotations/      QuotationFormModal, QuotationDetailsModal
-  components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders, quotations and supplier bills)
+  components/rentals/         ThisMonthTab, TenantsTab, PlacesTab, MarkPaidModal, TenantFormModal, PlaceFormModal, SendRemindersModal
+  components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders, quotations, supplier bills and rentals)
   components/supplierBills/   SupplierBillFormModal, SupplierBillDetailsModal, SupplierBillStatusBadge
   components/supplierPayments/ SupplierPaymentFormModal, SupplierPaymentDetailsModal
-  pages/                      Dashboard, Invoices, Quotations, PurchaseOrders, Payments, SupplierBills, SupplierPayments, Customers, Settings
+  pages/                      Dashboard, Invoices, Quotations, PurchaseOrders, Payments, SupplierBills, SupplierPayments, Rentals, Customers, Settings
   services/api.ts             every Tauri command, one function each
   lib/format.ts, lib/gst.ts   money/date formatting, GST state codes
   template/                   invoice HTML + CSS used for the PDF
 src-tauri/src/
   lib.rs                      app setup, command list, open PDF / data folder
   util.rs                     dates, rounding, Indian number formatting
-  attachments.rs              file rules shared by purchase orders, quotations and supplier bills (size/type/name checks, upload decoding, temp copies)
-  db/migrations.rs            schema migrations 001–015 (each in a transaction)
+  attachments.rs              file rules shared by purchase orders, quotations, supplier bills and rentals (size/type/name checks, upload decoding, temp copies)
+  db/migrations.rs            schema migrations 001–016 (each in a transaction)
   customers/ invoices/ payments/   models, repository (rules + SQL), commands
   purchase_orders/ quotations/ supplier_bills/ supplier_payments/   models, repository (rules + SQL), commands
+  rentals/                    models, repository (rules + SQL), commands, plus reminder.rs (the fixed message, number clean-up and WhatsApp link; no SQL)
   pdf/renderer.rs             fills the template and prints it with Edge/Chrome
 ```
 
 ## Data on disk
 
-`%APPDATA%\com.manonmani.app\` — `Database\manonmani.db` (also holds purchase order, quotation and supplier bill files), `Invoices\<year>\<number>_<copy>.pdf`, `Temp\` (short-lived copies of attached files made so they can be opened, named `po_<id>_<name>`, `quotation_<id>_<name>` or `supplier_bill_<id>_<name>` so the kinds never mix; emptied each time the app starts). The folder name comes from the Tauri identifier; don't change the identifier or the app will start with an empty database.
+`%APPDATA%\com.manonmani.app\` — `Database\manonmani.db` (also holds purchase order, quotation, supplier bill and rental files), `Invoices\<year>\<number>_<copy>.pdf`, `Temp\` (short-lived copies of attached files made so they can be opened, named `po_<id>_<name>`, `quotation_<id>_<name>`, `supplier_bill_<id>_<name>` or `rental_<id>_<name>` so the kinds never mix; emptied each time the app starts). The folder name comes from the Tauri identifier; don't change the identifier or the app will start with an empty database.
 
 ## Building and running
 
@@ -81,9 +86,9 @@ PDF creation needs Microsoft Edge (installed with Windows) or Google Chrome.
 
 ## Tests
 
-Rust unit tests live next to the code (`customers/repository.rs`, `invoices/repository.rs`, `payments/repository.rs`, `purchase_orders/repository.rs`, `quotations/repository.rs`, `supplier_bills/repository.rs`, `supplier_payments/repository.rs`, `attachments.rs`, `db/migrations.rs`, `util.rs`, `pdf/renderer.rs`). They cover tax maths, number-to-words, migrations, allocation limits, advances, and the delete/edit guards.
+Rust unit tests live next to the code (`customers/repository.rs`, `invoices/repository.rs`, `payments/repository.rs`, `purchase_orders/repository.rs`, `quotations/repository.rs`, `supplier_bills/repository.rs`, `supplier_payments/repository.rs`, `rentals/repository.rs`, `rentals/reminder.rs`, `attachments.rs`, `db/migrations.rs`, `util.rs`, `pdf/renderer.rs`). They cover tax maths, number-to-words, migrations, allocation limits, advances, and the delete/edit guards.
 
-On this machine plain `cargo test` builds but the test executable cannot start (`STATUS_ENTRYPOINT_NOT_FOUND`): the MinGW linker can't merge Tauri's Windows manifest into test binaries. Run the Rust tests with `tools\test-harness\test.bat` instead: it compiles the data-layer modules (`db`, `util`, `attachments`, and the `models.rs`/`repository.rs` files of customers, invoices, payments, purchase_orders, quotations, supplier_bills, supplier_payments and backup, plus `backup/snapshot.rs`) in a small crate without Tauri, using `#[path]` modules. Add a new module there when you add one to the app.
+On this machine plain `cargo test` builds but the test executable cannot start (`STATUS_ENTRYPOINT_NOT_FOUND`): the MinGW linker can't merge Tauri's Windows manifest into test binaries. Run the Rust tests with `tools\test-harness\test.bat` instead: it compiles the data-layer modules (`db`, `util`, `attachments`, and the `models.rs`/`repository.rs` files of customers, invoices, payments, purchase_orders, quotations, supplier_bills, supplier_payments, rentals and backup, plus `rentals/reminder.rs` and `backup/snapshot.rs`) in a small crate without Tauri, using `#[path]` modules. Add a new module there when you add one to the app.
 
 ## Google Drive backup
 

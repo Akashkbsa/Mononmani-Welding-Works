@@ -13,7 +13,7 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 ## Layout
 
 - `src/` React UI: `App.tsx` (sidebar), `pages/`, `components/` (`ui.tsx` is the shared kit), `services/api.ts` (all Tauri commands), `lib/format.ts`, `lib/gst.ts`, `template/` (invoice PDF HTML/CSS).
-- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`.
+- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/`, `rentals/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`.
 - Full description and business rules: `docs/PROJECT_STRUCTURE.md`.
 
 ## Rules that must hold
@@ -22,6 +22,7 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 - Business rules live in the Rust repositories, not only the UI: allocation limits, advances (credit/refund), round-off and write-off, invoice edit/delete guards, customer delete guard.
 - Purchase orders link to invoices through `invoices.purchase_order_id` (same customer only). Linking fills the invoice's `po_number_and_date` text; the invoice PDF template and `pdf/renderer.rs` must not change for it.
 - Every company is a Customer, a Supplier or Both (`customers.party_type`). Invoices, payments, purchase orders and quotations accept only Customer or Both; supplier bills and supplier payments only Supplier or Both (`CustomerRepository::require_party`). Supplier write-off and round-off have no size limit; a write-off can never exceed what is actually short.
+- Rent reminders only open a `https://wa.me/` link with the message typed in; the owner presses Send in WhatsApp. Never add code that sends WhatsApp messages by itself (it breaks WhatsApp's terms). Rental data has no PIN or encryption by the owner's choice and is backed up with the rest of the database (migration 16 tables are in `change_log` and the backup summary).
 - Puducherry (state code 34) → CGST + SGST; other states → IGST.
 - Business name is **Mononmani Welding Works**. Keep the Tauri identifier `com.manonmani.app` (it locates the user's data folder).
 - Schema changes go in a new numbered migration in `db/migrations.rs`; never edit an applied one.
