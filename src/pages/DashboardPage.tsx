@@ -19,7 +19,7 @@ import {
   printInvoice,
 } from "../services/api";
 import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, monthTitle, todayISO } from "../lib/format";
-import { ageBuckets, ageInDays, lastMonths, monthlySums } from "../lib/dashboardStats";
+import { ageInDays, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
 import { whenText } from "../lib/reminders";
 import { Alert, Button, Card, PageHeader, SectionTitle, Skeleton, Stat, StatStrip, useToast } from "../components/ui";
 import { HBars, MonthlyBars } from "../components/dashboard/charts";
@@ -35,7 +35,6 @@ let dashboardRevealed = false;
 
 const SHOWN = 5;
 const MONTHS = 6;
-const AGE_BARS = ["bg-brand-600", "bg-amber-400", "bg-orange-500", "bg-red-600"];
 
 interface Data {
   summary: PaymentsSummary;
@@ -74,19 +73,17 @@ function DashboardSkeleton() {
   );
 }
 
-/** What customers owe, and how old the unpaid invoices are. */
+/** The customers with the biggest unpaid balances, so it is clear who to follow up first. */
 function OwedCard({
   total,
   items,
-  today,
   onSeeAll,
 }: {
   total: number;
-  items: { date: string; amount: number }[];
-  today: string;
+  items: { name: string; amount: number }[];
   onSeeAll: () => void;
 }) {
-  const buckets = ageBuckets(items, today);
+  const top = topByName(items, SHOWN);
   return (
     <Card className="flex h-full flex-col p-5">
       <SectionTitle
@@ -96,18 +93,10 @@ function OwedCard({
           </Button>
         }
       >
-        How old is the unpaid money
+        Who owes you most
       </SectionTitle>
       <div className="mb-5 text-2xl font-semibold tabular text-slate-900">{formatMoney(total)}</div>
-      <HBars
-        empty="No unpaid invoices."
-        rows={buckets.map((b, i) => ({
-          label: b.label,
-          note: b.count > 0 ? `${b.count} invoice${b.count === 1 ? "" : "s"}` : undefined,
-          amount: b.amount,
-          bar: AGE_BARS[i],
-        }))}
-      />
+      <HBars empty="No unpaid invoices." rows={top.map((t) => ({ label: t.name, note: `${t.count} unpaid invoice${t.count === 1 ? "" : "s"}`, amount: t.amount }))} />
     </Card>
   );
 }
@@ -202,7 +191,7 @@ export default function DashboardPage({
       unpaidTenants,
       oldWaiting: waiting.filter((i) => ageInDays(i.invoice_date, today) > 30).length,
       drafts: data.invoices.filter((i) => i.status === "DRAFT").length,
-      owedByCustomers: waiting.map((i) => ({ date: i.invoice_date, amount: i.outstanding_amount })),
+      owedByCustomers: waiting.map((i) => ({ name: i.customer_name, amount: i.outstanding_amount })),
     };
   }, [data, today]);
 
@@ -314,7 +303,7 @@ export default function DashboardPage({
                 ]}
               />
             </Card>
-            <OwedCard total={data.summary.total_outstanding} items={view.owedByCustomers} today={today} onSeeAll={() => onNavigate("invoices")} />
+            <OwedCard total={data.summary.total_outstanding} items={view.owedByCustomers} onSeeAll={() => onNavigate("invoices")} />
           </div>
 
           <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(3).className}`} style={reveals(3).style}>
