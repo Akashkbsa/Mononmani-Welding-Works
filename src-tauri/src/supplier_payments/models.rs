@@ -71,3 +71,62 @@ pub struct SupplierPaymentInput {
     #[serde(default)]
     pub writeoff_amount: f64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplierPaymentListItem {
+    pub id: i64,
+    pub payment_number: String,
+    pub supplier_id: i64,
+    pub supplier_name: String,
+    pub payment_date: String,
+    pub payment_method: String,
+    pub reference_number: Option<String>,
+    pub amount_paid: f64,
+    pub writeoff_amount: f64,
+    pub total_settled: f64,
+    pub credit_applied: f64,
+    pub excess_amount: f64,
+    pub excess_action: String,
+    pub bills_covered: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SupplierPaymentFilter {
+    /// Matches the payment number, supplier, reference, remarks or a bill number.
+    pub query: Option<String>,
+    pub supplier_id: Option<i64>,
+    pub date_from: Option<String>,
+    pub date_to: Option<String>,
+    pub payment_method: Option<String>,
+}
+
+/// A bill a payment to this supplier can be applied to.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnpaidBill {
+    pub bill_id: i64,
+    pub bill_number: String,
+    pub bill_date: String,
+    pub total_amount: f64,
+    /// Already settled by other payments.
+    pub total_settled: f64,
+    pub outstanding_amount: f64,
+}
+
+/// An advance paid to a supplier that later payments can use.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplierCredit {
+    pub id: i64,
+    pub supplier_id: i64,
+    pub source_payment_id: Option<i64>,
+    pub source_payment_number: Option<String>,
+    pub original_amount: f64,
+    pub remaining_amount: f64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplierPaymentsSummary {
+    pub total_paid: f64,
+    pub paid_this_month: f64,
+    pub advances_held: f64,
+}
