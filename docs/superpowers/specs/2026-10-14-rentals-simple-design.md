@@ -45,16 +45,18 @@ The message is fixed, with the tenant's details filled in:
 - If nobody is unpaid, the reminder button says "Everyone has paid" and is off.
 - The month is taken from the PC's date.
 
-## Where the data lives, and what to know
+## Backup and privacy
 
-The Rentals tabs are protected by a **PIN** (four to six digits), asked when the owner opens Rentals and again after a few idle minutes. Rental data sits in the **same database as the company records**, so:
+Rental data lives in the **same database as the company records**, so the existing backup covers it with no extra step:
 
-- It is **backed up with the company data** (to Google Drive if that is connected). This is good if the PC fails, and not good if other people can see that Drive or use this PC.
-- Files are **not encrypted**. The PIN keeps casual viewers out of the screens; it does not protect the database file itself. Windows login and BitLocker do that.
+- **Google Drive backup:** every backup is a full copy of the database, so places, tenants, rent history and the attached files are all inside it. Restoring a backup brings them back too.
+- **Copying the data folder to a USB drive** (the Settings page button) includes rentals as well.
+- **A backup runs only when something changed.** The app tracks changes record by record, so the new rental tables get the same change tracking and a backup line in the "what changed" summary (for example "2 rent months edited"). Without that, a month marked paid might not trigger a backup.
+- **Size:** attached files (agreements, ID photos) are stored inside the database, and each Drive backup is a complete copy, so the backup grows as files are added. Local copies keep the latest seven.
+- **No lock and no encryption.** The owner is the only person who uses the PC and the backup account, so Rentals has no PIN and files are stored as they are. Windows login (and BitLocker, if turned on) protect the PC itself.
 - Tenant ID copies are sensitive. Ask for a **masked Aadhaar** (first eight digits hidden) or another ID, and delete copies when no longer needed. The app does not read the files.
-- A forgotten PIN is reset by the developer; there is no self-service reset in this version.
 
-If other people use the PC or the Drive account, the better design is a **separate data file** that is left out of the company backup. That is about one extra task (the database layer currently runs one set of migrations for one file).
+If other people ever start using the PC or can see the Drive account, the fix is a separate data file left out of the company backup, plus a lock. That is a later change, not part of this version.
 
 ## Data (migration 16)
 
@@ -62,18 +64,17 @@ If other people use the PC or the Drive account, the better design is a **separa
 - `rental_tenants`: place_id, name, whatsapp_number, monthly_rent, move_in_date, moved_out_date, notes, timestamps.
 - `rent_months`: tenant_id, month (`YYYY-MM`), paid_on, amount, note, reminded_on; one row per tenant and month; **paid** means `paid_on` is set.
 - `rental_files`: owner (place or tenant), file name, type, size, contents, created_at (same checks as other files).
-- The PIN is stored as a salted hash in the existing settings table, never as plain digits.
-- Change-log triggers and the backup summary line ("rental place", "tenant") like the other records.
+- Change-log triggers on all four tables, and backup summary lines ("rental place", "tenant", "rent month") like the other records, so a backup runs after any rental change.
 
 ## Size
 
-About ten to twelve tasks: migration, rules and tests, PIN, commands, the three tabs, files, WhatsApp opening and the fixed message, docs. Roughly half the size of supplier bills and payments.
+About ten tasks: migration, rules and tests, commands, the three tabs, files, WhatsApp opening and the fixed message, docs. Roughly half the size of supplier bills and payments.
 
 ## Left out on purpose
 
-Due dates and overdue tracking, late fees, deposits, lease terms and rent increases, receipts, reports, encryption of files, Windows pop-up alerts, automatic sending, editing the message, more than one user.
+Due dates and overdue tracking, late fees, deposits, lease terms and rent increases, receipts, reports, encryption, a PIN or lock, Windows pop-up alerts, automatic sending, editing the message, more than one user.
 
 ## Decided with the owner
 
 1. Sending: option A, one button per tenant, the owner presses Send in WhatsApp.
-2. Only the owner uses the PC and the backup account, so Rentals sits inside the app behind a PIN and is backed up with the company data. If that changes, move it to a separate data file.
+2. Only the owner uses the PC and the backup account. No lock, no encryption. Rental data is backed up with the company data through the existing backup.
