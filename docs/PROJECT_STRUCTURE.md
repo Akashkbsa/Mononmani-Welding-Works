@@ -11,7 +11,9 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 | Quotations | Quotations sent to companies: number, date, company, an internal note and the file that was sent (photo, PDF or Word), with the purchase orders that followed. Click a row for details; open a file, edit, delete. |
 | Purchase orders | Customers' purchase orders (photo, PDF or Word file), their status (Not started, Partially completed, Completed), an internal note, and the invoices raised against each. Click a row for details; open a file, edit, delete. |
 | Payments | Monthly and total receipts, advances held, cheques not yet cleared. Click a row for details, edit or delete. |
-| Customers | Search, frequent-customer star, details with balance due, advance held and invoice list. |
+| Supplier bills | Bills received from suppliers: number, date, supplier, total, files, and a status worked out from the payments (Not paid, Partially paid, Fully paid). Click a row for details, files and the payments that settled it; record a payment from there. |
+| Supplier payments | Money paid to suppliers, one payment across several bills, with write-off, round-off and advances. Click a row for details, edit or delete. |
+| Customers & suppliers | Every company with a type (Customer, Supplier or Both) and a filter for it; search, frequent star, details with balance due and advance held (customers) or amount owed, advance paid and supplier bills (suppliers). |
 | Settings | Where the data folder is, with a button to open it for backups. |
 
 ## Business rules (enforced in Rust)
@@ -21,6 +23,9 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 - **Purchase orders** hold the customer, PO number, PO date, status, an internal note and attached files; the app never reads the files. Files are kept inside the database (table `purchase_order_files`), up to 10 MB each, types JPG/PNG/PDF/DOC/DOCX, checked in Rust by size, extension and the file's first bytes. Status is set only by the owner. A duplicate PO number for the same customer is a warning, not an error.
 - **Quotations** hold the customer, a quotation number typed by the owner, a quotation date (required), an internal note and attached files; no status, amounts or items, and the app never reads the files. Files follow the purchase order rules (inside the database, table `quotation_files`, 10 MB, same types and checks). A duplicate quotation number is a warning, not an error, and is checked across **all customers** because the numbers are the owner's own series.
 - **Quotation <-> purchase order:** `purchase_orders.quotation_id` (nullable, migration 13). One quotation can have many purchase orders; an order has at most one quotation, and it must be the same customer's. Linking changes nothing printed. An order that keeps its quotation cannot change customer (remove the quotation first, even in the same save), and a quotation with linked orders cannot change customer or be deleted. From the quotation screen only that customer's orders with no quotation yet can be attached; an order tied to another quotation is refused so it never moves silently. A customer with quotations cannot be deleted.
+- **Company type:** every company is a Customer, a Supplier or Both (`customers.party_type`, migration 14; existing companies are Customers). Invoices, payments, purchase orders and quotations accept only Customer or Both; supplier bills and supplier payments accept only Supplier or Both (`CustomerRepository::require_party`, called from each save). The type can't be changed to drop a side while records of that side exist (a Both company with invoices and supplier bills can go neither way), and a company with supplier bills or payments can't be deleted.
+- **Supplier bills** hold the supplier, the supplier's own bill number (typed; a repeat for the same supplier is a warning only), date, one total amount, an internal note and files (same rules as quotation files). The status is worked out from the payments allocated to the bill, never stored. The total can't go below what is already settled, the supplier can't change once a payment is allocated, and a bill with payments can't be deleted.
+- **Supplier payments** (`SP/26-27/001`) mirror customer payments without TDS: one payment can be applied to several of one supplier's bills, using the supplier's advance if wanted. Paying less can be accepted as full payment (a write-off, never more than what is actually short); paying more can be kept as a round-off (counted as paid) or as an advance with the supplier (used oldest-first on later bills). **There is no limit on a write-off or a round-off.** A payment with no bills becomes an advance. Editing recalculates as if the payment had never been recorded; deleting reopens its bills; a payment whose advance a later payment used can't be deleted or shrunk below what was used.
 - **Invoice <-> purchase order:** `invoices.purchase_order_id` (nullable). One order can have many invoices; an invoice has at most one order, and it must be the same customer's. Linking fills the invoice's "PO number & date" text (`number & dd-mm-yyyy`, or just the number when the order has no date), so the printed invoice is unchanged. Unlinking, or later editing the order, leaves that text alone. An invoice that stays linked cannot change customer; removing the order first (even in the same save) allows it. An order with linked invoices cannot be deleted, and a customer with orders cannot be deleted. Cancelled and draft invoices can be linked.
 - **PO / DC numbers** are entered as a number and a date and stored as `number & dd-mm-yyyy`; left empty they print as a dash.
 - **TDS** can be entered as a percentage (0.1, 1, 2, 5, 10 or another rate) taken on the amount before GST or on the invoice total, worked out per invoice from the part each invoice is paid; or as a rupee amount. The payment still stores one `tds_amount`.
@@ -46,24 +51,26 @@ src/                          React UI
   components/customers/       CustomerFormModal, CustomerDetailsModal
   components/purchaseOrders/  PurchaseOrderFormModal, PurchaseOrderDetailsModal, PurchaseOrderStatusBadge
   components/quotations/      QuotationFormModal, QuotationDetailsModal
-  components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders and quotations)
-  pages/                      Dashboard, Invoices, Quotations, PurchaseOrders, Payments, Customers, Settings
+  components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders, quotations and supplier bills)
+  components/supplierBills/   SupplierBillFormModal, SupplierBillDetailsModal, SupplierBillStatusBadge
+  components/supplierPayments/ SupplierPaymentFormModal, SupplierPaymentDetailsModal
+  pages/                      Dashboard, Invoices, Quotations, PurchaseOrders, Payments, SupplierBills, SupplierPayments, Customers, Settings
   services/api.ts             every Tauri command, one function each
   lib/format.ts, lib/gst.ts   money/date formatting, GST state codes
   template/                   invoice HTML + CSS used for the PDF
 src-tauri/src/
   lib.rs                      app setup, command list, open PDF / data folder
   util.rs                     dates, rounding, Indian number formatting
-  attachments.rs              file rules shared by purchase orders and quotations (size/type/name checks, upload decoding, temp copies)
-  db/migrations.rs            schema migrations 001–013 (each in a transaction)
+  attachments.rs              file rules shared by purchase orders, quotations and supplier bills (size/type/name checks, upload decoding, temp copies)
+  db/migrations.rs            schema migrations 001–015 (each in a transaction)
   customers/ invoices/ payments/   models, repository (rules + SQL), commands
-  purchase_orders/ quotations/   models, repository (rules + SQL), commands
+  purchase_orders/ quotations/ supplier_bills/ supplier_payments/   models, repository (rules + SQL), commands
   pdf/renderer.rs             fills the template and prints it with Edge/Chrome
 ```
 
 ## Data on disk
 
-`%APPDATA%\com.manonmani.app\` — `Database\manonmani.db` (also holds purchase order and quotation files), `Invoices\<year>\<number>_<copy>.pdf`, `Temp\` (short-lived copies of attached files made so they can be opened, named `po_<id>_<name>` or `quotation_<id>_<name>` so the two kinds never mix; emptied each time the app starts). The folder name comes from the Tauri identifier; don't change the identifier or the app will start with an empty database.
+`%APPDATA%\com.manonmani.app\` — `Database\manonmani.db` (also holds purchase order, quotation and supplier bill files), `Invoices\<year>\<number>_<copy>.pdf`, `Temp\` (short-lived copies of attached files made so they can be opened, named `po_<id>_<name>`, `quotation_<id>_<name>` or `supplier_bill_<id>_<name>` so the kinds never mix; emptied each time the app starts). The folder name comes from the Tauri identifier; don't change the identifier or the app will start with an empty database.
 
 ## Building and running
 
@@ -74,9 +81,9 @@ PDF creation needs Microsoft Edge (installed with Windows) or Google Chrome.
 
 ## Tests
 
-Rust unit tests live next to the code (`customers/repository.rs`, `invoices/repository.rs`, `payments/repository.rs`, `purchase_orders/repository.rs`, `quotations/repository.rs`, `attachments.rs`, `db/migrations.rs`, `util.rs`, `pdf/renderer.rs`). They cover tax maths, number-to-words, migrations, allocation limits, advances, and the delete/edit guards.
+Rust unit tests live next to the code (`customers/repository.rs`, `invoices/repository.rs`, `payments/repository.rs`, `purchase_orders/repository.rs`, `quotations/repository.rs`, `supplier_bills/repository.rs`, `supplier_payments/repository.rs`, `attachments.rs`, `db/migrations.rs`, `util.rs`, `pdf/renderer.rs`). They cover tax maths, number-to-words, migrations, allocation limits, advances, and the delete/edit guards.
 
-On this machine `cargo test` builds but the test executable cannot start (`STATUS_ENTRYPOINT_NOT_FOUND`): the MinGW linker can't merge Tauri's Windows manifest into test binaries. The tests pass when the data-layer modules are compiled on their own without Tauri.
+On this machine plain `cargo test` builds but the test executable cannot start (`STATUS_ENTRYPOINT_NOT_FOUND`): the MinGW linker can't merge Tauri's Windows manifest into test binaries. Run the Rust tests with `tools\test-harness\test.bat` instead: it compiles the data-layer modules (`db`, `util`, `attachments`, and the `models.rs`/`repository.rs` files of customers, invoices, payments, purchase_orders, quotations, supplier_bills, supplier_payments and backup, plus `backup/snapshot.rs`) in a small crate without Tauri, using `#[path]` modules. Add a new module there when you add one to the app.
 
 ## Google Drive backup
 
@@ -84,4 +91,4 @@ On this machine `cargo test` builds but the test executable cannot start (`STATU
 - Migration 8 adds `change_log` (filled by triggers on every record table) and `backup_runs`. A backup is skipped when nothing changed after the last successful run; the change number only advances after the upload is verified (size and MD5), so interrupted backups lose nothing.
 - Every backup is a complete compressed copy and is never overwritten, so earlier versions stay restorable. Restore keeps a `before-restore-*.db` copy in the Backups folder.
 - The Google Client ID/secret and refresh token live in Windows Credential Manager, not in the database.
-- To run the data-layer tests despite the Tauri test-exe problem, compile `db`, `util`, and the `models.rs`/`repository.rs` files of customers, invoices, payments, purchase_orders, quotations and backup (plus `backup/snapshot.rs` and `attachments.rs`) in a small crate using `#[path]` modules, then `cargo test` there.
+- The data-layer tests run through `tools/test-harness` (see Tests above).
