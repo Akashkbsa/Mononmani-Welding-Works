@@ -441,6 +441,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "013_quotations",
         sql: QUOTATIONS_SQL,
     },
+    Migration {
+        version: 14,
+        name: "014_party_type",
+        sql: PARTY_TYPE_SQL,
+    },
 ];
 
 /// Purchase orders received from customers (with the files they came in) and the optional link
@@ -550,6 +555,13 @@ pub const QUOTATIONS_SQL: &str = r#"
     BEGIN
         INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('quotation_files', OLD.id, 'DELETE', datetime('now'));
     END;
+"#;
+
+/// Every company is a customer, a supplier or both. Existing companies are customers.
+pub const PARTY_TYPE_SQL: &str = r#"
+    ALTER TABLE customers ADD COLUMN party_type TEXT NOT NULL DEFAULT 'CUSTOMER'
+        CHECK (party_type IN ('CUSTOMER', 'SUPPLIER', 'BOTH'));
+    CREATE INDEX IF NOT EXISTS idx_customers_party_type ON customers(party_type);
 "#;
 
 /// Invoice totals are no longer rounded to the rupee. Invoices that are not fully paid yet are
@@ -732,6 +744,33 @@ mod tests {
         path
     }
 
+    /// A database exactly as migration 13 left it: one customer and one invoice.
+    fn database_at_version_13(dir: &Path) -> std::path::PathBuf {
+        let path = dir.join("t13.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, applied_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        for m in MIGRATIONS.iter().filter(|m| m.version <= 13) {
+            conn.execute_batch(m.sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, 'x')",
+                params![m.version, m.name],
+            )
+            .unwrap();
+        }
+        conn.execute("INSERT INTO customers (name, created_at, updated_at) VALUES ('Sample Co', 'x', 'x')", []).unwrap();
+        conn.execute(
+            "INSERT INTO invoices (invoice_number, invoice_date, customer_id, customer_name, amount_in_words, created_at, updated_at)
+             VALUES ('MWW/26-27/001', '2026-10-01', 1, 'Sample Co', 'x', 'x', 'x')",
+            [],
+        )
+        .unwrap();
+        path
+    }
+
     fn add_quotation(conn: &Connection, number: &str) -> i64 {
         conn.execute(
             "INSERT INTO quotations (customer_id, quotation_number, quotation_date, created_at, updated_at) VALUES (1, ?1, '2026-10-01', 'x', 'x')",
@@ -817,7 +856,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_12(dir.path()));
 
-        assert_eq!(latest_version(), 13);
+        assert!(latest_version() >= 13);
         let linked: Option<i64> =
             conn.query_row("SELECT quotation_id FROM purchase_orders WHERE po_number = 'PO-OLD'", [], |r| r.get(0)).unwrap();
         assert_eq!(linked, None);
@@ -864,5 +903,26 @@ mod tests {
         conn.execute("UPDATE purchase_orders SET quotation_id = ?1", params![q]).unwrap();
         assert!(conn.execute("DELETE FROM quotations WHERE id = ?1", params![q]).is_err());
         assert!(conn.execute("UPDATE purchase_orders SET quotation_id = 9999", []).is_err(), "no such quotation");
+    }
+
+    #[test]
+    fn migration_14_makes_existing_companies_customers() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_13(dir.path()));
+        assert_eq!(latest_version(), 14);
+        let kind: String = conn.query_row("SELECT party_type FROM customers WHERE id = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(kind, "CUSTOMER");
+        let invoices: i64 = conn.query_row("SELECT COUNT(*) FROM invoices WHERE customer_id = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(invoices, 1);
+    }
+
+    #[test]
+    fn party_type_must_be_one_of_the_three_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_13(dir.path()));
+        for ok in ["SUPPLIER", "BOTH", "CUSTOMER"] {
+            conn.execute("UPDATE customers SET party_type = ?1 WHERE id = 1", params![ok]).unwrap();
+        }
+        assert!(conn.execute("UPDATE customers SET party_type = 'VENDOR' WHERE id = 1", []).is_err());
     }
 }
