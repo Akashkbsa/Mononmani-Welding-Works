@@ -136,11 +136,9 @@ export default function ThisMonthTab() {
                       <div>
                         <Badge tone="amber">Not paid</Badge>
                         <div className="mt-0.5 text-xs text-slate-500">
-                          {row.opened_unconfirmed_on
-                            ? `Opened ${shortDate(row.opened_unconfirmed_on)}, not confirmed sent`
-                            : row.reminders_sent > 0
-                              ? `${reminderLabel(row.reminders_sent)} sent ${shortDate(row.last_sent_on)}`
-                              : "No reminder sent"}
+                          {row.reminders_sent > 0
+                            ? `${reminderLabel(row.reminders_sent)} sent ${shortDate(row.last_sent_on)}`
+                            : "No reminder sent"}
                         </div>
                       </div>
                     )}

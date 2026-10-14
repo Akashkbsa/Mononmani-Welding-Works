@@ -302,12 +302,11 @@ impl CustomerRepository {
         }
     }
 
-    /// Supplier bills, supplier payments and advances paid that make a company a supplier.
+    /// Supplier bills and supplier payments that make a company a supplier.
     fn supplier_record_count(conn: &Connection, id: i64) -> Result<i64, String> {
         conn.query_row(
             "SELECT (SELECT COUNT(*) FROM supplier_bills WHERE supplier_id = ?1)
-                  + (SELECT COUNT(*) FROM supplier_payments WHERE supplier_id = ?1)
-                  + (SELECT COUNT(*) FROM supplier_credits WHERE supplier_id = ?1)",
+                  + (SELECT COUNT(*) FROM supplier_payments WHERE supplier_id = ?1)",
             params![id],
             |r| r.get(0),
         )
@@ -526,7 +525,7 @@ impl CustomerRepository {
                 let n = Self::supplier_record_count(conn, id)?;
                 if n > 0 {
                     return Err(format!(
-                        "This company has {} supplier record(s) (bills, payments or advances), so it can't be changed to Customer only.",
+                        "This company has {} supplier record(s) (bills or payments), so it can't be changed to Customer only.",
                         n
                     ));
                 }
@@ -1417,10 +1416,9 @@ mod tests {
 
     // ---- supplier records ----
 
-    const SUPPLIER_RECORDS: [(&str, &str); 3] = [
+    const SUPPLIER_RECORDS: [(&str, &str); 2] = [
         ("supplier_bills", "INSERT INTO supplier_bills (supplier_id, bill_number, bill_date, total_amount, created_at, updated_at) VALUES (?1, 'B-1', '2026-10-01', 100, 'x', 'x')"),
         ("supplier_payments", "INSERT INTO supplier_payments (payment_number, supplier_id, payment_date, created_at, updated_at) VALUES ('SP/26-27/001', ?1, '2026-10-02', 'x', 'x')"),
-        ("supplier_credits", "INSERT INTO supplier_credits (supplier_id, original_amount, remaining_amount, created_at, updated_at) VALUES (?1, 5, 5, 'x', 'x')"),
     ];
 
     #[test]
@@ -1434,7 +1432,7 @@ mod tests {
                 let err = update_type(&conn, id, &format!("Steel {}", start), Some("CUSTOMER")).unwrap_err();
                 assert_eq!(
                     err,
-                    "This company has 1 supplier record(s) (bills, payments or advances), so it can't be changed to Customer only.",
+                    "This company has 1 supplier record(s) (bills or payments), so it can't be changed to Customer only.",
                     "{} from {}",
                     table,
                     start

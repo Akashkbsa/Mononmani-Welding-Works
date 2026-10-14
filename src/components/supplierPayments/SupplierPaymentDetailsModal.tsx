@@ -67,13 +67,7 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
             <Item label="Amount paid" value={formatMoney(p.amount_paid)} strong />
             <Item label="Method" value={[p.payment_method, p.reference_number].filter(Boolean).join(" · ")} />
             {p.bank_name && <Item label="Bank" value={p.bank_name} />}
-            {p.credit_applied > 0 && <Item label="Advance used" value={formatMoney(p.credit_applied)} />}
-            {p.excess_amount > 0 && (
-              <Item
-                label={p.excess_action === "ROUNDOFF" ? "Round-off kept" : "Kept as advance"}
-                value={formatMoney(p.excess_amount) + (p.advance_used > 0 ? ` (${formatMoney(p.advance_used)} since used)` : "")}
-              />
-            )}
+            {p.excess_amount > 0 && <Item label="Round-off (extra paid, counted as paid)" value={formatMoney(p.excess_amount)} />}
             {p.writeoff_amount > 0 && (
               <Item label="Written off (accepted as full payment)" value={formatMoney(p.writeoff_amount)} />
             )}
@@ -124,7 +118,7 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete payment ${p.payment_number}?`}
-          message="The bills it was applied to will show as unpaid again, and any advance it used is given back to the supplier."
+          message="The bills it was applied to will show as unpaid again."
           confirmLabel="Delete payment"
           onConfirm={async () => {
             await deleteSupplierPayment(p.id);

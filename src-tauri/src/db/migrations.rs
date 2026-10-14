@@ -461,7 +461,30 @@ const MIGRATIONS: &[Migration] = &[
         name: "017_rent_reminders",
         sql: RENT_REMINDERS_SQL,
     },
+    Migration {
+        version: 18,
+        name: "018_reminders_count_as_sent",
+        sql: REMINDERS_COUNT_AS_SENT_SQL,
+    },
+    Migration {
+        version: 19,
+        name: "019_remove_supplier_advances",
+        sql: REMOVE_SUPPLIER_ADVANCES_SQL,
+    },
 ];
+
+/// Supplier payments no longer keep advances. A payment that kept its extra as an advance now counts
+/// it as a round-off (paid, nothing owed back), and the advance tables go. Bills are settled by their
+/// allocations, so no bill changes.
+pub const REMOVE_SUPPLIER_ADVANCES_SQL: &str = r#"
+    UPDATE supplier_payments SET excess_action = 'ROUNDOFF' WHERE excess_action = 'CREDIT';
+    DROP TABLE IF EXISTS supplier_credit_applications;
+    DROP TABLE IF EXISTS supplier_credits;
+"#;
+
+/// Opening WhatsApp with the reminder now counts as sending it, so reminders that were waiting
+/// for a confirmation count as sent on the day they were opened.
+pub const REMINDERS_COUNT_AS_SENT_SQL: &str = "UPDATE rent_reminders SET sent_on = opened_on WHERE sent_on IS NULL;";
 
 /// One row per reminder opened in WhatsApp. `sent_on` is filled only when the owner confirms the
 /// message was sent, because WhatsApp never tells the app. Dates the first rentals version kept in
@@ -1342,8 +1365,39 @@ mod tests {
         }
         let kind: String = conn.query_row("SELECT party_type FROM customers", [], |r| r.get(0)).unwrap();
         assert_eq!(kind, "CUSTOMER");
-        for table in ["supplier_bills", "supplier_bill_files", "supplier_payments", "supplier_payment_allocations", "supplier_credits", "supplier_credit_applications"] {
+        for table in ["supplier_bills", "supplier_bill_files", "supplier_payments", "supplier_payment_allocations"] {
             let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 0, "{}", table);
+        }
+    }
+
+    #[test]
+    fn migration_19_turns_supplier_advances_into_round_offs_and_drops_their_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, applied_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        for m in MIGRATIONS.iter().filter(|m| m.version <= 18) {
+            conn.execute_batch(m.sql).unwrap();
+            conn.execute("INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, 'x')", params![m.version, m.name]).unwrap();
+        }
+        conn.execute("INSERT INTO customers (name, party_type, created_at, updated_at) VALUES ('Steel Co', 'SUPPLIER', 'x', 'x')", []).unwrap();
+        conn.execute("INSERT INTO supplier_payments (payment_number, supplier_id, payment_date, amount_paid, excess_amount, excess_action, created_at, updated_at) VALUES ('SP/26-27/001', 1, '2026-10-02', 500, 500, 'CREDIT', 'x', 'x')", []).unwrap();
+        conn.execute("INSERT INTO supplier_credits (supplier_id, source_payment_id, original_amount, remaining_amount, created_at, updated_at) VALUES (1, 1, 500, 500, 'x', 'x')", []).unwrap();
+        drop(conn);
+
+        let conn = open(&path);
+        assert_eq!(latest_version(), 19);
+        let action: String = conn.query_row("SELECT excess_action FROM supplier_payments", [], |r| r.get(0)).unwrap();
+        assert_eq!(action, "ROUNDOFF");
+        for table in ["supplier_credits", "supplier_credit_applications"] {
+            let n: i64 = conn
+                .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1", params![table], |r| r.get(0))
+                .unwrap();
             assert_eq!(n, 0, "{}", table);
         }
     }
@@ -1452,11 +1506,11 @@ mod tests {
         drop(conn);
 
         let conn = open(&path);
-        assert_eq!(latest_version(), 17);
+        assert!(latest_version() >= 17);
         let (opened, sent): (String, Option<String>) = conn
             .query_row("SELECT opened_on, sent_on FROM rent_reminders", [], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap();
-        assert_eq!((opened.as_str(), sent), ("2026-10-03", None));
+        assert_eq!((opened.as_str(), sent.as_deref()), ("2026-10-03", Some("2026-10-03")));
         let logged: i64 = conn.query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'rent_reminders'", [], |r| r.get(0)).unwrap();
         assert!(logged >= 1);
     }

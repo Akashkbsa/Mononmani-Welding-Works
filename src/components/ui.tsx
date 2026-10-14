@@ -361,9 +361,9 @@ export function Card({
 }
 
 /** A row of key figures in one card, divided by hairlines. */
-export function StatStrip({ children, cols }: { children: React.ReactNode; cols: 3 | 4 }) {
+export function StatStrip({ children, cols }: { children: React.ReactNode; cols: 2 | 3 | 4 }) {
   return (
-    <Card className={`grid ${cols === 4 ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-200 overflow-hidden`}>
+    <Card className={`grid ${cols === 4 ? "grid-cols-4" : cols === 2 ? "grid-cols-2" : "grid-cols-3"} divide-x divide-slate-200 overflow-hidden`}>
       {children}
     </Card>
   );

@@ -463,6 +463,7 @@ html, body {
 }
 
 .items-table tbody td.col-desc {
+  white-space: pre-line; /* each line the owner typed prints on its own line */
   font-size: 15.4px;
   font-weight: 500;
 }

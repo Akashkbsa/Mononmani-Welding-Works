@@ -1,6 +1,6 @@
 use super::models::{
-    SupplierAllocationDetail, SupplierCredit, SupplierPayment, SupplierPaymentFilter, SupplierPaymentInput,
-    SupplierPaymentListItem, SupplierPaymentWithAllocations, SupplierPaymentsSummary, UnpaidBill,
+    SupplierAllocationDetail, SupplierPayment, SupplierPaymentFilter, SupplierPaymentInput, SupplierPaymentListItem,
+    SupplierPaymentWithAllocations, SupplierPaymentsSummary, UnpaidBill,
 };
 use crate::customers::models::PartyRole;
 use crate::customers::repository::CustomerRepository;
@@ -49,33 +49,23 @@ impl SupplierPaymentRepository {
         Self::get(conn, id)?.ok_or_else(|| "Saved payment could not be reloaded.".to_string())
     }
 
+    /// Deleting a payment reopens the bills it settled.
     pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
-        let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {}", e))?;
-        let exists: i64 = tx
+        let exists: i64 = conn
             .query_row("SELECT COUNT(*) FROM supplier_payments WHERE id = ?1", params![id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
         if exists == 0 {
             return Err("Payment not found.".to_string());
         }
-        let used = Self::advance_used(&tx, id)?;
-        if used > MONEY_EPS {
-            return Err(format!(
-                "{} of the advance from this payment has already been used by a later payment. Remove that payment first.",
-                rupees(used)
-            ));
-        }
-        Self::release_credit_applications(&tx, id)?;
-        tx.execute("DELETE FROM supplier_credits WHERE source_payment_id = ?1", params![id])
-            .map_err(|e| format!("Failed to remove advance: {}", e))?;
-        tx.execute("DELETE FROM supplier_payments WHERE id = ?1", params![id])
+        conn.execute("DELETE FROM supplier_payments WHERE id = ?1", params![id])
             .map_err(|e| format!("Failed to delete payment: {}", e))?;
-        tx.commit().map_err(|e| format!("Failed to delete payment: {}", e))
+        Ok(())
     }
 
-    /// Validates the input and writes the payment, its allocations, the advances it uses and the
-    /// advance it creates. Runs inside the caller's transaction, so any error undoes everything.
+    /// Validates the input and writes the payment and its allocations. Runs inside the caller's
+    /// transaction, so any error undoes everything.
     fn save(conn: &Connection, id: Option<i64>, input: SupplierPaymentInput) -> Result<i64, String> {
-        // When editing, undo this payment's previous effects first so the balances below are worked
+        // When editing, undo this payment's previous allocations first so the balances below are worked
         // out as if it had never been recorded. The supplier and the number never change.
         let (supplier_id, payment_number) = match id {
             Some(pid) => {
@@ -88,7 +78,6 @@ impl SupplierPaymentRepository {
                     .optional()
                     .map_err(|e| format!("Failed to load payment: {}", e))?
                     .ok_or_else(|| "Payment not found.".to_string())?;
-                Self::release_credit_applications(conn, pid)?;
                 conn.execute("DELETE FROM supplier_payment_allocations WHERE payment_id = ?1", params![pid])
                     .map_err(|e| format!("Failed to update allocations: {}", e))?;
                 (supplier, number)
@@ -130,13 +119,6 @@ impl SupplierPaymentRepository {
         }
         let total_settled = round2(amount_paid + writeoff_amount);
 
-        // How a leftover is kept: as an advance (the default) or counted as paid. No refund.
-        let chosen_action = match input.excess_action.as_deref().map(|s| s.trim().to_ascii_uppercase()).as_deref() {
-            None | Some("") | Some("NONE") | Some("CREDIT") => "CREDIT",
-            Some("ROUNDOFF") => "ROUNDOFF",
-            Some(_) => return Err("Choose how to keep the extra: advance or round-off.".to_string()),
-        };
-
         // Check every allocation against the bill's current balance.
         let mut seen = HashSet::new();
         let mut allocations = Vec::new();
@@ -164,9 +146,12 @@ impl SupplierPaymentRepository {
         }
         let total_allocated = round2(allocations.iter().map(|(_, a)| a).sum());
 
-        // Advances fill any gap between the allocations and the money paid.
-        let available_credit = Self::available_credit(conn, supplier_id, id.unwrap_or(-1))?;
-        let credit_allowed = round2(input.credit_to_apply.max(0.0).min(available_credit));
+        if total_settled <= 0.0 {
+            return Err("Enter the amount paid.".to_string());
+        }
+        if allocations.is_empty() {
+            return Err("Choose the bills this payment is for.".to_string());
+        }
         if writeoff_amount > MONEY_EPS && total_allocated + MONEY_EPS < total_settled {
             return Err(format!(
                 "{} written off is more than the shortfall. Only {} is short.",
@@ -174,27 +159,15 @@ impl SupplierPaymentRepository {
                 rupees((total_allocated - amount_paid).max(0.0))
             ));
         }
-        let credit_needed = round2((total_allocated - total_settled).max(0.0));
-        if credit_needed > credit_allowed + MONEY_EPS {
-            return Err(if credit_allowed > 0.0 {
-                format!(
-                    "Allocated {}, but only {} paid plus {} advance is available.",
-                    rupees(total_allocated),
-                    rupees(total_settled),
-                    rupees(credit_allowed)
-                )
-            } else {
-                format!("Allocated {} is more than the {} paid.", rupees(total_allocated), rupees(total_settled))
-            });
-        }
-        if total_settled <= 0.0 && credit_needed <= 0.0 {
-            return Err("Enter the amount paid.".to_string());
+        if total_allocated > total_settled + MONEY_EPS {
+            return Err(format!("Allocated {} is more than the {} paid.", rupees(total_allocated), rupees(total_settled)));
         }
 
-        // Less than half a paisa left over is rounding, not an extra.
+        // Money paid beyond the bills is a round-off: counted as paid, nothing owed back. Less than half
+        // a paisa left over is rounding, not an extra.
         let leftover = round2((total_settled - total_allocated).max(0.0));
         let excess_amount = if leftover > MONEY_EPS { leftover } else { 0.0 };
-        let excess_action = if excess_amount > 0.0 { chosen_action } else { "NONE" };
+        let excess_action = if excess_amount > 0.0 { "ROUNDOFF" } else { "NONE" };
 
         let now = Utc::now().to_rfc3339();
         let clean = |v: &Option<String>| v.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
@@ -208,7 +181,7 @@ impl SupplierPaymentRepository {
                         payment_number, supplier_id, payment_date, payment_method, reference_number, bank_name,
                         amount_paid, total_settled, credit_applied, excess_amount, excess_action, writeoff_amount,
                         remarks, created_at, updated_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0.0, ?9, ?10, ?11, ?12, ?13, ?13)
                     "#,
                     params![
                         payment_number,
@@ -219,7 +192,6 @@ impl SupplierPaymentRepository {
                         clean(&input.bank_name),
                         amount_paid,
                         total_settled,
-                        credit_needed,
                         excess_amount,
                         excess_action,
                         writeoff_amount,
@@ -235,9 +207,9 @@ impl SupplierPaymentRepository {
                     r#"
                     UPDATE supplier_payments SET
                         payment_date = ?1, payment_method = ?2, reference_number = ?3, bank_name = ?4,
-                        amount_paid = ?5, total_settled = ?6, credit_applied = ?7, excess_amount = ?8,
-                        excess_action = ?9, writeoff_amount = ?10, remarks = ?11, updated_at = ?12
-                    WHERE id = ?13
+                        amount_paid = ?5, total_settled = ?6, credit_applied = 0.0, excess_amount = ?7,
+                        excess_action = ?8, writeoff_amount = ?9, remarks = ?10, updated_at = ?11
+                    WHERE id = ?12
                     "#,
                     params![
                         payment_date,
@@ -246,7 +218,6 @@ impl SupplierPaymentRepository {
                         clean(&input.bank_name),
                         amount_paid,
                         total_settled,
-                        credit_needed,
                         excess_amount,
                         excess_action,
                         writeoff_amount,
@@ -267,11 +238,6 @@ impl SupplierPaymentRepository {
             )
             .map_err(|e| format!("Failed to save allocation: {}", e))?;
         }
-
-        if credit_needed > 0.0 {
-            Self::consume_credits(conn, supplier_id, payment_id, credit_needed, &now)?;
-        }
-        Self::sync_own_advance(conn, payment_id, supplier_id, &payment_number, excess_action, excess_amount, &now)?;
         Ok(payment_id)
     }
 
@@ -294,129 +260,13 @@ impl SupplierPaymentRepository {
         .ok_or_else(|| format!("Bill {} was not found.", bill_id))
     }
 
-    /// Advance the supplier holds, not counting the advance created by `exclude_payment_id`.
-    fn available_credit(conn: &Connection, supplier_id: i64, exclude_payment_id: i64) -> Result<f64, String> {
-        conn.query_row(
-            "SELECT COALESCE(SUM(remaining_amount), 0.0) FROM supplier_credits
-             WHERE supplier_id = ?1 AND COALESCE(source_payment_id, -1) != ?2",
-            params![supplier_id, exclude_payment_id],
-            |r| r.get::<_, f64>(0),
-        )
-        .map(round2)
-        .map_err(|e| e.to_string())
-    }
-
-    /// Use advances oldest first.
-    fn consume_credits(conn: &Connection, supplier_id: i64, payment_id: i64, amount: f64, now: &str) -> Result<(), String> {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, remaining_amount FROM supplier_credits
-                 WHERE supplier_id = ?1 AND remaining_amount > 0 AND COALESCE(source_payment_id, -1) != ?2
-                 ORDER BY created_at ASC, id ASC",
-            )
-            .map_err(|e| e.to_string())?;
-        let credits = stmt
-            .query_map(params![supplier_id, payment_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))
-            .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            .map_err(|e| e.to_string())?;
-
-        let mut left = amount;
-        for (credit_id, remaining) in credits {
-            if left <= MONEY_EPS {
-                break;
-            }
-            let take = round2(left.min(remaining));
-            conn.execute(
-                "UPDATE supplier_credits SET remaining_amount = ROUND(remaining_amount - ?1, 2), updated_at = ?2 WHERE id = ?3",
-                params![take, now, credit_id],
-            )
-            .map_err(|e| e.to_string())?;
-            conn.execute(
-                "INSERT INTO supplier_credit_applications (payment_id, credit_id, amount, created_at) VALUES (?1, ?2, ?3, ?4)",
-                params![payment_id, credit_id, take, now],
-            )
-            .map_err(|e| e.to_string())?;
-            left = round2(left - take);
-        }
-        if left > MONEY_EPS {
-            return Err("Not enough advance is available.".to_string());
-        }
-        Ok(())
-    }
-
-    /// Give back advances this payment had used.
-    fn release_credit_applications(conn: &Connection, payment_id: i64) -> Result<(), String> {
-        conn.execute(
-            "UPDATE supplier_credits SET remaining_amount = ROUND(remaining_amount +
-                (SELECT SUM(amount) FROM supplier_credit_applications ca WHERE ca.credit_id = supplier_credits.id AND ca.payment_id = ?1), 2)
-             WHERE id IN (SELECT credit_id FROM supplier_credit_applications WHERE payment_id = ?1)",
-            params![payment_id],
-        )
-        .map_err(|e| format!("Failed to restore advance: {}", e))?;
-        conn.execute("DELETE FROM supplier_credit_applications WHERE payment_id = ?1", params![payment_id])
-            .map_err(|e| format!("Failed to restore advance: {}", e))?;
-        Ok(())
-    }
-
-    /// How much of the advance created by this payment later payments have used.
-    fn advance_used(conn: &Connection, payment_id: i64) -> Result<f64, String> {
-        conn.query_row(
-            "SELECT COALESCE(SUM(original_amount - remaining_amount), 0.0) FROM supplier_credits WHERE source_payment_id = ?1",
-            params![payment_id],
-            |r| r.get::<_, f64>(0),
-        )
-        .map(round2)
-        .map_err(|e| e.to_string())
-    }
-
-    /// Keep the advance created by this payment in line with its leftover amount.
-    fn sync_own_advance(
-        conn: &Connection,
-        payment_id: i64,
-        supplier_id: i64,
-        payment_number: &str,
-        excess_action: &str,
-        excess_amount: f64,
-        now: &str,
-    ) -> Result<(), String> {
-        let used = Self::advance_used(conn, payment_id)?;
-        let keep = if excess_action == "CREDIT" { excess_amount } else { 0.0 };
-        if used > keep + MONEY_EPS {
-            return Err(format!(
-                "{} of this payment's advance has already been used by a later payment, so at least that much must stay as advance.",
-                rupees(used)
-            ));
-        }
-
-        let existing: Option<i64> = conn
-            .query_row("SELECT id FROM supplier_credits WHERE source_payment_id = ?1", params![payment_id], |r| r.get(0))
-            .optional()
-            .map_err(|e| e.to_string())?;
-
-        match (existing, keep > MONEY_EPS) {
-            (Some(credit_id), true) => conn.execute(
-                "UPDATE supplier_credits SET original_amount = ?1, remaining_amount = ROUND(?1 - ?2, 2), updated_at = ?3 WHERE id = ?4",
-                params![keep, used, now, credit_id],
-            ),
-            (Some(credit_id), false) => conn.execute("DELETE FROM supplier_credits WHERE id = ?1", params![credit_id]),
-            (None, true) => conn.execute(
-                "INSERT INTO supplier_credits (supplier_id, source_payment_id, original_amount, remaining_amount, notes, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?5)",
-                params![supplier_id, payment_id, keep, format!("Advance from {}", payment_number), now],
-            ),
-            (None, false) => Ok(0),
-        }
-        .map_err(|e| format!("Failed to update advance: {}", e))?;
-        Ok(())
-    }
-
     pub fn get(conn: &Connection, id: i64) -> Result<Option<SupplierPaymentWithAllocations>, String> {
         let payment = conn
             .query_row(
                 r#"
                 SELECT p.id, p.payment_number, p.supplier_id, c.name, p.payment_date, p.payment_method,
                        p.reference_number, p.bank_name, p.amount_paid, p.writeoff_amount, p.total_settled,
-                       p.credit_applied, p.excess_amount, p.excess_action, p.remarks, p.created_at, p.updated_at
+                       p.excess_amount, p.excess_action, p.remarks, p.created_at, p.updated_at
                 FROM supplier_payments p JOIN customers c ON c.id = p.supplier_id WHERE p.id = ?1
                 "#,
                 params![id],
@@ -433,20 +283,17 @@ impl SupplierPaymentRepository {
                         amount_paid: r.get(8)?,
                         writeoff_amount: r.get(9)?,
                         total_settled: r.get(10)?,
-                        credit_applied: r.get(11)?,
-                        excess_amount: r.get(12)?,
-                        excess_action: r.get(13)?,
-                        advance_used: 0.0,
-                        remarks: r.get(14)?,
-                        created_at: r.get(15)?,
-                        updated_at: r.get(16)?,
+                        excess_amount: r.get(11)?,
+                        excess_action: r.get(12)?,
+                        remarks: r.get(13)?,
+                        created_at: r.get(14)?,
+                        updated_at: r.get(15)?,
                     })
                 },
             )
             .optional()
             .map_err(|e| format!("Failed to load payment: {}", e))?;
-        let Some(mut payment) = payment else { return Ok(None) };
-        payment.advance_used = Self::advance_used(conn, id)?;
+        let Some(payment) = payment else { return Ok(None) };
 
         let mut stmt = conn
             .prepare(
@@ -477,7 +324,7 @@ impl SupplierPaymentRepository {
         let mut query = String::from(
             r#"
             SELECT p.id, p.payment_number, p.supplier_id, c.name, p.payment_date, p.payment_method, p.reference_number,
-                   p.amount_paid, p.writeoff_amount, p.total_settled, p.credit_applied, p.excess_amount, p.excess_action,
+                   p.amount_paid, p.writeoff_amount, p.total_settled, p.excess_amount, p.excess_action,
                    (SELECT GROUP_CONCAT(b.bill_number, ', ') FROM supplier_payment_allocations a
                     JOIN supplier_bills b ON b.id = a.bill_id WHERE a.payment_id = p.id)
             FROM supplier_payments p JOIN customers c ON c.id = p.supplier_id
@@ -518,7 +365,7 @@ impl SupplierPaymentRepository {
         let mut stmt = conn.prepare(&query).map_err(|e| format!("Failed to load payments: {}", e))?;
         let rows = stmt
             .query_map(rusqlite::params_from_iter(args.iter()), |r| {
-                let covered: Option<String> = r.get(13)?;
+                let covered: Option<String> = r.get(12)?;
                 Ok(SupplierPaymentListItem {
                     id: r.get(0)?,
                     payment_number: r.get(1)?,
@@ -530,9 +377,8 @@ impl SupplierPaymentRepository {
                     amount_paid: r.get(7)?,
                     writeoff_amount: r.get(8)?,
                     total_settled: r.get(9)?,
-                    credit_applied: r.get(10)?,
-                    excess_amount: r.get(11)?,
-                    excess_action: r.get(12)?,
+                    excess_amount: r.get(10)?,
+                    excess_action: r.get(11)?,
                     bills_covered: covered.map(|s| s.split(", ").map(str::to_string).collect()).unwrap_or_default(),
                 })
             })
@@ -590,45 +436,6 @@ impl SupplierPaymentRepository {
         Ok(list)
     }
 
-    /// Advances paid to the supplier that can still be used. When editing a payment, pass its id so the
-    /// advance it already used counts as available and its own advance is left out.
-    pub fn supplier_credits(
-        conn: &Connection,
-        supplier_id: i64,
-        exclude_payment_id: Option<i64>,
-    ) -> Result<Vec<SupplierCredit>, String> {
-        let exclude = exclude_payment_id.unwrap_or(-1);
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT c.id, c.supplier_id, c.source_payment_id, p.payment_number, c.original_amount,
-                       c.remaining_amount + COALESCE((SELECT SUM(amount) FROM supplier_credit_applications ca
-                                                      WHERE ca.credit_id = c.id AND ca.payment_id = ?2), 0.0),
-                       c.created_at
-                FROM supplier_credits c
-                LEFT JOIN supplier_payments p ON p.id = c.source_payment_id
-                WHERE c.supplier_id = ?1 AND COALESCE(c.source_payment_id, -1) != ?2
-                ORDER BY c.created_at ASC, c.id ASC
-                "#,
-            )
-            .map_err(|e| e.to_string())?;
-        let credits = stmt
-            .query_map(params![supplier_id, exclude], |r| {
-                Ok(SupplierCredit {
-                    id: r.get(0)?,
-                    supplier_id: r.get(1)?,
-                    source_payment_id: r.get(2)?,
-                    source_payment_number: r.get(3)?,
-                    original_amount: r.get(4)?,
-                    remaining_amount: round2(r.get(5)?),
-                    created_at: r.get(6)?,
-                })
-            })
-            .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            .map_err(|e| e.to_string())?;
-        Ok(credits.into_iter().filter(|c| c.remaining_amount > MONEY_EPS).collect())
-    }
-
     pub fn summary(conn: &Connection) -> Result<SupplierPaymentsSummary, String> {
         let month_start = today().with_day(1).unwrap_or_else(today).format("%Y-%m-%d").to_string();
         let (total_paid, paid_this_month): (f64, f64) = conn
@@ -639,14 +446,7 @@ impl SupplierPaymentRepository {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(|e| e.to_string())?;
-        let advances_held: f64 = conn
-            .query_row("SELECT COALESCE(SUM(remaining_amount), 0.0) FROM supplier_credits", [], |r| r.get(0))
-            .map_err(|e| e.to_string())?;
-        Ok(SupplierPaymentsSummary {
-            total_paid: round2(total_paid),
-            paid_this_month: round2(paid_this_month),
-            advances_held: round2(advances_held),
-        })
+        Ok(SupplierPaymentsSummary { total_paid: round2(total_paid), paid_this_month: round2(paid_this_month) })
     }
 }
 
@@ -660,7 +460,7 @@ mod tests {
     use crate::supplier_bills::repository::SupplierBillRepository;
     use crate::supplier_payments::models::*;
     use crate::util::financial_year_label;
-    use rusqlite::{params, Connection};
+    use rusqlite::Connection;
 
     fn setup() -> (tempfile::TempDir, Connection) {
         let dir = tempfile::tempdir().unwrap();
@@ -695,19 +495,7 @@ mod tests {
     }
 
     fn bill(conn: &Connection, supplier: i64, number: &str, total: f64) -> i64 {
-        SupplierBillRepository::create(
-            conn,
-            SupplierBillInput {
-                supplier_id: supplier,
-                bill_number: number.to_string(),
-                bill_date: "2026-04-10".to_string(),
-                total_amount: total,
-                notes: None,
-            },
-        )
-        .unwrap()
-        .bill
-        .id
+        bill_on(conn, supplier, number, "2026-04-10", total)
     }
 
     fn bill_on(conn: &Connection, supplier: i64, number: &str, date: &str, total: f64) -> i64 {
@@ -726,7 +514,7 @@ mod tests {
         .id
     }
 
-    fn pay(supplier: i64, paid: f64, allocs: &[(i64, f64)], credit: f64, action: &str) -> SupplierPaymentInput {
+    fn pay(supplier: i64, paid: f64, allocs: &[(i64, f64)]) -> SupplierPaymentInput {
         SupplierPaymentInput {
             payment_number: None,
             supplier_id: supplier,
@@ -735,19 +523,17 @@ mod tests {
             reference_number: None,
             bank_name: None,
             amount_paid: paid,
-            credit_to_apply: credit,
             remarks: None,
             allocations: allocs
                 .iter()
                 .map(|(bill_id, amount)| SupplierAllocationInput { bill_id: *bill_id, allocated_amount: *amount })
                 .collect(),
-            excess_action: Some(action.to_string()),
             writeoff_amount: 0.0,
         }
     }
 
     fn pay_off(supplier: i64, paid: f64, allocs: &[(i64, f64)], writeoff: f64) -> SupplierPaymentInput {
-        let mut input = pay(supplier, paid, allocs, 0.0, "NONE");
+        let mut input = pay(supplier, paid, allocs);
         input.writeoff_amount = writeoff;
         input
     }
@@ -756,17 +542,8 @@ mod tests {
         SupplierBillRepository::get(conn, bill).unwrap().unwrap().status
     }
 
-    fn advance(conn: &Connection, supplier: i64) -> f64 {
-        conn.query_row(
-            "SELECT COALESCE(SUM(remaining_amount), 0.0) FROM supplier_credits WHERE supplier_id = ?1",
-            params![supplier],
-            |r| r.get(0),
-        )
-        .unwrap()
-    }
-
     #[test]
-    fn the_owners_three_cases_on_an_11550_bill() {
+    fn the_owners_cases_on_an_11550_bill() {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
 
@@ -775,25 +552,12 @@ mod tests {
         let p = SupplierPaymentRepository::create(&conn, pay_off(s, 11500.0, &[(a, 11550.0)], 50.0)).unwrap().payment;
         assert_eq!((p.total_settled, p.writeoff_amount, p.excess_amount, p.excess_action.as_str()), (11550.0, 50.0, 0.0, "NONE"));
         assert_eq!(status(&conn, a), "PAID");
-        assert_eq!(advance(&conn, s), 0.0);
 
-        // Pay 11,600 and count it as paid: the extra 50 is a round-off.
+        // Pay 11,600: the extra 50 is a round-off, counted as paid, nothing kept as an advance.
         let b = bill(&conn, s, "B-2", 11550.0);
-        let p = SupplierPaymentRepository::create(&conn, pay(s, 11600.0, &[(b, 11550.0)], 0.0, "ROUNDOFF")).unwrap().payment;
+        let p = SupplierPaymentRepository::create(&conn, pay(s, 11600.0, &[(b, 11550.0)])).unwrap().payment;
         assert_eq!((p.excess_amount, p.excess_action.as_str()), (50.0, "ROUNDOFF"));
         assert_eq!(status(&conn, b), "PAID");
-        assert_eq!(advance(&conn, s), 0.0, "a round-off is not an advance");
-
-        // Pay 11,600 and keep the extra as an advance, then use it on the next bill.
-        let c = bill(&conn, s, "B-3", 11550.0);
-        SupplierPaymentRepository::create(&conn, pay(s, 11600.0, &[(c, 11550.0)], 0.0, "CREDIT")).unwrap();
-        assert_eq!(status(&conn, c), "PAID");
-        assert_eq!(advance(&conn, s), 50.0);
-        let d = bill(&conn, s, "B-4", 1000.0);
-        let p = SupplierPaymentRepository::create(&conn, pay(s, 950.0, &[(d, 1000.0)], 50.0, "NONE")).unwrap().payment;
-        assert_eq!(p.credit_applied, 50.0);
-        assert_eq!(status(&conn, d), "PAID");
-        assert_eq!(advance(&conn, s), 0.0);
     }
 
     #[test]
@@ -804,7 +568,7 @@ mod tests {
         SupplierPaymentRepository::create(&conn, pay_off(s, 40000.0, &[(a, 100000.0)], 60000.0)).unwrap();
         assert_eq!(status(&conn, a), "PAID");
         let b = bill(&conn, s, "B-2", 100000.0);
-        let p = SupplierPaymentRepository::create(&conn, pay(s, 150000.0, &[(b, 100000.0)], 0.0, "ROUNDOFF")).unwrap().payment;
+        let p = SupplierPaymentRepository::create(&conn, pay(s, 150000.0, &[(b, 100000.0)])).unwrap().payment;
         assert_eq!(p.excess_amount, 50000.0);
         assert_eq!(status(&conn, b), "PAID");
     }
@@ -823,12 +587,12 @@ mod tests {
     }
 
     #[test]
-    fn a_shortfall_without_write_off_or_advance_is_refused() {
+    fn a_shortfall_without_a_write_off_is_refused() {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
         let a = bill(&conn, s, "B-1", 1000.0);
         assert_eq!(
-            SupplierPaymentRepository::create(&conn, pay(s, 900.0, &[(a, 1000.0)], 0.0, "NONE")).unwrap_err(),
+            SupplierPaymentRepository::create(&conn, pay(s, 900.0, &[(a, 1000.0)])).unwrap_err(),
             "Allocated ₹1,000.00 is more than the ₹900.00 paid."
         );
     }
@@ -842,26 +606,44 @@ mod tests {
         let theirs = bill(&conn, other, "T/9", 500.0);
 
         assert_eq!(
-            SupplierPaymentRepository::create(&conn, pay(s, 1500.0, &[(a, 1500.0)], 0.0, "CREDIT")).unwrap_err(),
+            SupplierPaymentRepository::create(&conn, pay(s, 1500.0, &[(a, 1500.0)])).unwrap_err(),
             "₹1,500.00 is more than the ₹1,000.00 still due on bill T/1."
         );
         assert_eq!(
-            SupplierPaymentRepository::create(&conn, pay(s, 500.0, &[(theirs, 500.0)], 0.0, "CREDIT")).unwrap_err(),
+            SupplierPaymentRepository::create(&conn, pay(s, 500.0, &[(theirs, 500.0)])).unwrap_err(),
             "Bill T/9 belongs to a different supplier."
         );
         assert_eq!(
-            SupplierPaymentRepository::create(&conn, pay(s, 200.0, &[(a, 100.0), (a, 100.0)], 0.0, "CREDIT")).unwrap_err(),
+            SupplierPaymentRepository::create(&conn, pay(s, 200.0, &[(a, 100.0), (a, 100.0)])).unwrap_err(),
             "The same bill is listed twice."
         );
         let customer = company(&conn, "Buyer Co", "CUSTOMER");
-        let err = SupplierPaymentRepository::create(&conn, pay(customer, 100.0, &[], 0.0, "CREDIT")).unwrap_err();
+        let err = SupplierPaymentRepository::create(&conn, pay(customer, 100.0, &[])).unwrap_err();
         assert!(err.contains("customer only"), "{}", err);
-        assert_eq!(
-            SupplierPaymentRepository::create(&conn, pay(s, 0.0, &[], 0.0, "CREDIT")).unwrap_err(),
-            "Enter the amount paid."
-        );
-        assert_eq!(SupplierPaymentRepository::create(&conn, pay(9999, 10.0, &[], 0.0, "CREDIT")).unwrap_err(), "Select a supplier.");
+        assert_eq!(SupplierPaymentRepository::create(&conn, pay(s, 0.0, &[(a, 100.0)])).unwrap_err(), "Enter the amount paid.");
+        assert_eq!(SupplierPaymentRepository::create(&conn, pay(9999, 10.0, &[])).unwrap_err(), "Select a supplier.");
         assert_eq!(status(&conn, a), "NOT_PAID");
+    }
+
+    #[test]
+    fn a_payment_must_be_for_a_bill() {
+        let (_d, conn) = setup();
+        let s = supplier(&conn, "Steel Co");
+        assert_eq!(SupplierPaymentRepository::create(&conn, pay(s, 5000.0, &[])).unwrap_err(), "Choose the bills this payment is for.");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM supplier_payments"), 0);
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn the_advance_tables_are_gone() {
+        let (_d, conn) = setup();
+        for table in ["supplier_credits", "supplier_credit_applications"] {
+            let n = count(&conn, &format!("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{}'", table));
+            assert_eq!(n, 0, "{}", table);
+        }
     }
 
     #[test]
@@ -870,41 +652,9 @@ mod tests {
         let s = supplier(&conn, "Steel Co");
         let a = bill(&conn, s, "B-1", 600.0);
         let b = bill(&conn, s, "B-2", 400.0);
-        let saved = SupplierPaymentRepository::create(&conn, pay(s, 1000.0, &[(a, 600.0), (b, 400.0)], 0.0, "CREDIT")).unwrap();
+        let saved = SupplierPaymentRepository::create(&conn, pay(s, 1000.0, &[(a, 600.0), (b, 400.0)])).unwrap();
         assert_eq!(saved.allocations.len(), 2);
         assert_eq!((status(&conn, a), status(&conn, b)), ("PAID".to_string(), "PAID".to_string()));
-        assert_eq!(advance(&conn, s), 0.0);
-    }
-
-    #[test]
-    fn a_payment_with_no_bills_becomes_an_advance() {
-        let (_d, conn) = setup();
-        let s = supplier(&conn, "Steel Co");
-        let p = SupplierPaymentRepository::create(&conn, pay(s, 5000.0, &[], 0.0, "CREDIT")).unwrap().payment;
-        assert_eq!((p.excess_amount, p.excess_action.as_str()), (5000.0, "CREDIT"));
-        assert_eq!(advance(&conn, s), 5000.0);
-    }
-
-    #[test]
-    fn advances_are_used_oldest_first() {
-        let (_d, conn) = setup();
-        let s = supplier(&conn, "Steel Co");
-        SupplierPaymentRepository::create(&conn, pay(s, 300.0, &[], 0.0, "CREDIT")).unwrap();
-        SupplierPaymentRepository::create(&conn, pay(s, 500.0, &[], 0.0, "CREDIT")).unwrap();
-        let a = bill(&conn, s, "B-1", 400.0);
-        let p = SupplierPaymentRepository::create(&conn, pay(s, 0.0, &[(a, 400.0)], 1000.0, "NONE")).unwrap().payment;
-        assert_eq!(p.credit_applied, 400.0);
-        let remaining: Vec<f64> = conn
-            .prepare("SELECT remaining_amount FROM supplier_credits ORDER BY created_at ASC, id ASC")
-            .unwrap()
-            .query_map([], |r| r.get(0))
-            .unwrap()
-            .map(|r| r.unwrap())
-            .collect();
-        assert_eq!(remaining, vec![0.0, 400.0]);
-        let applications: i64 = conn.query_row("SELECT COUNT(*) FROM supplier_credit_applications", [], |r| r.get(0)).unwrap();
-        assert_eq!(applications, 2);
-        assert_eq!(status(&conn, a), "PAID");
     }
 
     #[test]
@@ -912,12 +662,13 @@ mod tests {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
         let fy = financial_year_label();
-        let first = SupplierPaymentRepository::create(&conn, pay(s, 10.0, &[], 0.0, "CREDIT")).unwrap().payment.payment_number;
+        let a = bill(&conn, s, "B-1", 1000.0);
+        let first = SupplierPaymentRepository::create(&conn, pay(s, 10.0, &[(a, 10.0)])).unwrap().payment.payment_number;
         assert_eq!(first, format!("SP/{}/001", fy));
-        let second = SupplierPaymentRepository::create(&conn, pay(s, 10.0, &[], 0.0, "CREDIT")).unwrap().payment.payment_number;
+        let second = SupplierPaymentRepository::create(&conn, pay(s, 10.0, &[(a, 10.0)])).unwrap().payment.payment_number;
         assert_eq!(second, format!("SP/{}/002", fy));
 
-        let mut dup = pay(s, 10.0, &[], 0.0, "CREDIT");
+        let mut dup = pay(s, 10.0, &[(a, 10.0)]);
         dup.payment_number = Some(first.to_lowercase());
         assert_eq!(
             SupplierPaymentRepository::create(&conn, dup).unwrap_err(),
@@ -925,47 +676,27 @@ mod tests {
         );
 
         // A number typed in another series is kept but does not move the running number.
-        let mut other = pay(s, 10.0, &[], 0.0, "CREDIT");
+        let mut other = pay(s, 10.0, &[(a, 10.0)]);
         other.payment_number = Some(format!("PAY/{}/005", fy));
         SupplierPaymentRepository::create(&conn, other).unwrap();
         assert_eq!(SupplierPaymentRepository::next_payment_number(&conn).unwrap(), format!("SP/{}/003", fy));
     }
 
     #[test]
-    fn pennies_never_leave_a_bill_part_paid_or_invent_an_advance() {
+    fn pennies_never_leave_a_bill_part_paid() {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
         let a = bill(&conn, s, "B-1", 1000.10);
         for part in [333.37, 333.37, 333.36] {
-            SupplierPaymentRepository::create(&conn, pay(s, part, &[(a, part)], 0.0, "CREDIT")).unwrap();
+            SupplierPaymentRepository::create(&conn, pay(s, part, &[(a, part)])).unwrap();
         }
         assert_eq!(status(&conn, a), "PAID");
-        assert_eq!(advance(&conn, s), 0.0);
 
         let tiny = bill(&conn, s, "B-2", 0.30);
         let floaty = 0.1 + 0.2;
-        let p = SupplierPaymentRepository::create(&conn, pay(s, floaty, &[(tiny, 0.30)], 0.0, "CREDIT")).unwrap().payment;
-        assert_eq!(p.excess_amount, 0.0);
+        let p = SupplierPaymentRepository::create(&conn, pay(s, floaty, &[(tiny, 0.30)])).unwrap().payment;
+        assert_eq!((p.excess_amount, p.excess_action.as_str()), (0.0, "NONE"), "a rounding crumb is not an extra");
         assert_eq!(status(&conn, tiny), "PAID");
-        assert_eq!(advance(&conn, s), 0.0);
-        let credits: i64 = conn.query_row("SELECT COUNT(*) FROM supplier_credits", [], |r| r.get(0)).unwrap();
-        assert_eq!(credits, 0, "no advance row for a rounding crumb");
-    }
-
-    #[test]
-    fn the_extra_defaults_to_advance_and_refund_is_refused() {
-        let (_d, conn) = setup();
-        let s = supplier(&conn, "Steel Co");
-        let a = bill(&conn, s, "B-1", 100.0);
-        let mut none = pay(s, 150.0, &[(a, 100.0)], 0.0, "CREDIT");
-        none.excess_action = None;
-        assert_eq!(SupplierPaymentRepository::create(&conn, none).unwrap().payment.excess_action, "CREDIT");
-        let b = bill(&conn, s, "B-2", 100.0);
-        assert_eq!(
-            SupplierPaymentRepository::create(&conn, pay(s, 150.0, &[(b, 100.0)], 0.0, "REFUND")).unwrap_err(),
-            "Choose how to keep the extra: advance or round-off."
-        );
-        assert_eq!(status(&conn, b), "NOT_PAID");
     }
 
     #[test]
@@ -973,13 +704,13 @@ mod tests {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
         let a = bill(&conn, s, "B-1", 1000.0);
-        let id = SupplierPaymentRepository::create(&conn, pay(s, 1000.0, &[(a, 1000.0)], 0.0, "CREDIT")).unwrap().payment.id;
+        let id = SupplierPaymentRepository::create(&conn, pay(s, 1000.0, &[(a, 1000.0)])).unwrap().payment.id;
         assert_eq!(status(&conn, a), "PAID");
         assert!(SupplierPaymentRepository::unpaid_bills_for_supplier(&conn, s, None).unwrap().is_empty());
         let own = SupplierPaymentRepository::unpaid_bills_for_supplier(&conn, s, Some(id)).unwrap();
         assert_eq!((own.len(), own[0].total_settled, own[0].outstanding_amount), (1, 0.0, 1000.0), "its own bill stays available");
 
-        let edited = SupplierPaymentRepository::update(&conn, id, pay(s, 400.0, &[(a, 400.0)], 0.0, "CREDIT")).unwrap();
+        let edited = SupplierPaymentRepository::update(&conn, id, pay(s, 400.0, &[(a, 400.0)])).unwrap();
         assert_eq!(edited.allocations.len(), 1);
         let detail = SupplierBillRepository::get(&conn, a).unwrap().unwrap();
         assert_eq!((detail.status.as_str(), detail.outstanding_amount), ("PARTIAL", 600.0));
@@ -990,59 +721,24 @@ mod tests {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
         let other = supplier(&conn, "Other Metals");
-        let created = SupplierPaymentRepository::create(&conn, pay(s, 100.0, &[], 0.0, "CREDIT")).unwrap().payment;
-        let mut edit = pay(other, 150.0, &[], 0.0, "CREDIT");
+        let a = bill(&conn, s, "B-1", 1000.0);
+        let created = SupplierPaymentRepository::create(&conn, pay(s, 100.0, &[(a, 100.0)])).unwrap().payment;
+        let mut edit = pay(other, 150.0, &[(a, 150.0)]);
         edit.payment_number = Some("SP/99-00/099".to_string());
         let edited = SupplierPaymentRepository::update(&conn, created.id, edit).unwrap().payment;
         assert_eq!((edited.supplier_id, edited.payment_number.as_str()), (s, created.payment_number.as_str()));
         assert_eq!(edited.amount_paid, 150.0);
-        assert_eq!(advance(&conn, s), 150.0);
-        assert_eq!(advance(&conn, other), 0.0);
     }
 
     #[test]
-    fn deleting_reopens_bills_and_gives_back_the_advance_used() {
+    fn deleting_reopens_the_bills() {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
         let a = bill(&conn, s, "B-1", 1000.0);
-        let first = SupplierPaymentRepository::create(&conn, pay(s, 1050.0, &[(a, 1000.0)], 0.0, "CREDIT")).unwrap().payment.id;
-        assert_eq!(advance(&conn, s), 50.0);
-        let b = bill(&conn, s, "B-2", 100.0);
-        let second = SupplierPaymentRepository::create(&conn, pay(s, 50.0, &[(b, 100.0)], 50.0, "NONE")).unwrap().payment.id;
-        assert_eq!((status(&conn, b), advance(&conn, s)), ("PAID".to_string(), 0.0));
-
-        SupplierPaymentRepository::delete(&conn, second).unwrap();
-        assert_eq!(status(&conn, b), "NOT_PAID");
-        assert_eq!(advance(&conn, s), 50.0, "the advance it used is given back");
-
-        SupplierPaymentRepository::delete(&conn, first).unwrap();
+        let id = SupplierPaymentRepository::create(&conn, pay(s, 1000.0, &[(a, 1000.0)])).unwrap().payment.id;
+        assert_eq!(status(&conn, a), "PAID");
+        SupplierPaymentRepository::delete(&conn, id).unwrap();
         assert_eq!(status(&conn, a), "NOT_PAID");
-        assert_eq!(advance(&conn, s), 0.0, "its own advance goes with it");
-    }
-
-    #[test]
-    fn a_used_advance_blocks_delete_and_cannot_shrink() {
-        let (_d, conn) = setup();
-        let s = supplier(&conn, "Steel Co");
-        let first = SupplierPaymentRepository::create(&conn, pay(s, 500.0, &[], 0.0, "CREDIT")).unwrap().payment.id;
-        let a = bill(&conn, s, "B-1", 300.0);
-        let second = SupplierPaymentRepository::create(&conn, pay(s, 0.0, &[(a, 300.0)], 1000.0, "NONE")).unwrap().payment.id;
-        assert_eq!(advance(&conn, s), 200.0);
-
-        assert_eq!(
-            SupplierPaymentRepository::delete(&conn, first).unwrap_err(),
-            "₹300.00 of the advance from this payment has already been used by a later payment. Remove that payment first."
-        );
-        let err = SupplierPaymentRepository::update(&conn, first, pay(s, 200.0, &[], 0.0, "CREDIT")).unwrap_err();
-        assert!(err.contains("already been used by a later payment, so at least that much must stay as advance"), "{}", err);
-        assert_eq!(advance(&conn, s), 200.0, "a refused edit changes nothing");
-
-        SupplierPaymentRepository::update(&conn, first, pay(s, 300.0, &[], 0.0, "CREDIT")).unwrap();
-        assert_eq!(advance(&conn, s), 0.0);
-        SupplierPaymentRepository::delete(&conn, second).unwrap();
-        assert_eq!(advance(&conn, s), 300.0);
-        SupplierPaymentRepository::delete(&conn, first).unwrap();
-        assert_eq!(advance(&conn, s), 0.0);
     }
 
     #[test]
@@ -1051,20 +747,20 @@ mod tests {
         let a = supplier(&conn, "Sri Ganesh Steel");
         let b = supplier(&conn, "Other Metals");
         let bill_a = bill(&conn, a, "BILL-77", 500.0);
-        let mut one = pay(a, 500.0, &[(bill_a, 500.0)], 0.0, "CREDIT");
+        let bill_b = bill(&conn, b, "BILL-88", 900.0);
+        let mut one = pay(a, 500.0, &[(bill_a, 500.0)]);
         one.payment_method = Some("Cheque".to_string());
         one.reference_number = Some("UTR123".to_string());
-        one.payment_date = "2026-05-01".to_string();
         let first = SupplierPaymentRepository::create(&conn, one).unwrap().payment.id;
-        let mut two = pay(b, 200.0, &[], 0.0, "CREDIT");
+        let mut two = pay(b, 200.0, &[(bill_b, 200.0)]);
         two.payment_date = "2026-06-15".to_string();
-        two.remarks = Some("advance for the next order".to_string());
+        two.remarks = Some("part for the next order".to_string());
         SupplierPaymentRepository::create(&conn, two).unwrap();
 
         let all = SupplierPaymentRepository::list(&conn, SupplierPaymentFilter::default()).unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].supplier_name, "Other Metals", "newest first");
-        assert!(all[0].bills_covered.is_empty(), "an advance covers no bill");
+        assert_eq!(all[0].bills_covered, vec!["BILL-88".to_string()]);
         assert_eq!(all[1].bills_covered, vec!["BILL-77".to_string()]);
 
         let q = |t: &str| SupplierPaymentFilter { query: Some(t.to_string()), ..Default::default() };
@@ -1085,48 +781,36 @@ mod tests {
     fn unpaid_bills_are_oldest_first_and_only_the_open_ones() {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
-        let newer = bill_on(&conn, s, "B-NEW", "2026-05-01", 300.0);
+        bill_on(&conn, s, "B-NEW", "2026-05-01", 300.0);
         let older = bill_on(&conn, s, "B-OLD", "2026-03-01", 500.0);
         let done = bill_on(&conn, s, "B-DONE", "2026-04-01", 100.0);
-        SupplierPaymentRepository::create(&conn, pay(s, 100.0, &[(done, 100.0)], 0.0, "CREDIT")).unwrap();
-        SupplierPaymentRepository::create(&conn, pay(s, 200.0, &[(older, 200.0)], 0.0, "CREDIT")).unwrap();
+        SupplierPaymentRepository::create(&conn, pay(s, 100.0, &[(done, 100.0)])).unwrap();
+        SupplierPaymentRepository::create(&conn, pay(s, 200.0, &[(older, 200.0)])).unwrap();
         let open = SupplierPaymentRepository::unpaid_bills_for_supplier(&conn, s, None).unwrap();
         let numbers: Vec<&str> = open.iter().map(|b| b.bill_number.as_str()).collect();
         assert_eq!(numbers, vec!["B-OLD", "B-NEW"]);
         assert_eq!((open[0].total_settled, open[0].outstanding_amount), (200.0, 300.0));
-        let _ = newer;
     }
 
     #[test]
-    fn credits_and_summary_add_up() {
+    fn the_summary_adds_up() {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
-        let first = SupplierPaymentRepository::create(&conn, pay(s, 500.0, &[], 0.0, "CREDIT")).unwrap().payment;
-        let a = bill(&conn, s, "B-1", 300.0);
-        let second = SupplierPaymentRepository::create(&conn, pay(s, 0.0, &[(a, 300.0)], 1000.0, "NONE")).unwrap().payment;
-
-        let credits = SupplierPaymentRepository::supplier_credits(&conn, s, None).unwrap();
-        assert_eq!((credits.len(), credits[0].remaining_amount), (1, 200.0));
-        assert_eq!(credits[0].source_payment_number.as_deref(), Some(first.payment_number.as_str()));
-        // Editing the second payment gets back what it used; editing the first leaves its own advance out.
-        assert_eq!(SupplierPaymentRepository::supplier_credits(&conn, s, Some(second.id)).unwrap()[0].remaining_amount, 500.0);
-        assert!(SupplierPaymentRepository::supplier_credits(&conn, s, Some(first.id)).unwrap().is_empty());
-
-        let today = crate::util::today().format("%Y-%m-%d").to_string();
-        let open = bill(&conn, s, "B-2", 1000.0);
-        let mut now = pay(s, 70.0, &[(open, 70.0)], 0.0, "CREDIT");
-        now.payment_date = today;
+        let a = bill(&conn, s, "B-1", 1000.0);
+        SupplierPaymentRepository::create(&conn, pay(s, 500.0, &[(a, 500.0)])).unwrap();
+        let mut now = pay(s, 70.0, &[(a, 70.0)]);
+        now.payment_date = crate::util::today().format("%Y-%m-%d").to_string();
         SupplierPaymentRepository::create(&conn, now).unwrap();
         let sum = SupplierPaymentRepository::summary(&conn).unwrap();
-        assert_eq!((sum.total_paid, sum.paid_this_month, sum.advances_held), (570.0, 70.0, 200.0));
+        assert_eq!((sum.total_paid, sum.paid_this_month), (570.0, 70.0));
     }
 
     #[test]
     fn a_missing_payment_gets_a_plain_message() {
         let (_d, conn) = setup();
         let s = supplier(&conn, "Steel Co");
-        assert_eq!(SupplierPaymentRepository::update(&conn, 9999, pay(s, 10.0, &[], 0.0, "CREDIT")).unwrap_err(), "Payment not found.");
+        let a = bill(&conn, s, "B-1", 100.0);
+        assert_eq!(SupplierPaymentRepository::update(&conn, 9999, pay(s, 10.0, &[(a, 10.0)])).unwrap_err(), "Payment not found.");
         assert_eq!(SupplierPaymentRepository::delete(&conn, 9999).unwrap_err(), "Payment not found.");
-        assert!(SupplierPaymentRepository::get(&conn, 9999).unwrap().is_none());
     }
 }

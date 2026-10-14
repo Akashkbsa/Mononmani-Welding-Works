@@ -60,7 +60,6 @@ import {
   SupplierBillsSummary,
 } from "../types/supplierBill";
 import {
-  SupplierCredit,
   SupplierPaymentFilter,
   SupplierPaymentInput,
   SupplierPaymentListItem,
@@ -228,9 +227,6 @@ export const getNextSupplierPaymentNumber = () => call<string>("get_next_supplie
 /** The supplier's bills a payment can be applied to. When editing, pass the payment's id. */
 export const getUnpaidBillsForSupplier = (supplierId: number, excludePaymentId?: number) =>
   call<UnpaidBill[]>("get_unpaid_bills_for_supplier", { supplierId, excludePaymentId: excludePaymentId ?? null });
-/** Advances paid to the supplier that can still be used. When editing, pass the payment's id. */
-export const getSupplierCredits = (supplierId: number, excludePaymentId?: number) =>
-  call<SupplierCredit[]>("get_supplier_credits", { supplierId, excludePaymentId: excludePaymentId ?? null });
 export const getSupplierPaymentsSummary = () => call<SupplierPaymentsSummary>("get_supplier_payments_summary");
 
 // Rentals
@@ -262,9 +258,6 @@ export const getRentReminder = (tenantId: number, month: string) =>
 export const openRentReminder = (tenantId: number, month: string) =>
   call<RentReminder>("open_rent_reminder", { tenantId, month });
 
-/** The owner confirms the reminder they opened was sent in WhatsApp. */
-export const confirmRentReminderSent = (tenantId: number, month: string) =>
-  call<void>("confirm_rent_reminder_sent", { tenantId, month });
 export const getRentReminderHistory = (tenantId: number, month: string) =>
   call<ReminderEntry[]>("get_rent_reminder_history", { tenantId, month });
 

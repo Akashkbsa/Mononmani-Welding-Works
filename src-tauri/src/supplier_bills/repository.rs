@@ -266,7 +266,7 @@ impl SupplierBillRepository {
         })
     }
 
-    /// What is still owed across all bills, how many bills are still open, and the advances held.
+    /// What is still owed across all bills, and how many bills are still open.
     pub fn summary(conn: &Connection) -> Result<SupplierBillsSummary, String> {
         let mut stmt = conn
             .prepare(&format!("SELECT b.total_amount, {} FROM supplier_bills b", SETTLED_SQL))
@@ -285,14 +285,7 @@ impl SupplierBillRepository {
                 open_bills_count += 1;
             }
         }
-        let advances: f64 = conn
-            .query_row("SELECT COALESCE(SUM(remaining_amount), 0.0) FROM supplier_credits", [], |r| r.get(0))
-            .map_err(|e| format!("Failed to total the advances: {}", e))?;
-        Ok(SupplierBillsSummary {
-            total_outstanding: round2(total_outstanding),
-            open_bills_count,
-            advances_held: round2(advances),
-        })
+        Ok(SupplierBillsSummary { total_outstanding: round2(total_outstanding), open_bills_count })
     }
 
     pub fn add_file(conn: &Connection, bill_id: i64, file_name: &str, bytes: &[u8]) -> Result<SupplierBillFileInfo, String> {
@@ -613,12 +606,7 @@ mod tests {
         let p = payment_row(&conn, s, "SP/26-27/001");
         allocate(&conn, p, part, 400.0);
         allocate(&conn, p, paid, 300.0);
-        conn.execute(
-            "INSERT INTO supplier_credits (supplier_id, original_amount, remaining_amount, created_at, updated_at) VALUES (?1, 30, 25, 'x', 'x')",
-            params![s],
-        )
-        .unwrap();
         let sum = SupplierBillRepository::summary(&conn).unwrap();
-        assert_eq!((sum.total_outstanding, sum.open_bills_count, sum.advances_held), (1100.0, 2, 25.0));
+        assert_eq!((sum.total_outstanding, sum.open_bills_count), (1100.0, 2));
     }
 }

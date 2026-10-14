@@ -406,9 +406,8 @@ impl RentalRepository {
         let mut stmt = conn
             .prepare(&format!(
                 "SELECT t.id, t.name, p.name, t.whatsapp_number, t.monthly_rent, m.paid_on, m.amount, m.note,
-                        (SELECT COUNT(*) FROM rent_reminders q WHERE q.tenant_id = t.id AND q.month = :month AND q.sent_on IS NOT NULL),
-                        (SELECT MAX(q.sent_on) FROM rent_reminders q WHERE q.tenant_id = t.id AND q.month = :month),
-                        (SELECT MAX(q.opened_on) FROM rent_reminders q WHERE q.tenant_id = t.id AND q.month = :month AND q.sent_on IS NULL)
+                        (SELECT COUNT(*) FROM rent_reminders q WHERE q.tenant_id = t.id AND q.month = :month),
+                        (SELECT MAX(q.sent_on) FROM rent_reminders q WHERE q.tenant_id = t.id AND q.month = :month)
                  FROM rental_tenants t
                  JOIN rental_places p ON p.id = t.place_id
                  LEFT JOIN rent_months m ON m.tenant_id = t.id AND m.month = :month
@@ -435,7 +434,6 @@ impl RentalRepository {
                     note: r.get(7)?,
                     reminders_sent: r.get(8)?,
                     last_sent_on: r.get(9)?,
-                    opened_unconfirmed_on: r.get(10)?,
                 })
             })
             .map_err(|e| format!("Failed to load the month: {}", e))?
@@ -514,54 +512,28 @@ impl RentalRepository {
 
     fn confirmed_reminders(conn: &Connection, tenant_id: i64, month: &str) -> Result<i64, String> {
         conn.query_row(
-            "SELECT COUNT(*) FROM rent_reminders WHERE tenant_id = ?1 AND month = ?2 AND sent_on IS NOT NULL",
+            "SELECT COUNT(*) FROM rent_reminders WHERE tenant_id = ?1 AND month = ?2 ",
             params![tenant_id, month],
             |r| r.get(0),
         )
         .map_err(|e| format!("Failed to count reminders: {}", e))
     }
 
-    /// Record that a reminder was opened in WhatsApp. This is not a "sent": WhatsApp never says whether
-    /// Send was pressed. Opening again before confirming reuses the same pending reminder, so the
-    /// numbering only moves on once a reminder is confirmed.
+    /// Record a reminder: the owner opened the tenant's WhatsApp chat with the message ready, which
+    /// counts as sent. Every open is a separate reminder, numbered in order (first, second, ...).
     pub fn stamp_reminded(conn: &Connection, tenant_id: i64, month: &str, date: &str) -> Result<(), String> {
         Self::tenant_for_month(conn, tenant_id, month)?;
         let date = normalize_date(date, "Reminder date")?;
         let now = Utc::now().to_rfc3339();
-        let updated = conn
-            .execute(
-                "UPDATE rent_reminders SET opened_on = ?1, updated_at = ?2 WHERE tenant_id = ?3 AND month = ?4 AND sent_on IS NULL",
-                params![date, now, tenant_id, month],
-            )
-            .map_err(|e| format!("Failed to save the reminder: {}", e))?;
-        if updated == 0 {
-            conn.execute(
-                "INSERT INTO rent_reminders (tenant_id, month, opened_on, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
-                params![tenant_id, month, date, now],
-            )
-            .map_err(|e| format!("Failed to save the reminder: {}", e))?;
-        }
+        conn.execute(
+            "INSERT INTO rent_reminders (tenant_id, month, opened_on, sent_on, created_at, updated_at) VALUES (?1, ?2, ?3, ?3, ?4, ?4)",
+            params![tenant_id, month, date, now],
+        )
+        .map_err(|e| format!("Failed to save the reminder: {}", e))?;
         Ok(())
     }
 
-    /// The owner confirms the reminder that was opened has been sent in WhatsApp.
-    pub fn confirm_reminder_sent(conn: &Connection, tenant_id: i64, month: &str, date: &str) -> Result<(), String> {
-        Self::tenant_for_month(conn, tenant_id, month)?;
-        let date = normalize_date(date, "Sent date")?;
-        let updated = conn
-            .execute(
-                "UPDATE rent_reminders SET sent_on = ?1, updated_at = ?2 WHERE tenant_id = ?3 AND month = ?4 AND sent_on IS NULL",
-                params![date, Utc::now().to_rfc3339(), tenant_id, month],
-            )
-            .map_err(|e| format!("Failed to save the reminder: {}", e))?;
-        if updated == 0 {
-            return Err("Open the reminder in WhatsApp first.".to_string());
-        }
-        Ok(())
-    }
-
-    /// Every reminder for the tenant and month, oldest first. Confirmed ones are numbered 1, 2, 3 in
-    /// order; one still waiting for confirmation is the next number.
+    /// Every reminder for the tenant and month, oldest first, numbered 1, 2, 3.
     pub fn reminder_history(conn: &Connection, tenant_id: i64, month: &str) -> Result<Vec<ReminderEntry>, String> {
         Self::tenant_for_month(conn, tenant_id, month)?;
         let mut stmt = conn
@@ -572,18 +544,11 @@ impl RentalRepository {
             .map_err(|e| format!("Failed to load reminders: {}", e))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to read reminders: {}", e))?;
-        let mut sent = 0;
-        let mut entries = Vec::new();
-        for (id, opened_on, sent_on) in raw.iter().filter(|(_, _, s)| s.is_some()).cloned().chain(raw.iter().filter(|(_, _, s)| s.is_none()).cloned()) {
-            let number = if sent_on.is_some() {
-                sent += 1;
-                sent
-            } else {
-                sent + 1
-            };
-            entries.push(ReminderEntry { id, number, opened_on, sent_on });
-        }
-        Ok(entries)
+        Ok(raw
+            .into_iter()
+            .enumerate()
+            .map(|(i, (id, opened_on, sent_on))| ReminderEntry { id, number: i as i64 + 1, opened_on, sent_on })
+            .collect())
     }
 }
 
@@ -694,7 +659,7 @@ mod tests {
         let o = RentalRepository::month_overview(&conn, "2026-10").unwrap();
         assert_eq!(o.month, "2026-10");
         assert_eq!(o.rows.iter().map(|r| r.tenant_name.as_str()).collect::<Vec<_>>(), vec!["Meena", "Ravi"]);
-        assert!(o.rows.iter().all(|r| !r.paid && r.paid_on.is_none() && r.paid_amount.is_none() && r.reminders_sent == 0 && r.opened_unconfirmed_on.is_none()));
+        assert!(o.rows.iter().all(|r| !r.paid && r.paid_on.is_none() && r.paid_amount.is_none() && r.reminders_sent == 0));
         assert_eq!((o.summary.paid_count, o.summary.total_count), (0, 2));
         assert_eq!((o.summary.collected, o.summary.pending), (0.0, 12000.5));
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 0, "looking at a month saves nothing");
@@ -756,7 +721,7 @@ mod tests {
         let r = row(&conn, "2026-10", ravi);
         assert!(!r.paid);
         assert_eq!((r.paid_on, r.paid_amount, r.note), (None, None, None));
-        assert_eq!(r.opened_unconfirmed_on.as_deref(), Some("2026-10-03"));
+        assert_eq!((r.reminders_sent, r.last_sent_on.as_deref()), (1, Some("2026-10-03")));
         assert_eq!(r.rent_amount, 5000.0);
 
         // A mistaken mark that is undone leaves no trace, so the tenant can still be deleted.
@@ -838,57 +803,39 @@ mod tests {
     }
 
     #[test]
-    fn stamping_a_reminder_sets_the_date_without_marking_paid() {
+    fn opening_a_reminder_counts_it_as_sent_without_marking_paid() {
         let (_d, conn) = setup();
         let p = place(&conn, "Flat 2B");
         let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
         RentalRepository::stamp_reminded(&conn, ravi, "2026-11", "03-11-2026").unwrap();
         let r = row(&conn, "2026-11", ravi);
         assert!(!r.paid);
-        assert_eq!((r.reminders_sent, r.last_sent_on, r.opened_unconfirmed_on.as_deref()), (0, None, Some("2026-11-03")));
+        assert_eq!((r.reminders_sent, r.last_sent_on.as_deref()), (1, Some("2026-11-03")));
         let s = RentalRepository::month_overview(&conn, "2026-11").unwrap().summary;
         assert_eq!((s.paid_count, s.pending), (0, 5000.0));
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 0, "opening a reminder does not create a rent record");
-
-        // Opening again before confirming reuses the same pending reminder.
-        RentalRepository::stamp_reminded(&conn, ravi, "2026-11", "2026-11-08").unwrap();
-        assert_eq!(row(&conn, "2026-11", ravi).opened_unconfirmed_on.as_deref(), Some("2026-11-08"));
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_reminders"), 1);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM rent_months"), 0, "a reminder does not create a rent record");
         assert_eq!(RentalRepository::stamp_reminded(&conn, ravi, "2026-11", "soon").unwrap_err(), "Reminder date is not a valid date.");
     }
 
     #[test]
-    fn follow_up_reminders_are_numbered_and_only_counted_when_confirmed() {
+    fn follow_up_reminders_are_numbered_in_order() {
         let (_d, conn) = setup();
         let p = place(&conn, "Flat 2B");
         let ravi = tenant_on(&conn, p, "Ravi", 5000.0);
         let m = "2026-11";
-        let history = || RentalRepository::reminder_history(&conn, ravi, m).unwrap();
-        assert!(history().is_empty());
+        assert!(RentalRepository::reminder_history(&conn, ravi, m).unwrap().is_empty());
         assert_eq!(RentalRepository::reminder_for(&conn, ravi, m).unwrap().reminder_number, 1);
-        assert_eq!(RentalRepository::confirm_reminder_sent(&conn, ravi, m, "2026-11-03").unwrap_err(), "Open the reminder in WhatsApp first.");
 
-        // Opened but not confirmed: shown as the first reminder, not sent, and the next one is still the first.
         RentalRepository::stamp_reminded(&conn, ravi, m, "2026-11-03").unwrap();
-        let h = history();
-        assert_eq!((h.len(), h[0].number, h[0].sent_on.clone()), (1, 1, None));
-        assert_eq!(RentalRepository::reminder_for(&conn, ravi, m).unwrap().reminder_number, 1);
-
-        RentalRepository::confirm_reminder_sent(&conn, ravi, m, "03-11-2026").unwrap();
-        let r = row(&conn, m, ravi);
-        assert_eq!((r.reminders_sent, r.last_sent_on.as_deref(), r.opened_unconfirmed_on), (1, Some("2026-11-03"), None));
         assert_eq!(RentalRepository::reminder_for(&conn, ravi, m).unwrap().reminder_number, 2);
-        assert_eq!(RentalRepository::confirm_reminder_sent(&conn, ravi, m, "2026-11-03").unwrap_err(), "Open the reminder in WhatsApp first.", "already confirmed");
-
-        // A follow-up is a separate reminder with its own number and dates.
         RentalRepository::stamp_reminded(&conn, ravi, m, "2026-11-10").unwrap();
-        let h = history();
-        assert_eq!(h.iter().map(|e| (e.number, e.sent_on.is_some())).collect::<Vec<_>>(), vec![(1, true), (2, false)]);
-        RentalRepository::confirm_reminder_sent(&conn, ravi, m, "2026-11-10").unwrap();
-        let h = history();
-        assert_eq!(h.iter().map(|e| (e.number, e.opened_on.as_str(), e.sent_on.as_deref())).collect::<Vec<_>>(),
-            vec![(1, "2026-11-03", Some("2026-11-03")), (2, "2026-11-10", Some("2026-11-10"))]);
-        assert_eq!(row(&conn, m, ravi).reminders_sent, 2);
+        let h = RentalRepository::reminder_history(&conn, ravi, m).unwrap();
+        assert_eq!(
+            h.iter().map(|e| (e.number, e.opened_on.as_str(), e.sent_on.as_deref())).collect::<Vec<_>>(),
+            vec![(1, "2026-11-03", Some("2026-11-03")), (2, "2026-11-10", Some("2026-11-10"))]
+        );
+        let r = row(&conn, m, ravi);
+        assert_eq!((r.reminders_sent, r.last_sent_on.as_deref()), (2, Some("2026-11-10")));
         assert_eq!(RentalRepository::reminder_for(&conn, ravi, m).unwrap().reminder_number, 3);
 
         // Reminders belong to their month, and go with the tenant.

@@ -80,10 +80,9 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
 
       {summary && (
         <div className="mb-5">
-          <StatStrip cols={3}>
+          <StatStrip cols={2}>
             <Stat label="Paid this month" value={formatMoney(summary.paid_this_month)} />
             <Stat label="Paid in total" value={formatMoney(summary.total_paid)} />
-            <Stat label="Advances held with suppliers" value={formatMoney(summary.advances_held)} />
           </StatStrip>
         </div>
       )}
@@ -159,7 +158,7 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
                   </td>
                   <td className="py-3 pr-4 text-slate-600">{p.payment_method}</td>
                   <td className="py-3 pr-4 text-slate-600">
-                    {p.bills_covered.length ? p.bills_covered.join(", ") : <span className="text-slate-500">Advance</span>}
+                    {p.bills_covered.length ? p.bills_covered.join(", ") : <span className="text-slate-500">—</span>}
                   </td>
                   <td className="py-3 px-4 text-right tabular font-medium">
                     {formatMoney(p.amount_paid)}

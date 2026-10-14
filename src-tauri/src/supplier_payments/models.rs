@@ -15,14 +15,10 @@ pub struct SupplierPayment {
     pub writeoff_amount: f64,
     /// Money paid plus the written-off part.
     pub total_settled: f64,
-    /// Earlier advances used by this payment.
-    pub credit_applied: f64,
-    /// Part of this payment not applied to bills.
+    /// Part of this payment beyond the bills it covers (a round-off, counted as paid).
     pub excess_amount: f64,
-    /// "CREDIT" (kept as advance), "ROUNDOFF" (counted as paid, nothing owed back) or "NONE".
+    /// "ROUNDOFF" when there is an extra amount, otherwise "NONE".
     pub excess_action: String,
-    /// How much of this payment's advance later payments have already used.
-    pub advance_used: f64,
     pub remarks: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -59,14 +55,9 @@ pub struct SupplierPaymentInput {
     pub reference_number: Option<String>,
     pub bank_name: Option<String>,
     pub amount_paid: f64,
-    /// Most of the supplier's advance this payment may use; only what the allocations need is taken.
-    #[serde(default)]
-    pub credit_to_apply: f64,
     pub remarks: Option<String>,
     #[serde(default)]
     pub allocations: Vec<SupplierAllocationInput>,
-    /// "CREDIT" or "ROUNDOFF" for any amount left over (none means CREDIT).
-    pub excess_action: Option<String>,
     /// Short amount accepted as full payment. It cannot be more than what is actually short.
     #[serde(default)]
     pub writeoff_amount: f64,
@@ -84,7 +75,6 @@ pub struct SupplierPaymentListItem {
     pub amount_paid: f64,
     pub writeoff_amount: f64,
     pub total_settled: f64,
-    pub credit_applied: f64,
     pub excess_amount: f64,
     pub excess_action: String,
     pub bills_covered: Vec<String>,
@@ -112,21 +102,8 @@ pub struct UnpaidBill {
     pub outstanding_amount: f64,
 }
 
-/// An advance paid to a supplier that later payments can use.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupplierCredit {
-    pub id: i64,
-    pub supplier_id: i64,
-    pub source_payment_id: Option<i64>,
-    pub source_payment_number: Option<String>,
-    pub original_amount: f64,
-    pub remaining_amount: f64,
-    pub created_at: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SupplierPaymentsSummary {
     pub total_paid: f64,
     pub paid_this_month: f64,
-    pub advances_held: f64,
 }

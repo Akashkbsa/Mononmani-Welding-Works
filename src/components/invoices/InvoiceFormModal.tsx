@@ -475,11 +475,13 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                   <tr key={idx} className="align-top">
                     <td className="py-2 text-slate-400 pt-4">{idx + 1}</td>
                     <td className="py-2 pr-2">
-                      <input
-                        className={inputClass}
+                      <textarea
+                        aria-label={`Description for line ${idx + 1}`}
+                        rows={2}
+                        className={`${textareaClass} resize-y`}
                         value={item.description}
                         onChange={(e) => updateItem(idx, { description: e.target.value })}
-                        placeholder="Work or material"
+                        placeholder="Work or material. Press Enter to write the next line."
                       />
                     </td>
                     <td className="py-2 pr-2">

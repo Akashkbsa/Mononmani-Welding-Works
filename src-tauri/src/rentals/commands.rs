@@ -127,13 +127,6 @@ pub fn open_rent_reminder(tenant_id: i64, month: String, state: State<'_, AppSta
     Ok(reminder)
 }
 
-/// The owner confirms the reminder they opened has been sent in WhatsApp (today's date).
-#[tauri::command]
-pub fn confirm_rent_reminder_sent(tenant_id: i64, month: String, state: State<'_, AppState>) -> Result<(), String> {
-    let conn = state.db.get_connection()?;
-    RentalRepository::confirm_reminder_sent(&conn, tenant_id, &month, &today().format("%Y-%m-%d").to_string())
-}
-
 /// Every reminder for the tenant and month, numbered, with whether each was confirmed as sent.
 #[tauri::command]
 pub fn get_rent_reminder_history(tenant_id: i64, month: String, state: State<'_, AppState>) -> Result<Vec<ReminderEntry>, String> {

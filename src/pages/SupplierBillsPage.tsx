@@ -108,10 +108,9 @@ export default function SupplierBillsPage({ onOpenPayment }: { onOpenPayment: (p
 
       {summary && (
         <div className="mb-5">
-          <StatStrip cols={3}>
+          <StatStrip cols={2}>
             <Stat label="You owe suppliers" value={formatMoney(summary.total_outstanding)} tone="attention" />
             <Stat label="Open bills" value={String(summary.open_bills_count)} />
-            <Stat label="Advances paid to suppliers" value={formatMoney(summary.advances_held)} />
           </StatStrip>
         </div>
       )}

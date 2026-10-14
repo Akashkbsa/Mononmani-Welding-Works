@@ -1,5 +1,5 @@
-/** CREDIT: kept as an advance with the supplier. ROUNDOFF: counted as paid, nothing owed back. */
-export type SupplierExcessAction = "CREDIT" | "ROUNDOFF" | "NONE";
+/** ROUNDOFF: money paid beyond the bills, counted as paid with nothing owed back. NONE: no extra. */
+export type SupplierExcessAction = "ROUNDOFF" | "NONE";
 
 export interface SupplierPayment {
   id: number;
@@ -16,13 +16,9 @@ export interface SupplierPayment {
   writeoff_amount: number;
   /** Money paid plus the written-off part. */
   total_settled: number;
-  /** Earlier advance used by this payment. */
-  credit_applied: number;
-  /** Part of this payment not applied to bills. */
+  /** Part of this payment beyond the bills it covers. */
   excess_amount: number;
   excess_action: SupplierExcessAction;
-  /** How much of this payment's advance later payments have used. */
-  advance_used: number;
   remarks: string | null;
   created_at: string;
   updated_at: string;
@@ -52,7 +48,6 @@ export interface SupplierPaymentListItem {
   amount_paid: number;
   writeoff_amount: number;
   total_settled: number;
-  credit_applied: number;
   excess_amount: number;
   excess_action: SupplierExcessAction;
   bills_covered: string[];
@@ -66,10 +61,8 @@ export interface SupplierPaymentInput {
   reference_number: string | null;
   bank_name: string | null;
   amount_paid: number;
-  credit_to_apply: number;
   remarks: string | null;
   allocations: { bill_id: number; allocated_amount: number }[];
-  excess_action: SupplierExcessAction;
   /** The short amount accepted as full payment. It cannot be more than what is actually short. */
   writeoff_amount: number;
 }
@@ -93,18 +86,7 @@ export interface UnpaidBill {
   outstanding_amount: number;
 }
 
-export interface SupplierCredit {
-  id: number;
-  supplier_id: number;
-  source_payment_id: number | null;
-  source_payment_number: string | null;
-  original_amount: number;
-  remaining_amount: number;
-  created_at: string;
-}
-
 export interface SupplierPaymentsSummary {
   total_paid: number;
   paid_this_month: number;
-  advances_held: number;
 }

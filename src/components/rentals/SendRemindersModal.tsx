@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, MessageCircle } from "lucide-react";
-import { confirmRentReminderSent, getRentReminder, getRentReminderHistory, openRentReminder } from "../../services/api";
+import { getRentReminder, getRentReminderHistory, openRentReminder } from "../../services/api";
 import { errorMessage, formatPhone, monthTitle, shortDate, todayISO } from "../../lib/format";
 import { MonthRow, ReminderEntry, RentReminder } from "../../types/rental";
 import { Alert, Badge, Button, Modal, Skeleton, useToast } from "../ui";
@@ -11,7 +11,7 @@ interface Props {
   /** The tenants who have not paid this month. */
   rows: MonthRow[];
   onClose: () => void;
-  /** Called after a reminder was opened or confirmed, so the list shows the new status. */
+  /** Called after a reminder was sent, so the list shows the new status. */
   onChanged: () => void;
 }
 
@@ -25,8 +25,8 @@ export function reminderLabel(n: number): string {
 }
 
 /**
- * One block per unpaid tenant. WhatsApp never says whether a message was sent, so opening the chat
- * is recorded as "opened" and a reminder counts as sent only after the owner confirms it.
+ * One block per unpaid tenant. Opening the chat with the message ready counts as sending the
+ * reminder; the owner presses Send in WhatsApp.
  */
 export default function SendRemindersModal({ month, rows, onClose, onChanged }: Props) {
   const toast = useToast();
@@ -70,13 +70,12 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantKey, month, version]);
 
-  const run = async (row: MonthRow, action: () => Promise<unknown>, done?: string) => {
+  const run = async (row: MonthRow, action: () => Promise<unknown>) => {
     setBusyId(row.tenant_id);
     setArmedId(null);
     setRowErrors((current) => ({ ...current, [row.tenant_id]: "" }));
     try {
       await action();
-      if (done) toast(done);
       setVersion((v) => v + 1);
       onChanged();
     } catch (err) {
@@ -87,7 +86,7 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
   };
 
   const send = (row: MonthRow) => {
-    const sentToday = row.last_sent_on === todayISO() && !row.opened_unconfirmed_on;
+    const sentToday = row.last_sent_on === todayISO();
     if (sentToday && armedId !== row.tenant_id) return setArmedId(row.tenant_id);
     run(row, () => openRentReminder(row.tenant_id, month));
   };
@@ -111,8 +110,7 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
     >
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
-          WhatsApp opens with the message ready. Press Send in WhatsApp, then come back and confirm. WhatsApp does not tell this app
-          when a message is sent, so a reminder counts as sent only after you confirm it.
+          WhatsApp opens with the message ready. Press Send there. Opening it from here counts the reminder as sent.
         </p>
 
         <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
@@ -120,8 +118,7 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
             const reminder = reminders[row.tenant_id];
             const ready = typeof reminder === "object";
             const history = histories[row.tenant_id] ?? [];
-            const waiting = row.opened_unconfirmed_on !== null;
-            const sentToday = row.last_sent_on === todayISO() && !waiting;
+            const sentToday = row.last_sent_on === todayISO();
             const armed = armedId === row.tenant_id;
             const next = ready ? reminder.reminder_number : row.reminders_sent + 1;
             const busy = busyId === row.tenant_id;
@@ -135,9 +132,7 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
                     <div className="text-xs text-slate-500 tabular">{formatPhone(row.whatsapp_number)}</div>
                   </div>
                   <div className="shrink-0">
-                    {waiting ? (
-                      <Badge tone="amber">Opened {shortDate(row.opened_unconfirmed_on)}, not confirmed sent</Badge>
-                    ) : row.reminders_sent > 0 ? (
+                    {row.reminders_sent > 0 ? (
                       <Badge tone="green">
                         {row.reminders_sent === 1 ? "1 reminder" : `${row.reminders_sent} reminders`} sent · last {shortDate(row.last_sent_on)}
                       </Badge>
@@ -162,17 +157,9 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
                   <ul className="space-y-0.5 text-xs text-slate-600" aria-label={`Reminder history for ${row.tenant_name}`}>
                     {history.map((entry) => (
                       <li key={entry.id} className="flex items-center gap-1.5">
-                        {entry.sent_on ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-600" strokeWidth={2.5} />
-                        ) : (
-                          <span className="inline-block h-3.5 w-3.5 text-center leading-3 text-amber-600">•</span>
-                        )}
+                        <Check className="h-3.5 w-3.5 text-emerald-600" strokeWidth={2.5} />
                         <span className="font-medium">{reminderLabel(entry.number)}</span>
-                        <span>
-                          {entry.sent_on
-                            ? `sent ${shortDate(entry.sent_on)}`
-                            : `opened ${shortDate(entry.opened_on)}, not confirmed sent`}
-                        </span>
+                        <span>sent {shortDate(entry.sent_on ?? entry.opened_on)}</span>
                       </li>
                     ))}
                   </ul>
@@ -188,27 +175,15 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
                   <Button size="sm" icon={<Copy className="w-4 h-4" />} disabled={!ready} onClick={() => ready && copy(reminder)}>
                     Copy message
                   </Button>
-                  {waiting && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      icon={<Check className="w-4 h-4" />}
-                      loading={busy}
-                      disabled={busyId !== null}
-                      onClick={() => run(row, () => confirmRentReminderSent(row.tenant_id, month), "Marked as sent")}
-                    >
-                      I pressed Send
-                    </Button>
-                  )}
                   <Button
                     size="sm"
-                    variant={waiting || sentToday ? "secondary" : "primary"}
+                    variant={sentToday ? "secondary" : "primary"}
                     icon={<MessageCircle className="w-4 h-4" />}
-                    loading={busy && !waiting}
+                    loading={busy}
                     disabled={!ready || busyId !== null}
                     onClick={() => send(row)}
                   >
-                    {waiting ? "Open WhatsApp again" : armed ? "Yes, send another" : `Send ${ORDINALS[next - 1] ?? `${next}th`} reminder`}
+                    {armed ? "Yes, send another" : `Send ${ORDINALS[next - 1] ?? `${next}th`} reminder`}
                   </Button>
                 </div>
 

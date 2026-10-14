@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { ExternalLink, FileText, Image as ImageIcon } from "lucide-react";
 import { errorMessage, formatFileSize } from "../../lib/format";
 import { AttachmentInfo } from "../../types/attachment";
-import { Button, Loading, Modal, useToast } from "../ui";
+import { Button, useToast } from "../ui";
+import ImageLightbox from "./ImageLightbox";
 
 interface Props {
   files: AttachmentInfo[];
@@ -49,7 +50,7 @@ export default function FileViewer({ files, getPreview, openFile }: Props) {
         {imageFiles.length > 0 && (
           <div>
             <div className="mb-2 text-xs font-medium text-slate-500">Photos</div>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {imageFiles.map((file) => (
                 <button
                   key={file.id}
@@ -59,9 +60,9 @@ export default function FileViewer({ files, getPreview, openFile }: Props) {
                   aria-label={`Preview ${file.file_name}`}
                 >
                   {previewUrls[file.id] ? (
-                    <img src={previewUrls[file.id]} alt={file.file_name} className="h-28 w-full object-cover" />
+                    <img src={previewUrls[file.id]} alt={file.file_name} className="h-44 w-full object-cover" />
                   ) : (
-                    <div className="flex h-28 items-center justify-center text-slate-400">
+                    <div className="flex h-44 items-center justify-center text-slate-400">
                       <ImageIcon className="h-6 w-6" />
                     </div>
                   )}
@@ -109,17 +110,7 @@ export default function FileViewer({ files, getPreview, openFile }: Props) {
         {files.length === 0 && <p className="text-slate-500">No files attached yet.</p>}
       </div>
 
-      {imagePreview && (
-        <Modal title={imagePreview.file_name} onClose={() => setImagePreview(null)} size="xl">
-          <div className="flex justify-center">
-            {previewUrls[imagePreview.id] ? (
-              <img src={previewUrls[imagePreview.id]} alt={imagePreview.file_name} className="max-h-[70vh] rounded-md" />
-            ) : (
-              <Loading />
-            )}
-          </div>
-        </Modal>
-      )}
+      {imagePreview && <ImageLightbox images={imageFiles} startId={imagePreview.id} urls={previewUrls} onClose={() => setImagePreview(null)} />}
     </>
   );
 }

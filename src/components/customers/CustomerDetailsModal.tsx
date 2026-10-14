@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Customer, formatCustomerAddress } from "../../types/customer";
 import { InvoiceListItem } from "../../types/invoice";
 import { SupplierBillListItem } from "../../types/supplierBill";
-import { deleteCustomer, getCustomerCredits, getSupplierCredits, listInvoices, listSupplierBills } from "../../services/api";
+import { deleteCustomer, getCustomerCredits, listInvoices, listSupplierBills } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { Alert, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge } from "../ui";
 import PartyTypeBadge from "./PartyTypeBadge";
@@ -19,7 +19,6 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
   const [invoices, setInvoices] = useState<InvoiceListItem[] | null>(null);
   const [advance, setAdvance] = useState(0);
   const [bills, setBills] = useState<SupplierBillListItem[] | null>(null);
-  const [supplierAdvance, setSupplierAdvance] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -35,11 +34,8 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
   // Bills this company has sent us, for suppliers and companies that are both.
   useEffect(() => {
     if (customer.party_type === "CUSTOMER") return;
-    Promise.all([listSupplierBills({ supplier_id: customer.id }), getSupplierCredits(customer.id)])
-      .then(([list, credits]) => {
-        setBills(list);
-        setSupplierAdvance(credits.reduce((sum, c) => sum + c.remaining_amount, 0));
-      })
+    listSupplierBills({ supplier_id: customer.id })
+      .then(setBills)
       .catch((err) => setError(errorMessage(err)));
   }, [customer.id, customer.party_type]);
 
@@ -139,15 +135,9 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
 
           {customer.party_type !== "CUSTOMER" && (
             <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-md bg-slate-50 px-4 py-3">
-                  <div className="text-xs text-slate-500">Amount you owe</div>
-                  <div className="text-lg font-semibold tabular">{formatMoney(owedToSupplier)}</div>
-                </div>
-                <div className="rounded-md bg-slate-50 px-4 py-3">
-                  <div className="text-xs text-slate-500">Advance paid</div>
-                  <div className="text-lg font-semibold tabular">{formatMoney(supplierAdvance)}</div>
-                </div>
+              <div className="rounded-md bg-slate-50 px-4 py-3">
+                <div className="text-xs text-slate-500">Amount you owe</div>
+                <div className="text-lg font-semibold tabular">{formatMoney(owedToSupplier)}</div>
               </div>
               <div>
                 <SectionTitle>Supplier bills</SectionTitle>

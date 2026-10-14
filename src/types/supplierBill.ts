@@ -82,6 +82,4 @@ export interface SupplierBillsSummary {
   /** What is still owed on all bills. */
   total_outstanding: number;
   open_bills_count: number;
-  /** Advances paid to suppliers and not yet used. */
-  advances_held: number;
 }

@@ -279,7 +279,6 @@ export default function InvoicesPage({
                   <th className="py-2.5 pr-4 font-semibold">Date</th>
                   <th className="py-2.5 pr-4 font-semibold">Customer</th>
                   <th className="py-2.5 pr-4 font-semibold text-right">Amount</th>
-                  <th className="py-2.5 pr-4 font-semibold text-right">Balance</th>
                   <th className="py-2.5 px-4 font-semibold text-right">Status</th>
                   <th className="w-8" />
                 </tr>
@@ -297,9 +296,6 @@ export default function InvoicesPage({
                       {inv.customer_name}
                     </td>
                     <td className="py-3 pr-4 text-right tabular">{formatMoney(inv.total_amount)}</td>
-                    <td className="py-3 pr-4 text-right tabular">
-                      {inv.status === "ISSUED" && inv.outstanding_amount > 0 ? formatMoney(inv.outstanding_amount) : "—"}
-                    </td>
                     <td className="py-3 px-4 text-right">
                       <StatusBadge status={inv.payment_status} />
                     </td>

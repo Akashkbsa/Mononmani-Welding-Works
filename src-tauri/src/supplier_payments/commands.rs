@@ -1,5 +1,5 @@
 use super::models::{
-    SupplierCredit, SupplierPaymentFilter, SupplierPaymentInput, SupplierPaymentListItem, SupplierPaymentWithAllocations,
+    SupplierPaymentFilter, SupplierPaymentInput, SupplierPaymentListItem, SupplierPaymentWithAllocations,
     SupplierPaymentsSummary, UnpaidBill,
 };
 use super::repository::SupplierPaymentRepository;
@@ -61,17 +61,6 @@ pub fn get_unpaid_bills_for_supplier(
 ) -> Result<Vec<UnpaidBill>, String> {
     let conn = state.db.get_connection()?;
     SupplierPaymentRepository::unpaid_bills_for_supplier(&conn, supplier_id, exclude_payment_id)
-}
-
-/// Advances paid to the supplier that can still be used. When editing, pass the payment's id.
-#[tauri::command]
-pub fn get_supplier_credits(
-    supplier_id: i64,
-    exclude_payment_id: Option<i64>,
-    state: State<'_, AppState>,
-) -> Result<Vec<SupplierCredit>, String> {
-    let conn = state.db.get_connection()?;
-    SupplierPaymentRepository::supplier_credits(&conn, supplier_id, exclude_payment_id)
 }
 
 #[tauri::command]

@@ -88,6 +88,4 @@ pub struct SupplierBillsSummary {
     /// What is still owed on all bills.
     pub total_outstanding: f64,
     pub open_bills_count: i64,
-    /// Advances paid to suppliers and not yet used.
-    pub advances_held: f64,
 }

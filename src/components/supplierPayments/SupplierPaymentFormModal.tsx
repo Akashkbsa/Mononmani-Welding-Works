@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Customer } from "../../types/customer";
 import { PAYMENT_METHODS } from "../../types/payment";
-import { SupplierExcessAction, SupplierPaymentInput, SupplierPaymentWithAllocations, UnpaidBill } from "../../types/supplierPayment";
+import { SupplierPaymentInput, SupplierPaymentWithAllocations, UnpaidBill } from "../../types/supplierPayment";
 import {
   createSupplierPayment,
   getNextSupplierPaymentNumber,
-  getSupplierCredits,
   getUnpaidBillsForSupplier,
   listCustomers,
   updateSupplierPayment,
@@ -41,15 +40,12 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
   const [reference, setReference] = useState(existing?.reference_number ?? "");
   const [bankName, setBankName] = useState(existing?.bank_name ?? "");
   const [remarks, setRemarks] = useState(existing?.remarks ?? "");
-  const [excessAction, setExcessAction] = useState<SupplierExcessAction>(existing?.excess_action === "ROUNDOFF" ? "ROUNDOFF" : "CREDIT");
   const [settleInFull, setSettleInFull] = useState((existing?.writeoff_amount ?? 0) > 0);
 
   const [bills, setBills] = useState<UnpaidBill[] | null>(null);
   const [allocations, setAllocations] = useState<Record<number, string>>(() =>
     Object.fromEntries((payment?.allocations ?? []).map((a) => [a.bill_id, String(a.allocated_amount)]))
   );
-  const [advanceAvailable, setAdvanceAvailable] = useState(0);
-  const [useAdvance, setUseAdvance] = useState((existing?.credit_applied ?? 0) > 0);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,20 +61,18 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
     }
   }, [isEdit]);
 
-  // Load what we owe this supplier and any advance paid to them.
+  // Load what we owe this supplier.
   useEffect(() => {
     if (supplierId === null) {
       setBills([]);
-      setAdvanceAvailable(0);
       return;
     }
     let cancelled = false;
     setBills(null);
-    Promise.all([getUnpaidBillsForSupplier(supplierId, existing?.id), getSupplierCredits(supplierId, existing?.id)])
-      .then(([list, credits]) => {
+    getUnpaidBillsForSupplier(supplierId, existing?.id)
+      .then((list) => {
         if (cancelled) return;
         setBills(list);
-        setAdvanceAvailable(round2(credits.reduce((s, c) => s + c.remaining_amount, 0)));
         if (!isEdit && initialBillId && supplierId === initialSupplierId) {
           const target = list.find((b) => b.bill_id === initialBillId);
           if (target) {
@@ -95,9 +89,8 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
 
   const base = round2(num(amount));
   const allocated = round2(Object.values(allocations).reduce((s, v) => s + num(v), 0));
-  const advanceUsed = useAdvance ? round2(Math.min(advanceAvailable, Math.max(0, allocated - base))) : 0;
   const leftover = round2(Math.max(0, base - allocated));
-  const shortBy = round2(allocated - base - advanceUsed);
+  const shortBy = round2(allocated - base);
   // A short amount accepted as full payment (only while something is really short).
   const writeoff = settleInFull && shortBy > 0.005 ? shortBy : 0;
 
@@ -124,7 +117,7 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
         delete next[bill.bill_id];
       } else {
         const used = Object.values(next).reduce((s, v) => s + num(v), 0);
-        const funds = base + (useAdvance ? advanceAvailable : 0) - used;
+        const funds = base - used;
         const share = funds > 0 ? Math.min(funds, bill.outstanding_amount) : bill.outstanding_amount;
         next[bill.bill_id] = String(round2(share));
       }
@@ -136,7 +129,7 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
   const allocateOldestFirst = () => {
     guard.markDirty();
     const next: Record<number, string> = {};
-    let funds = base + (useAdvance ? advanceAvailable : 0);
+    let funds = base;
     for (const bill of bills ?? []) {
       if (funds <= 0.005) break;
       const share = round2(Math.min(funds, bill.outstanding_amount));
@@ -151,7 +144,8 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
     if (supplierId === null) return setError("Choose the supplier you paid.");
     if (!date) return setError("Enter the payment date.");
     if (num(amount) < 0) return setError("Amounts cannot be negative.");
-    if (base <= 0 && advanceUsed <= 0) return setError("Enter the amount paid.");
+    if (base <= 0) return setError("Enter the amount paid.");
+    if (allocated <= 0) return setError("Choose the bills this payment is for.");
     if (overAllocated.length) {
       return setError(`The amount for bill ${overAllocated[0].bill_number} is more than its balance.`);
     }
@@ -169,12 +163,10 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
       reference_number: reference.trim() || null,
       bank_name: bankName.trim() || null,
       amount_paid: num(amount),
-      credit_to_apply: useAdvance ? advanceAvailable : 0,
       remarks: remarks.trim() || null,
       allocations: Object.entries(allocations)
         .map(([id, v]) => ({ bill_id: Number(id), allocated_amount: num(v) }))
         .filter((a) => a.allocated_amount > 0),
-      excess_action: leftover > 0 ? excessAction : "NONE",
       writeoff_amount: writeoff,
     };
 
@@ -223,7 +215,6 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
                   guard.markDirty();
                   setSupplierId(c.id);
                   setAllocations({});
-                  setUseAdvance(false);
                 }}
               />
             </Field>
@@ -283,7 +274,7 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
             ) : bills === null ? (
               <Loading />
             ) : bills.length === 0 ? (
-              <p className="text-sm text-slate-500">This supplier has no unpaid bills. The amount will be kept as an advance.</p>
+              <p className="text-sm text-slate-500">This supplier has no unpaid bills. Add the supplier's bill first, then record the payment.</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>
@@ -332,22 +323,11 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
               </table>
             )}
 
-            {advanceAvailable > 0 && (
-              <div className="mt-3 rounded-md bg-sky-50 px-3 py-2.5">
-                <Checkbox
-                  checked={useAdvance}
-                  onChange={setUseAdvance}
-                  label={`Use advance paid earlier (${formatMoney(advanceAvailable)} available)`}
-                  description="Covers any amount applied beyond what you are paying now."
-                />
-              </div>
-            )}
           </div>
 
           {/* Summary */}
           <div className="rounded-md border border-slate-200 p-4 text-sm tabular space-y-1.5">
             <SummaryRow label="Paid" value={num(amount)} />
-            {advanceUsed > 0 && <SummaryRow label="Advance used" value={advanceUsed} />}
             {writeoff > 0 && <SummaryRow label="Written off" value={writeoff} />}
             <SummaryRow label="Applied to bills" value={allocated} />
             {shortBy > 0.005 ? (
@@ -390,20 +370,7 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
                   <span>Left over</span>
                   <span>{formatMoney(leftover)}</span>
                 </div>
-                <div className="flex flex-wrap gap-x-6 gap-y-1.5">
-                  <Radio checked={excessAction === "ROUNDOFF"} onChange={() => setExcessAction("ROUNDOFF")} label="Keep as round-off" />
-                  <Radio checked={excessAction === "CREDIT"} onChange={() => setExcessAction("CREDIT")} label="Keep as advance with this supplier" />
-                </div>
-                <p className="text-xs text-slate-500">
-                  {excessAction === "ROUNDOFF"
-                    ? "Counted as paid, not held as an advance and not owed back."
-                    : "Held as an advance and used on this supplier's later bills."}
-                </p>
-                {isEdit && existing!.advance_used > 0 && (
-                  <p className="text-xs text-slate-500">
-                    {formatMoney(existing!.advance_used)} of this advance has already been used by a later payment.
-                  </p>
-                )}
+                <p className="text-xs text-slate-500">Counted as paid (a round-off). It is not kept as an advance and nothing is owed back.</p>
               </div>
             ) : null}
           </div>
@@ -424,14 +391,5 @@ function SummaryRow({ label, value }: { label: string; value: number }) {
       <span>{label}</span>
       <span className="text-slate-900">{formatMoney(value)}</span>
     </div>
-  );
-}
-
-function Radio({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
-  return (
-    <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
-      <input type="radio" className="accent-brand-600" checked={checked} onChange={onChange} />
-      {label}
-    </label>
   );
 }
