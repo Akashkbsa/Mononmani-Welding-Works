@@ -76,7 +76,7 @@ impl PdfRenderer {
             .map(|item| {
                 serde_json::json!({
                     "sl_no": item.sl_no,
-                    "description": item.description,
+                    "description": crate::util::sanitize_rich_text(&item.description),
                     "hsn_sac": item.hsn_sac,
                     "qum": item.qum,
                     "qty": item.quantity,

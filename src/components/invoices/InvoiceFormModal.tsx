@@ -24,6 +24,7 @@ import {
   todayISO,
 } from "../../lib/format";
 import { Alert, Button, Field, inputClass, Modal, SearchSelect, textareaClass, useDiscardGuard } from "../ui";
+import RichTextBox, { isRichEmpty } from "../RichTextBox";
 import CustomerFormModal from "../customers/CustomerFormModal";
 import CustomerPicker from "../CustomerPicker";
 
@@ -279,7 +280,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     if (!form.invoice_number.trim()) return setError("Enter an invoice number.");
     if (!form.invoice_date) return setError("Enter the invoice date.");
     if (vehicleError) return setError(vehicleError);
-    const blank = form.items.findIndex((i) => !i.description.trim());
+    const blank = form.items.findIndex((i) => isRichEmpty(i.description));
     if (blank >= 0) return setError(`Line ${blank + 1} needs a description.`);
     if (form.items.some((i) => !(Number(i.quantity) > 0))) return setError("Every line needs a quantity above zero.");
     if (totals.discount > totals.subtotal) return setError("Discount cannot be more than the subtotal.");
@@ -475,13 +476,11 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                   <tr key={idx} className="align-top">
                     <td className="py-2 text-slate-400 pt-4">{idx + 1}</td>
                     <td className="py-2 pr-2">
-                      <textarea
-                        aria-label={`Description for line ${idx + 1}`}
-                        rows={2}
-                        className={`${textareaClass} resize-y`}
+                      <RichTextBox
+                        ariaLabel={`Description for line ${idx + 1}`}
                         value={item.description}
-                        onChange={(e) => updateItem(idx, { description: e.target.value })}
-                        placeholder="Work or material. Press Enter to write the next line."
+                        onChange={(description) => updateItem(idx, { description })}
+                        placeholder="Work or material. Enter starts a new line; select text to change its size, bold or italic."
                       />
                     </td>
                     <td className="py-2 pr-2">

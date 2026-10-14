@@ -1,3 +1,4 @@
+import { sanitizeRich } from "../../lib/richText";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Printer } from "lucide-react";
 import { CopyType, InvoiceWithItems } from "../../types/invoice";
@@ -301,7 +302,7 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged, onO
               {data.items.map((item) => (
                 <tr key={item.id}>
                   <td className="py-2 text-slate-400">{item.sl_no}</td>
-                  <td className="whitespace-pre-line py-2">{item.description}</td>
+                  <td className="rich py-2" dangerouslySetInnerHTML={{ __html: sanitizeRich(item.description) }} />
                   <td className="py-2 text-slate-600">{item.hsn_sac}</td>
                   <td className="py-2 text-right tabular">
                     {item.quantity} {item.qum}

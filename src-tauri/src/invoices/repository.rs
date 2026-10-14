@@ -194,7 +194,7 @@ impl InvoiceRepository {
 
         let mut item_amounts = Vec::with_capacity(items.len());
         for (idx, item) in items.iter().enumerate() {
-            if item.description.trim().is_empty() {
+            if crate::util::rich_text_to_plain(&item.description).is_empty() {
                 return Err(format!("Line {} needs a description.", idx + 1));
             }
             if item.quantity <= 0.0 {
@@ -480,7 +480,7 @@ impl InvoiceRepository {
                 params![
                     invoice_id,
                     (idx + 1) as i32,
-                    item.description.trim(),
+                    crate::util::sanitize_rich_text(&item.description),
                     item.hsn_sac.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("9954"),
                     item.qum.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("NOS"),
                     item.quantity,

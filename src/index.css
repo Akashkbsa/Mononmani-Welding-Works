@@ -329,3 +329,34 @@
     animation: none;
   }
 }
+
+/* Formatted invoice descriptions: bold, italic and a size from 1 to 7 (3 is normal). */
+.rich font[size="1"] {
+  font-size: .7em;
+}
+.rich font[size="2"] {
+  font-size: .85em;
+}
+.rich font[size="3"] {
+  font-size: 1em;
+}
+.rich font[size="4"] {
+  font-size: 1.2em;
+}
+.rich font[size="5"] {
+  font-size: 1.45em;
+}
+.rich font[size="6"] {
+  font-size: 1.8em;
+}
+.rich font[size="7"] {
+  font-size: 2.2em;
+}
+.rich b {
+  font-weight: 700;
+}
+.rich-box:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-slate-500);
+  pointer-events: none;
+}

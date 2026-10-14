@@ -839,3 +839,29 @@ html, body {
     page-break-before: always;
   }
 }
+
+/* Sizes picked in the description box: 3 is the normal size. */
+.items-table tbody td.col-desc font[size="1"] {
+  font-size: .7em;
+}
+.items-table tbody td.col-desc font[size="2"] {
+  font-size: .85em;
+}
+.items-table tbody td.col-desc font[size="3"] {
+  font-size: 1em;
+}
+.items-table tbody td.col-desc font[size="4"] {
+  font-size: 1.2em;
+}
+.items-table tbody td.col-desc font[size="5"] {
+  font-size: 1.45em;
+}
+.items-table tbody td.col-desc font[size="6"] {
+  font-size: 1.8em;
+}
+.items-table tbody td.col-desc font[size="7"] {
+  font-size: 2.2em;
+}
+.items-table tbody td.col-desc b {
+  font-weight: 700;
+}

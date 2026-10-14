@@ -144,6 +144,79 @@ pub fn normalize_vehicle_number(raw: &str) -> Result<String, String> {
     })
 }
 
+/// An invoice line description may carry a little formatting: bold, italic, a size from 1 (smallest)
+/// to 7 and line breaks. Only these tags survive, as `<b>`, `<i>`, `<font size="N">` and `<br>`;
+/// every other `<` becomes `&lt;` and a typed new line becomes `<br>`. Plain text from older
+/// invoices passes through unchanged (apart from those two rules).
+pub fn sanitize_rich_text(input: &str) -> String {
+    let text = input.replace("\r\n", "\n").replace('\r', "\n");
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(pos) = rest.find(|c| c == '<' || c == '\n') {
+        out.push_str(&rest[..pos]);
+        rest = &rest[pos..];
+        if rest.starts_with('\n') {
+            out.push_str("<br>");
+            rest = &rest[1..];
+            continue;
+        }
+        match allowed_tag(rest) {
+            Some((tag, len)) => {
+                out.push_str(&tag);
+                rest = &rest[len..];
+            }
+            None => {
+                out.push_str("&lt;");
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    let mut cleaned = out.as_str();
+    while let Some(stripped) = cleaned.strip_suffix("<br>") {
+        cleaned = stripped;
+    }
+    cleaned.trim().to_string()
+}
+
+/// The tag at the start of `s` if it is one of the allowed ones, with its normal form and length.
+fn allowed_tag(s: &str) -> Option<(String, usize)> {
+    let end = s.find('>')? + 1;
+    let inner = s[1..end - 1].trim().to_ascii_lowercase();
+    let tag = match inner.as_str() {
+        "b" | "strong" => "<b>".to_string(),
+        "/b" | "/strong" => "</b>".to_string(),
+        "i" | "em" => "<i>".to_string(),
+        "/i" | "/em" => "</i>".to_string(),
+        "br" | "br/" | "br /" => "<br>".to_string(),
+        "/font" => "</font>".to_string(),
+        other => {
+            let size = other.strip_prefix("font")?.trim().strip_prefix("size")?.trim().strip_prefix('=')?;
+            let size = size.trim().trim_matches(|c| c == '"' || c == '\'');
+            match size.parse::<u8>() {
+                Ok(n) if (1..=7).contains(&n) => format!("<font size=\"{}\">", n),
+                _ => return None,
+            }
+        }
+    };
+    Some((tag, end))
+}
+
+/// The text of a (sanitized) description without its formatting, for checks like "is it empty".
+pub fn rich_text_to_plain(input: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in sanitize_rich_text(input).chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&lt;", "<").replace("&nbsp;", " ").trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +261,29 @@ mod tests {
         assert_eq!(indian_number(21600.0), "21,600.00");
         assert_eq!(indian_number(2268000.5), "22,68,000.50");
         assert_eq!(indian_number(-1234.5), "-1,234.50");
+    }
+
+    #[test]
+    fn rich_text_keeps_only_the_four_formats() {
+        assert_eq!(sanitize_rich_text("Plain line"), "Plain line");
+        assert_eq!(sanitize_rich_text("Line one\nLine two\r\nLine three"), "Line one<br>Line two<br>Line three");
+        assert_eq!(sanitize_rich_text("<B>Bold</B> and <em>italic</em>"), "<b>Bold</b> and <i>italic</i>");
+        assert_eq!(sanitize_rich_text("<font size=\"5\">Big</font> <font size='1'>tiny</font>"), "<font size=\"5\">Big</font> <font size=\"1\">tiny</font>");
+        assert_eq!(sanitize_rich_text("a<br/>b<br />c"), "a<br>b<br>c");
+        // Anything else is shown as text, never run.
+        assert_eq!(sanitize_rich_text("<script>alert(1)</script>"), "&lt;script>alert(1)&lt;/script>");
+        assert_eq!(sanitize_rich_text("<font size=\"9\" onclick=\"x\">no</font>"), "&lt;font size=\"9\" onclick=\"x\">no</font>");
+        assert_eq!(sanitize_rich_text("<img src=x onerror=y>"), "&lt;img src=x onerror=y>");
+        assert_eq!(sanitize_rich_text("5 < 6 and R&D"), "5 &lt; 6 and R&D");
+        // Trailing line breaks and spaces go; an old description is not changed otherwise.
+        assert_eq!(sanitize_rich_text("  text<br><br>\n"), "text");
+        assert_eq!(sanitize_rich_text("தமிழ் ₹100"), "தமிழ் ₹100");
+    }
+
+    #[test]
+    fn rich_text_to_plain_ignores_formatting() {
+        assert_eq!(rich_text_to_plain("<b></b><br>"), "");
+        assert_eq!(rich_text_to_plain("<b>Weld</b><br><i>plate</i>"), "Weldplate");
+        assert_eq!(rich_text_to_plain("5 < 6"), "5 < 6");
     }
 }
