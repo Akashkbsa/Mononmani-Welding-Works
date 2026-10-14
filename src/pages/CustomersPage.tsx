@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Search, Star, Users } from "lucide-react";
 import { Customer } from "../types/customer";
+import PartyTypeBadge from "../components/customers/PartyTypeBadge";
 import { listCustomers, listInvoices, searchCustomers, setCustomerFavorite } from "../services/api";
 import { errorMessage, formatMoney } from "../lib/format";
 import { Alert, Button, Card, EmptyState, inputClass, ListSkeleton, PageHeader, RowChevron, rowClass, rowProps, Skeleton, theadClass, useToast } from "../components/ui";
 import CustomerFormModal from "../components/customers/CustomerFormModal";
 import CustomerDetailsModal from "../components/customers/CustomerDetailsModal";
+
+type TypeFilter = "ALL" | "CUSTOMERS" | "SUPPLIERS" | "BOTH";
+
+// Customers = Customer and Both; Suppliers = Supplier and Both; Both = Both only.
+const TYPE_FILTERS: { id: TypeFilter; label: string; match: (c: Customer) => boolean }[] = [
+  { id: "ALL", label: "All", match: () => true },
+  { id: "CUSTOMERS", label: "Customers", match: (c) => c.party_type !== "SUPPLIER" },
+  { id: "SUPPLIERS", label: "Suppliers", match: (c) => c.party_type !== "CUSTOMER" },
+  { id: "BOTH", label: "Both", match: (c) => c.party_type === "BOTH" },
+];
 
 export default function CustomersPage() {
   const toast = useToast();
@@ -17,6 +28,7 @@ export default function CustomersPage() {
   // What each customer still owes, worked out from their issued invoices. Null while loading.
   const [balances, setBalances] = useState<Map<number, number> | null>(null);
   const [owingOnly, setOwingOnly] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
 
   const load = useCallback(async () => {
     try {
@@ -45,7 +57,8 @@ export default function CustomersPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  const visible = (customers ?? []).filter((c) => !owingOnly || (balances?.get(c.id) ?? 0) > 0);
+  const matchesType = TYPE_FILTERS.find((f) => f.id === typeFilter)!.match;
+  const visible = (customers ?? []).filter((c) => matchesType(c) && (!owingOnly || (balances?.get(c.id) ?? 0) > 0));
 
   const toggleFavorite = async (c: Customer) => {
     try {
@@ -59,11 +72,11 @@ export default function CustomersPage() {
   return (
     <>
       <PageHeader
-        title="Customers"
-        description="People and businesses you invoice."
+        title="Customers & suppliers"
+        description="Companies you invoice or buy from."
         actions={
           <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setEditing("new")}>
-            New customer
+            New company
           </Button>
         }
       />
@@ -72,12 +85,27 @@ export default function CustomersPage() {
         <div className="relative w-full max-w-sm">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
-            aria-label="Search customers"
+            aria-label="Search companies"
             className={`${inputClass} pl-9`}
             placeholder="Search name, phone or GSTIN"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+        </div>
+        <div role="group" aria-label="Show" className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 text-sm">
+          {TYPE_FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              aria-pressed={typeFilter === f.id}
+              onClick={() => setTypeFilter(f.id)}
+              className={`rounded px-3 py-1 transition-colors ${
+                typeFilter === f.id ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
         <button
           type="button"
@@ -101,7 +129,7 @@ export default function CustomersPage() {
 
       <Card>
         {customers === null ? (
-          <ListSkeleton label="Loading customers" />
+          <ListSkeleton label="Loading companies" />
         ) : visible.length === 0 ? (
           <EmptyState
             icon={Users}
@@ -109,15 +137,19 @@ export default function CustomersPage() {
               owingOnly && customers.length > 0
                 ? "Nobody owes you money right now"
                 : query
-                  ? "No customers match your search"
-                  : "No customers yet"
+                  ? "No companies match your search"
+                  : typeFilter !== "ALL" && customers.length > 0
+                    ? "No companies of this type"
+                    : "No companies yet"
             }
             description={
               owingOnly && customers.length > 0
-                ? "Turn off Owing money to see every customer."
+                ? "Turn off Owing money to see every company."
                 : query
                   ? "Try a different name or number."
-                  : "Add a customer to start invoicing."
+                  : typeFilter !== "ALL" && customers.length > 0
+                    ? "Choose All to see every company."
+                    : "Add a company to start invoicing or recording supplier bills."
             }
           />
         ) : (
@@ -126,6 +158,7 @@ export default function CustomersPage() {
               <tr>
                 <th className="w-10" />
                 <th className="py-2.5 pr-4 font-semibold">Name</th>
+                <th className="py-2.5 pr-4 font-semibold">Type</th>
                 <th className="py-2.5 pr-4 font-semibold">Phone</th>
                 <th className="py-2.5 pr-4 font-semibold">GSTIN</th>
                 <th className="py-2.5 pr-4 font-semibold">Location</th>
@@ -151,11 +184,16 @@ export default function CustomersPage() {
                   <td className="max-w-[20rem] truncate py-3 pr-4 font-medium text-slate-900" title={c.name}>
                     {c.name}
                   </td>
+                  <td className="py-3 pr-4">
+                    <PartyTypeBadge type={c.party_type} />
+                  </td>
                   <td className="py-3 pr-4 text-slate-600">{c.phone || "—"}</td>
                   <td className="py-3 pr-4 text-slate-600 font-mono text-xs">{c.gstin || "—"}</td>
                   <td className="py-3 pr-4 text-slate-600">{[c.city, c.state].filter(Boolean).join(", ") || "—"}</td>
                   <td className="py-3 pr-4 text-right tabular">
-                    {balances === null ? (
+                    {c.party_type === "SUPPLIER" ? (
+                      <span className="text-slate-500">—</span>
+                    ) : balances === null ? (
                       <Skeleton className="ml-auto h-4 w-16" />
                     ) : (balances.get(c.id) ?? 0) > 0 ? (
                       <span className="font-medium text-arc-700">{formatMoney(balances.get(c.id) ?? 0)}</span>
@@ -181,7 +219,7 @@ export default function CustomersPage() {
           }}
           onDeleted={() => {
             setViewing(null);
-            toast("Customer deleted");
+            toast("Company deleted");
             load();
           }}
         />
@@ -193,7 +231,7 @@ export default function CustomersPage() {
           onClose={() => setEditing(null)}
           onSaved={(saved) => {
             setEditing(null);
-            toast(editing === "new" ? `${saved.name} added` : "Customer updated");
+            toast(editing === "new" ? `${saved.name} added` : "Company updated");
             load();
           }}
         />

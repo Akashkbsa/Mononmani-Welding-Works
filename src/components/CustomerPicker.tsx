@@ -9,12 +9,17 @@ export default function CustomerPicker({
   onChange,
   disabled,
   fallbackLabel,
+  ariaLabel = "Customer",
+  noun = "customer",
 }: {
   customers: Customer[];
   value: number | null;
   onChange: (customer: Customer) => void;
   disabled?: boolean;
   fallbackLabel?: string;
+  ariaLabel?: string;
+  /** "customer" or "supplier", used in the placeholder and the empty-list text. */
+  noun?: string;
 }) {
   const options = useMemo(
     () =>
@@ -28,13 +33,13 @@ export default function CustomerPicker({
   );
   return (
     <SearchSelect
-      ariaLabel="Customer"
+      ariaLabel={ariaLabel}
       options={options}
       value={value}
       disabled={disabled}
       fallbackLabel={fallbackLabel}
       placeholder="Search by name, phone or GSTIN"
-      emptyText="No customer matches. Try another name, phone or GSTIN, or add a new customer."
+      emptyText={`No ${noun} matches. Try another name, phone or GSTIN, or add a new ${noun}.`}
       onChange={(id) => {
         const c = customers.find((x) => x.id === id);
         if (c) onChange(c);

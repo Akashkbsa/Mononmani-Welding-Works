@@ -20,7 +20,7 @@ const NAV: { id: Page; label: string; icon: typeof FileText }[] = [
   { id: "quotations", label: "Quotations", icon: FileCheck2 },
   { id: "purchaseOrders", label: "Purchase orders", icon: ClipboardList },
   { id: "payments", label: "Payments", icon: CreditCard },
-  { id: "customers", label: "Customers", icon: Users },
+  { id: "customers", label: "Customers & suppliers", icon: Users },
 ];
 
 function NavButton({

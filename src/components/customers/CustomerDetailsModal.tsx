@@ -4,6 +4,7 @@ import { InvoiceListItem } from "../../types/invoice";
 import { deleteCustomer, getCustomerCredits, listInvoices } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
 import { Alert, Button, ConfirmDialog, Loading, Modal, SectionTitle, StatusBadge } from "../ui";
+import PartyTypeBadge from "./PartyTypeBadge";
 
 interface Props {
   customer: Customer;
@@ -34,13 +35,18 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
     <>
       <Modal
         title={customer.name}
-        subtitle={customer.gstin ? `GSTIN ${customer.gstin}` : "Unregistered"}
+        subtitle={
+          <span className="flex items-center gap-2">
+            <PartyTypeBadge type={customer.party_type} />
+            {customer.gstin ? `GSTIN ${customer.gstin}` : "Unregistered"}
+          </span>
+        }
         onClose={onClose}
         size="lg"
         footer={
           <>
             <Button variant="dangerText" className="mr-auto" onClick={() => setConfirmDelete(true)}>
-              Delete customer
+              Delete company
             </Button>
             <Button onClick={onClose}>Close</Button>
             <Button variant="primary" onClick={onEdit}>
@@ -64,6 +70,8 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
             </div>
           </div>
 
+          {customer.party_type !== "SUPPLIER" && (
+          <>
           <div className="grid grid-cols-2 gap-4">
             <div className="rounded-md bg-slate-50 px-4 py-3">
               <div className="text-xs text-slate-500">Balance due</div>
@@ -110,16 +118,18 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
               </table>
             )}
           </div>
+          </>
+          )}
         </div>
       </Modal>
 
       {confirmDelete && (
         <ConfirmDialog
-          title="Delete customer?"
+          title="Delete company?"
           message={
             <>
-              <strong>{customer.name}</strong> will be removed from your customer list. Customers with invoices or
-              payments can't be deleted.
+              <strong>{customer.name}</strong> will be removed from your list. Companies with invoices, payments or supplier
+              records can't be deleted.
             </>
           }
           confirmLabel="Delete"

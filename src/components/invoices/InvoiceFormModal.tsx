@@ -675,6 +675,9 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
 
       {addingCustomer && (
         <CustomerFormModal
+          allowedPartyTypes={["CUSTOMER", "BOTH"]}
+          defaultPartyType="CUSTOMER"
+          noun="customer"
           onClose={() => setAddingCustomer(false)}
           onSaved={(c) => {
             setAddingCustomer(false);

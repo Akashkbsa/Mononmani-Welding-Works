@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Customer, CustomerCreateInput, PartyType } from "../../types/customer";
+import { Customer, CustomerCreateInput, PARTY_TYPE_LABEL, PartyType } from "../../types/customer";
 import { checkDuplicateCustomer, createCustomer, updateCustomer } from "../../services/api";
 import { GST_STATES, HOME_STATE, stateCodeFor, stateName } from "../../lib/gst";
 import { errorMessage } from "../../lib/format";
@@ -9,13 +9,19 @@ interface Props {
   customer?: Customer | null;
   onClose: () => void;
   onSaved: (customer: Customer) => void;
+  /** Which types the Type choice offers (default all three). With one type the choice is hidden. */
+  allowedPartyTypes?: PartyType[];
+  /** The type a new company starts with. */
+  defaultPartyType?: PartyType;
+  /** What this window calls the company in its title and buttons. */
+  noun?: "customer" | "supplier" | "company";
 }
 
 const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
 function validate(input: CustomerCreateInput): Record<string, string> {
   const errors: Record<string, string> = {};
-  if (!input.name) errors.name = "Enter the customer's name.";
+  if (!input.name) errors.name = "Enter the business name.";
   if (input.gstin && !GSTIN_PATTERN.test(input.gstin)) {
     errors.gstin = "GSTIN should be 15 characters, like 34AAAAA1234A1Z5.";
   }
@@ -31,7 +37,16 @@ function validate(input: CustomerCreateInput): Record<string, string> {
   return errors;
 }
 
-export default function CustomerFormModal({ customer, onClose, onSaved }: Props) {
+const ALL_PARTY_TYPES: PartyType[] = ["CUSTOMER", "SUPPLIER", "BOTH"];
+
+export default function CustomerFormModal({
+  customer,
+  onClose,
+  onSaved,
+  allowedPartyTypes = ALL_PARTY_TYPES,
+  defaultPartyType = "CUSTOMER",
+  noun = "company",
+}: Props) {
   const guard = useDiscardGuard(onClose);
   const [form, setForm] = useState({
     name: customer?.name ?? "",
@@ -44,12 +59,15 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
     state: customer ? customer.state ?? "" : HOME_STATE.name,
     postal_code: customer?.postal_code ?? "",
     is_favorite: customer?.is_favorite ?? false,
-    party_type: (customer?.party_type ?? "CUSTOMER") as PartyType,
+    party_type: (customer?.party_type ?? defaultPartyType) as PartyType,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [duplicate, setDuplicate] = useState<Customer | null>(null);
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // The types offered; a company already saved with another type keeps showing it.
+  const typeChoices = allowedPartyTypes.includes(form.party_type) ? allowedPartyTypes : [...allowedPartyTypes, form.party_type];
 
   const set = (key: keyof typeof form) => (value: string | boolean) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -114,14 +132,14 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
   return (
     <>
     <Modal
-      title={customer ? "Edit customer" : "New customer"}
+      title={customer ? `Edit ${noun}` : `New ${noun}`}
       onClose={guard.requestClose}
       size="md"
       footer={
         <>
           <Button onClick={guard.requestClose}>Cancel</Button>
           <Button variant="primary" loading={saving} onClick={() => save(!!duplicate)}>
-            {duplicate ? "Save anyway" : customer ? "Save changes" : "Add customer"}
+            {duplicate ? "Save anyway" : customer ? "Save changes" : `Add ${noun}`}
           </Button>
         </>
       }
@@ -137,10 +155,39 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
         {serverError && <Alert>{serverError}</Alert>}
         {duplicate && (
           <Alert tone="info">
-            A customer named <strong>{duplicate.name}</strong>
-            {duplicate.city ? ` (${duplicate.city})` : ""} already exists. Check it isn't the same business, or
-            choose <strong>Save anyway</strong>.
+            <strong>{duplicate.name}</strong>
+            {duplicate.city ? ` (${duplicate.city})` : ""} already exists as{" "}
+            {duplicate.party_type === "BOTH" ? "a customer and supplier" : `a ${PARTY_TYPE_LABEL[duplicate.party_type].toLowerCase()}`}.{" "}
+            {duplicate.party_type !== form.party_type ? (
+              <>
+                Open it and set its type to <strong>Both</strong> instead of adding it again, or choose{" "}
+                <strong>Save anyway</strong>.
+              </>
+            ) : (
+              <>
+                Check it isn't the same business, or choose <strong>Save anyway</strong>.
+              </>
+            )}
           </Alert>
+        )}
+
+        {typeChoices.length > 1 && (
+          <Field label="Type" hint="Customers are invoiced; suppliers send you bills. Choose Both if it is each.">
+            <select
+              className={inputClass}
+              value={form.party_type}
+              onChange={(e) => {
+                set("party_type")(e.target.value);
+                setDuplicate(null);
+              }}
+            >
+              {typeChoices.map((t) => (
+                <option key={t} value={t}>
+                  {PARTY_TYPE_LABEL[t]}
+                </option>
+              ))}
+            </select>
+          </Field>
         )}
 
         <Field label="Business name" required error={errors.name}>
@@ -156,7 +203,7 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
         </Field>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="GSTIN" error={errors.gstin} hint="Leave blank for unregistered customers.">
+          <Field label="GSTIN" error={errors.gstin} hint="Leave blank for unregistered businesses.">
             <input
               className={`${inputClass} font-mono uppercase`}
               maxLength={15}
@@ -218,8 +265,8 @@ export default function CustomerFormModal({ customer, onClose, onSaved }: Props)
         <Checkbox
           checked={form.is_favorite}
           onChange={set("is_favorite")}
-          label="Frequent customer"
-          description="Shown at the top of customer lists."
+          label={`Frequent ${noun}`}
+          description="Shown at the top of lists."
         />
         <button type="submit" hidden />
       </form>
