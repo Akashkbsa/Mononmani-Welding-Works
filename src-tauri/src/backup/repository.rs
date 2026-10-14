@@ -16,6 +16,7 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("rental_places", "rental place", "rental places"),
     ("rental_tenants", "tenant", "tenants"),
     ("rent_months", "rent month", "rent months"),
+    ("rent_reminders", "rent reminder", "rent reminders"),
     ("purchase_orders", "purchase order", "purchase orders"),
     ("customer_credits", "advance", "advances"),
 ];

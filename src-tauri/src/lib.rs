@@ -178,6 +178,8 @@ pub fn run() {
             rentals::undo_rent_paid,
             rentals::get_rent_reminder,
             rentals::open_rent_reminder,
+            rentals::confirm_rent_reminder_sent,
+            rentals::get_rent_reminder_history,
             rentals::add_rental_file,
             rentals::remove_rental_file,
             rentals::get_rental_file_preview,

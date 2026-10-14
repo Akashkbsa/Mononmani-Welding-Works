@@ -163,7 +163,7 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
 
   if (loading || places === null) {
     return (
-      <Modal title="Tenant" onClose={guard.requestClose} size="lg">
+      <Modal title="Tenant" onClose={guard.requestClose} size="wide">
         {error ? <Alert>{error}</Alert> : <Loading />}
       </Modal>
     );
@@ -175,7 +175,7 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
         title={isEdit ? "Edit tenant" : "New tenant"}
         subtitle={isEdit ? detail?.tenant.name : undefined}
         onClose={guard.requestClose}
-        size="lg"
+        size="wide"
         footer={
           <>
             {isEdit && (

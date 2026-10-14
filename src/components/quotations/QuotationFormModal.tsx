@@ -195,7 +195,7 @@ export default function QuotationFormModal({ quotationId, onClose, onSaved }: Pr
 
   if (loading) {
     return (
-      <Modal title="Quotation" onClose={guard.requestClose} size="lg">
+      <Modal title="Quotation" onClose={guard.requestClose} size="wide">
         {error ? <Alert>{error}</Alert> : <Loading />}
       </Modal>
     );
@@ -207,7 +207,7 @@ export default function QuotationFormModal({ quotationId, onClose, onSaved }: Pr
         title={isEdit && detail ? `Edit quotation ${detail.quotation.quotation_number}` : "New quotation"}
         subtitle={isEdit ? selectedCustomer?.name ?? detail?.quotation.customer_name : undefined}
         onClose={guard.requestClose}
-        size="lg"
+        size="wide"
         footer={
           <>
             <Button onClick={guard.requestClose}>Cancel</Button>

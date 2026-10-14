@@ -102,8 +102,22 @@ pub struct MonthRow {
     pub paid_on: Option<String>,
     pub paid_amount: Option<f64>,
     pub note: Option<String>,
-    /// The day the owner last opened a reminder for this month.
-    pub reminded_on: Option<String>,
+    /// Reminders the owner confirmed as sent for this month.
+    pub reminders_sent: i64,
+    /// The day the latest confirmed reminder was sent.
+    pub last_sent_on: Option<String>,
+    /// The day a reminder was opened in WhatsApp but not yet confirmed as sent.
+    pub opened_unconfirmed_on: Option<String>,
+}
+
+/// One reminder for a tenant and month. `number` is 1 for the first reminder, 2 for the second, and so on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReminderEntry {
+    pub id: i64,
+    pub number: i64,
+    pub opened_on: String,
+    /// Empty until the owner confirms the message was sent in WhatsApp.
+    pub sent_on: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +153,8 @@ pub struct RentReminder {
     pub tenant_id: i64,
     pub tenant_name: String,
     pub number: String,
+    /// Which reminder this would be: 1 when none was confirmed sent yet, 2 after one, and so on.
+    pub reminder_number: i64,
     pub message: String,
     pub link: String,
 }

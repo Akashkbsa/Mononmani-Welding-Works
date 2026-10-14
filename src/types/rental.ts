@@ -95,8 +95,23 @@ export interface MonthRow {
   paid_on: string | null;
   paid_amount: number | null;
   note: string | null;
-  /** YYYY-MM-DD: the day a reminder was last opened for this month. */
-  reminded_on: string | null;
+  /** Reminders the owner confirmed as sent for this month. */
+  reminders_sent: number;
+  /** YYYY-MM-DD: the day the latest confirmed reminder was sent. */
+  last_sent_on: string | null;
+  /** YYYY-MM-DD: a reminder was opened in WhatsApp but not yet confirmed as sent. */
+  opened_unconfirmed_on: string | null;
+}
+
+/** One reminder for a tenant and month. */
+export interface ReminderEntry {
+  id: number;
+  /** 1 = first reminder, 2 = second, and so on. */
+  number: number;
+  /** YYYY-MM-DD */
+  opened_on: string;
+  /** null until the owner confirms it was sent in WhatsApp. */
+  sent_on: string | null;
 }
 
 export interface MonthSummary {
@@ -129,6 +144,8 @@ export interface RentReminder {
   tenant_id: number;
   tenant_name: string;
   number: string;
+  /** Which reminder this would be: 1 when none was confirmed sent yet, 2 after one, and so on. */
+  reminder_number: number;
   message: string;
   link: string;
 }

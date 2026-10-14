@@ -17,7 +17,7 @@ import {
   useToast,
 } from "../ui";
 import MarkPaidModal from "./MarkPaidModal";
-import SendRemindersModal from "./SendRemindersModal";
+import SendRemindersModal, { reminderLabel } from "./SendRemindersModal";
 
 /** Who has paid for a month and who has not, with the buttons to record it. */
 export default function ThisMonthTab() {
@@ -135,9 +135,13 @@ export default function ThisMonthTab() {
                     ) : (
                       <div>
                         <Badge tone="amber">Not paid</Badge>
-                        {row.reminded_on && (
-                          <div className="mt-0.5 text-xs text-slate-500">Reminder opened {shortDate(row.reminded_on)}</div>
-                        )}
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          {row.opened_unconfirmed_on
+                            ? `Opened ${shortDate(row.opened_unconfirmed_on)}, not confirmed sent`
+                            : row.reminders_sent > 0
+                              ? `${reminderLabel(row.reminders_sent)} sent ${shortDate(row.last_sent_on)}`
+                              : "No reminder sent"}
+                        </div>
                       </div>
                     )}
                   </td>

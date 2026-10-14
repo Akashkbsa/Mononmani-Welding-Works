@@ -456,7 +456,45 @@ const MIGRATIONS: &[Migration] = &[
         name: "016_rentals",
         sql: RENTALS_SQL,
     },
+    Migration {
+        version: 17,
+        name: "017_rent_reminders",
+        sql: RENT_REMINDERS_SQL,
+    },
 ];
+
+/// One row per reminder opened in WhatsApp. `sent_on` is filled only when the owner confirms the
+/// message was sent, because WhatsApp never tells the app. Dates the first rentals version kept in
+/// `rent_months.reminded_on` become opened, unconfirmed reminders.
+pub const RENT_REMINDERS_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS rent_reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL REFERENCES rental_tenants(id) ON DELETE CASCADE,
+        month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+        opened_on TEXT NOT NULL,
+        sent_on TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rent_reminders_tenant_month ON rent_reminders(tenant_id, month);
+
+    CREATE TRIGGER IF NOT EXISTS trg_rent_reminders_insert_log AFTER INSERT ON rent_reminders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rent_reminders', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rent_reminders_update_log AFTER UPDATE ON rent_reminders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rent_reminders', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_rent_reminders_delete_log AFTER DELETE ON rent_reminders
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('rent_reminders', OLD.id, 'DELETE', datetime('now'));
+    END;
+
+    -- After the triggers, so the copied rows are tracked for backup like any other change.
+    INSERT INTO rent_reminders (tenant_id, month, opened_on, created_at, updated_at)
+        SELECT tenant_id, month, reminded_on, datetime('now'), datetime('now') FROM rent_months WHERE reminded_on IS NOT NULL;
+"#;
 
 /// Purchase orders received from customers (with the files they came in) and the optional link
 /// from an invoice to the order it was raised against. One order can have many invoices.
@@ -1382,7 +1420,7 @@ mod tests {
     fn migration_16_adds_rental_tables_and_leaves_existing_data_alone() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_15(dir.path()));
-        assert_eq!(latest_version(), 16);
+        assert!(latest_version() >= 16);
         for table in ["customers", "invoices", "supplier_bills"] {
             let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
             assert_eq!(n, 1, "{}", table);
@@ -1391,6 +1429,36 @@ mod tests {
             let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
             assert_eq!(n, 0, "{}", table);
         }
+    }
+
+    #[test]
+    fn migration_17_keeps_old_reminder_dates_as_unconfirmed_openings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        // Build the database as version 16 left it, with one reminder date in the old column.
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, name TEXT NOT NULL, applied_at TEXT NOT NULL);",
+        )
+        .unwrap();
+        for m in MIGRATIONS.iter().filter(|m| m.version <= 16) {
+            conn.execute_batch(m.sql).unwrap();
+            conn.execute("INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, 'x')", params![m.version, m.name]).unwrap();
+        }
+        conn.execute("INSERT INTO rental_places (name, monthly_rent, created_at, updated_at) VALUES ('Flat', 100, 'x', 'x')", []).unwrap();
+        conn.execute("INSERT INTO rental_tenants (place_id, name, whatsapp_number, monthly_rent, created_at, updated_at) VALUES (1, 'Ravi', '+919876543210', 100, 'x', 'x')", []).unwrap();
+        conn.execute("INSERT INTO rent_months (tenant_id, month, reminded_on, created_at, updated_at) VALUES (1, '2026-10', '2026-10-03', 'x', 'x')", []).unwrap();
+        drop(conn);
+
+        let conn = open(&path);
+        assert_eq!(latest_version(), 17);
+        let (opened, sent): (String, Option<String>) = conn
+            .query_row("SELECT opened_on, sent_on FROM rent_reminders", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!((opened.as_str(), sent), ("2026-10-03", None));
+        let logged: i64 = conn.query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'rent_reminders'", [], |r| r.get(0)).unwrap();
+        assert!(logged >= 1);
     }
 
     #[test]

@@ -579,13 +579,13 @@ interface ModalProps {
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   onClose: () => void;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "sm" | "md" | "lg" | "wide" | "xl";
   footer?: React.ReactNode;
   headerActions?: React.ReactNode;
   children: React.ReactNode;
 }
 
-const modalWidths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl", xl: "max-w-5xl" };
+const modalWidths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl", wide: "max-w-4xl", xl: "max-w-5xl" };
 
 // Open modals, newest last, so Escape only closes the one on top.
 const openModals: number[] = [];

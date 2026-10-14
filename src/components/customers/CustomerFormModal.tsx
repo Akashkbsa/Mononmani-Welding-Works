@@ -134,7 +134,7 @@ export default function CustomerFormModal({
     <Modal
       title={customer ? `Edit ${noun}` : `New ${noun}`}
       onClose={guard.requestClose}
-      size="md"
+      size="lg"
       footer={
         <>
           <Button onClick={guard.requestClose}>Cancel</Button>

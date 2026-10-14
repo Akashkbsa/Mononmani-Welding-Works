@@ -246,7 +246,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
 
   if (loading) {
     return (
-      <Modal title="Purchase order" onClose={guard.requestClose} size="lg">
+      <Modal title="Purchase order" onClose={guard.requestClose} size="wide">
         <Loading />
       </Modal>
     );
@@ -258,7 +258,7 @@ export default function PurchaseOrderFormModal({ purchaseOrderId, onClose, onSav
         title={isEdit && detail ? `Edit purchase order ${detail.order.po_number}` : "New purchase order"}
         subtitle={isEdit ? selectedCustomer?.name ?? detail?.order.customer_name : undefined}
         onClose={guard.requestClose}
-        size="lg"
+        size="wide"
         footer={
           <>
             <Button onClick={guard.requestClose}>Cancel</Button>

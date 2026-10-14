@@ -42,6 +42,7 @@ import {
   PlaceDetail,
   PlaceInput,
   PlaceListItem,
+  ReminderEntry,
   RentalFileInfo,
   RentalOwnerKind,
   RentReminder,
@@ -261,7 +262,13 @@ export const getRentReminder = (tenantId: number, month: string) =>
 export const openRentReminder = (tenantId: number, month: string) =>
   call<RentReminder>("open_rent_reminder", { tenantId, month });
 
-export const addRentalFile = (ownerKind: RentalOwnerKind, ownerId: number, fileName: string, dataBase64: string) =>
+/** The owner confirms the reminder they opened was sent in WhatsApp. */
+export const confirmRentReminderSent = (tenantId: number, month: string) =>
+  call<void>("confirm_rent_reminder_sent", { tenantId, month });
+export const getRentReminderHistory = (tenantId: number, month: string) =>
+  call<ReminderEntry[]>("get_rent_reminder_history", { tenantId, month });
+
+export const addRentalFile =(ownerKind: RentalOwnerKind, ownerId: number, fileName: string, dataBase64: string) =>
   call<RentalFileInfo>("add_rental_file", { ownerKind, ownerId, fileName, dataBase64 });
 export const removeRentalFile = (fileId: number) => call<void>("remove_rental_file", { fileId });
 export const getRentalFilePreview = (fileId: number) => call<string>("get_rental_file_preview", { fileId });

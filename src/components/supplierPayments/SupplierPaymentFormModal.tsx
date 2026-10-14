@@ -197,7 +197,7 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
         title={isEdit ? `Edit payment ${existing!.payment_number}` : "Record supplier payment"}
         subtitle={isEdit ? supplierName : undefined}
         onClose={guard.requestClose}
-        size="lg"
+        size="wide"
         footer={
           <>
             <Button onClick={guard.requestClose}>Cancel</Button>

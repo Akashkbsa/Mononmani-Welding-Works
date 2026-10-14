@@ -280,7 +280,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
       title={isEdit ? `Edit payment ${existing!.payment_number}` : "Record payment"}
       subtitle={isEdit ? customerName : undefined}
       onClose={guard.requestClose}
-      size="lg"
+      size="wide"
       footer={
         <>
           <Button onClick={guard.requestClose}>Cancel</Button>

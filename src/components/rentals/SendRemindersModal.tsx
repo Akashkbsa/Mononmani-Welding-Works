@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, MessageCircle } from "lucide-react";
-import { getRentReminder, openRentReminder } from "../../services/api";
+import { confirmRentReminderSent, getRentReminder, getRentReminderHistory, openRentReminder } from "../../services/api";
 import { errorMessage, formatPhone, monthTitle, shortDate, todayISO } from "../../lib/format";
-import { MonthRow, RentReminder } from "../../types/rental";
-import { Alert, Button, Modal, Skeleton, useToast } from "../ui";
+import { MonthRow, ReminderEntry, RentReminder } from "../../types/rental";
+import { Alert, Badge, Button, Modal, Skeleton, useToast } from "../ui";
 
 interface Props {
   /** YYYY-MM */
@@ -11,52 +11,85 @@ interface Props {
   /** The tenants who have not paid this month. */
   rows: MonthRow[];
   onClose: () => void;
-  /** Called after a reminder was opened, so the list can show the new "Reminder opened" date. */
+  /** Called after a reminder was opened or confirmed, so the list shows the new status. */
   onChanged: () => void;
 }
 
-/** One line per unpaid tenant with the message ready. The owner presses Send in WhatsApp. */
+const ORDINALS = ["first", "second", "third", "fourth", "fifth"];
+
+/** "First reminder", "Second reminder (follow-up)", ... */
+export function reminderLabel(n: number): string {
+  const word = ORDINALS[n - 1] ?? `${n}th`;
+  const text = `${word.charAt(0).toUpperCase()}${word.slice(1)} reminder`;
+  return n === 1 ? text : `${text} (follow-up)`;
+}
+
+/**
+ * One block per unpaid tenant. WhatsApp never says whether a message was sent, so opening the chat
+ * is recorded as "opened" and a reminder counts as sent only after the owner confirms it.
+ */
 export default function SendRemindersModal({ month, rows, onClose, onChanged }: Props) {
   const toast = useToast();
   // The message for each tenant, or the reason it could not be built.
   const [reminders, setReminders] = useState<Record<number, RentReminder | string>>({});
-  const [openedToday, setOpenedToday] = useState<Set<number>>(new Set());
+  const [histories, setHistories] = useState<Record<number, ReminderEntry[]>>({});
   const [rowErrors, setRowErrors] = useState<Record<number, string>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
+  // A tenant who already got a reminder today must be asked twice before another is opened.
+  const [armedId, setArmedId] = useState<number | null>(null);
+  // Bumped after each change so the messages and histories load again.
+  const [version, setVersion] = useState(0);
 
-  // Rows are reloaded after each reminder; the messages only need loading when the tenants change.
   const tenantKey = rows.map((r) => r.tenant_id).join(",");
   useEffect(() => {
     let cancelled = false;
     Promise.all(
       rows.map(async (row) => {
+        let reminder: RentReminder | string;
+        let history: ReminderEntry[] = [];
         try {
-          return [row.tenant_id, await getRentReminder(row.tenant_id, month)] as const;
+          reminder = await getRentReminder(row.tenant_id, month);
         } catch (err) {
-          return [row.tenant_id, errorMessage(err)] as const;
+          reminder = errorMessage(err);
         }
+        try {
+          history = await getRentReminderHistory(row.tenant_id, month);
+        } catch {
+          // The history is a convenience; the row still works without it.
+        }
+        return { id: row.tenant_id, reminder, history };
       })
-    ).then((entries) => {
-      if (!cancelled) setReminders(Object.fromEntries(entries));
+    ).then((items) => {
+      if (cancelled) return;
+      setReminders(Object.fromEntries(items.map((i) => [i.id, i.reminder])));
+      setHistories(Object.fromEntries(items.map((i) => [i.id, i.history])));
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantKey, month]);
+  }, [tenantKey, month, version]);
 
-  const send = async (row: MonthRow) => {
+  const run = async (row: MonthRow, action: () => Promise<unknown>, done?: string) => {
     setBusyId(row.tenant_id);
+    setArmedId(null);
     setRowErrors((current) => ({ ...current, [row.tenant_id]: "" }));
     try {
-      await openRentReminder(row.tenant_id, month);
-      setOpenedToday((current) => new Set(current).add(row.tenant_id));
+      await action();
+      if (done) toast(done);
+      setVersion((v) => v + 1);
       onChanged();
     } catch (err) {
       setRowErrors((current) => ({ ...current, [row.tenant_id]: errorMessage(err) }));
     } finally {
       setBusyId(null);
     }
+  };
+
+  const send = (row: MonthRow) => {
+    const sentToday = row.last_sent_on === todayISO() && !row.opened_unconfirmed_on;
+    if (sentToday && armedId !== row.tenant_id) return setArmedId(row.tenant_id);
+    run(row, () => openRentReminder(row.tenant_id, month));
   };
 
   const copy = async (reminder: RentReminder) => {
@@ -72,22 +105,28 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
     <Modal
       title="Send reminders"
       subtitle={`${monthTitle(month)} · ${rows.length} not paid`}
-      size="lg"
+      size="xl"
       onClose={onClose}
       footer={<Button onClick={onClose}>Close</Button>}
     >
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
-          WhatsApp opens with the message ready. Press Send in WhatsApp for each tenant.
+          WhatsApp opens with the message ready. Press Send in WhatsApp, then come back and confirm. WhatsApp does not tell this app
+          when a message is sent, so a reminder counts as sent only after you confirm it.
         </p>
 
         <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
           {rows.map((row) => {
             const reminder = reminders[row.tenant_id];
             const ready = typeof reminder === "object";
-            const opened = openedToday.has(row.tenant_id);
+            const history = histories[row.tenant_id] ?? [];
+            const waiting = row.opened_unconfirmed_on !== null;
+            const sentToday = row.last_sent_on === todayISO() && !waiting;
+            const armed = armedId === row.tenant_id;
+            const next = ready ? reminder.reminder_number : row.reminders_sent + 1;
+            const busy = busyId === row.tenant_id;
             return (
-              <div key={row.tenant_id} className="space-y-2 px-4 py-3">
+              <div key={row.tenant_id} className="space-y-3 px-4 py-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-slate-900">
@@ -95,43 +134,83 @@ export default function SendRemindersModal({ month, rows, onClose, onChanged }: 
                     </div>
                     <div className="text-xs text-slate-500 tabular">{formatPhone(row.whatsapp_number)}</div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {opened ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
-                        <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
-                        Opened {shortDate(todayISO())}
-                      </span>
+                  <div className="shrink-0">
+                    {waiting ? (
+                      <Badge tone="amber">Opened {shortDate(row.opened_unconfirmed_on)}, not confirmed sent</Badge>
+                    ) : row.reminders_sent > 0 ? (
+                      <Badge tone="green">
+                        {row.reminders_sent === 1 ? "1 reminder" : `${row.reminders_sent} reminders`} sent · last {shortDate(row.last_sent_on)}
+                      </Badge>
                     ) : (
-                      row.reminded_on && <span className="text-xs text-slate-500">Last opened {shortDate(row.reminded_on)}</span>
+                      <Badge>Not sent</Badge>
                     )}
-                    <Button
-                      size="sm"
-                      icon={<Copy className="w-4 h-4" />}
-                      disabled={!ready}
-                      onClick={() => ready && copy(reminder)}
-                    >
-                      Copy message
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={opened ? "secondary" : "primary"}
-                      icon={<MessageCircle className="w-4 h-4" />}
-                      loading={busyId === row.tenant_id}
-                      disabled={!ready || busyId !== null}
-                      onClick={() => send(row)}
-                    >
-                      {opened ? "Open again" : "Send on WhatsApp"}
-                    </Button>
                   </div>
                 </div>
 
                 {reminder === undefined ? (
                   <Skeleton className="h-4 w-full max-w-lg" />
                 ) : ready ? (
-                  <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">{reminder.message}</p>
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-slate-500">{reminderLabel(next)}</div>
+                    <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">{reminder.message}</p>
+                  </div>
                 ) : (
                   <Alert>{reminder}</Alert>
                 )}
+
+                {history.length > 0 && (
+                  <ul className="space-y-0.5 text-xs text-slate-600" aria-label={`Reminder history for ${row.tenant_name}`}>
+                    {history.map((entry) => (
+                      <li key={entry.id} className="flex items-center gap-1.5">
+                        {entry.sent_on ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-600" strokeWidth={2.5} />
+                        ) : (
+                          <span className="inline-block h-3.5 w-3.5 text-center leading-3 text-amber-600">•</span>
+                        )}
+                        <span className="font-medium">{reminderLabel(entry.number)}</span>
+                        <span>
+                          {entry.sent_on
+                            ? `sent ${shortDate(entry.sent_on)}`
+                            : `opened ${shortDate(entry.opened_on)}, not confirmed sent`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {sentToday && (
+                  <p className="text-xs text-amber-700">
+                    A reminder was already sent today{armed ? ". Press the button again only if you want to send another." : "."}
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button size="sm" icon={<Copy className="w-4 h-4" />} disabled={!ready} onClick={() => ready && copy(reminder)}>
+                    Copy message
+                  </Button>
+                  {waiting && (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Check className="w-4 h-4" />}
+                      loading={busy}
+                      disabled={busyId !== null}
+                      onClick={() => run(row, () => confirmRentReminderSent(row.tenant_id, month), "Marked as sent")}
+                    >
+                      I pressed Send
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant={waiting || sentToday ? "secondary" : "primary"}
+                    icon={<MessageCircle className="w-4 h-4" />}
+                    loading={busy && !waiting}
+                    disabled={!ready || busyId !== null}
+                    onClick={() => send(row)}
+                  >
+                    {waiting ? "Open WhatsApp again" : armed ? "Yes, send another" : `Send ${ORDINALS[next - 1] ?? `${next}th`} reminder`}
+                  </Button>
+                </div>
 
                 {rowErrors[row.tenant_id] && <Alert>{rowErrors[row.tenant_id]}</Alert>}
               </div>

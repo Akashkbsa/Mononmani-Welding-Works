@@ -118,7 +118,7 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
 
   if (loading) {
     return (
-      <Modal title="Place" onClose={guard.requestClose} size="lg">
+      <Modal title="Place" onClose={guard.requestClose} size="wide">
         {error ? <Alert>{error}</Alert> : <Loading />}
       </Modal>
     );
@@ -130,7 +130,7 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
         title={isEdit ? "Edit place" : "New place"}
         subtitle={isEdit ? detail?.place.name : undefined}
         onClose={guard.requestClose}
-        size="lg"
+        size="wide"
         footer={
           <>
             {isEdit && (

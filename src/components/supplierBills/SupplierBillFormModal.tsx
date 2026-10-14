@@ -152,7 +152,7 @@ export default function SupplierBillFormModal({ billId, onClose, onSaved }: Prop
 
   if (loading) {
     return (
-      <Modal title="Supplier bill" onClose={guard.requestClose} size="lg">
+      <Modal title="Supplier bill" onClose={guard.requestClose} size="wide">
         {error ? <Alert>{error}</Alert> : <Loading />}
       </Modal>
     );
@@ -164,7 +164,7 @@ export default function SupplierBillFormModal({ billId, onClose, onSaved }: Prop
         title={isEdit && detail ? `Edit supplier bill ${detail.bill.bill_number}` : "New supplier bill"}
         subtitle={isEdit ? selectedSupplier?.name ?? detail?.bill.supplier_name : undefined}
         onClose={guard.requestClose}
-        size="lg"
+        size="wide"
         footer={
           <>
             <Button onClick={guard.requestClose}>Cancel</Button>
