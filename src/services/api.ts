@@ -37,6 +37,19 @@ import {
   QuotationListItem,
 } from "../types/quotation";
 import {
+  MarkPaidInput,
+  MonthOverview,
+  PlaceDetail,
+  PlaceInput,
+  PlaceListItem,
+  RentalFileInfo,
+  RentalOwnerKind,
+  RentReminder,
+  TenantDetail,
+  TenantInput,
+  TenantListItem,
+} from "../types/rental";
+import {
   DuplicateBillCheck,
   SupplierBillDetail,
   SupplierBillFileInfo,
@@ -218,6 +231,41 @@ export const getUnpaidBillsForSupplier = (supplierId: number, excludePaymentId?:
 export const getSupplierCredits = (supplierId: number, excludePaymentId?: number) =>
   call<SupplierCredit[]>("get_supplier_credits", { supplierId, excludePaymentId: excludePaymentId ?? null });
 export const getSupplierPaymentsSummary = () => call<SupplierPaymentsSummary>("get_supplier_payments_summary");
+
+// Rentals
+export const listRentalPlaces = () => call<PlaceListItem[]>("list_rental_places");
+export const getRentalPlace = (id: number) => call<PlaceDetail | null>("get_rental_place", { id });
+export const createRentalPlace = (input: PlaceInput) => call<PlaceDetail>("create_rental_place", { input });
+export const updateRentalPlace = (id: number, input: PlaceInput) =>
+  call<PlaceDetail>("update_rental_place", { id, input });
+export const deleteRentalPlace = (id: number) => call<void>("delete_rental_place", { id });
+
+export const listRentalTenants = (includeMovedOut = false) =>
+  call<TenantListItem[]>("list_rental_tenants", { includeMovedOut });
+export const getRentalTenant = (id: number) => call<TenantDetail | null>("get_rental_tenant", { id });
+export const createRentalTenant = (input: TenantInput) => call<TenantDetail>("create_rental_tenant", { input });
+export const updateRentalTenant = (id: number, input: TenantInput) =>
+  call<TenantDetail>("update_rental_tenant", { id, input });
+/** A date marks the tenant as moved out; null moves them back in. */
+export const setRentalTenantMovedOut = (id: number, movedOutDate: string | null) =>
+  call<TenantDetail>("set_rental_tenant_moved_out", { id, movedOutDate });
+export const deleteRentalTenant = (id: number) => call<void>("delete_rental_tenant", { id });
+
+/** `month` is YYYY-MM. */
+export const getRentMonthOverview = (month: string) => call<MonthOverview>("get_rent_month_overview", { month });
+export const markRentPaid = (input: MarkPaidInput) => call<void>("mark_rent_paid", { input });
+export const undoRentPaid = (tenantId: number, month: string) => call<void>("undo_rent_paid", { tenantId, month });
+export const getRentReminder = (tenantId: number, month: string) =>
+  call<RentReminder>("get_rent_reminder", { tenantId, month });
+/** Opens the tenant's WhatsApp chat with the reminder typed in; the owner presses Send there. */
+export const openRentReminder = (tenantId: number, month: string) =>
+  call<RentReminder>("open_rent_reminder", { tenantId, month });
+
+export const addRentalFile = (ownerKind: RentalOwnerKind, ownerId: number, fileName: string, dataBase64: string) =>
+  call<RentalFileInfo>("add_rental_file", { ownerKind, ownerId, fileName, dataBase64 });
+export const removeRentalFile = (fileId: number) => call<void>("remove_rental_file", { fileId });
+export const getRentalFilePreview = (fileId: number) => call<string>("get_rental_file_preview", { fileId });
+export const openRentalFile = (fileId: number) => call<void>("open_rental_file", { fileId });
 
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });
