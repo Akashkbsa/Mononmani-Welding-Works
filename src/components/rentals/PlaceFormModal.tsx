@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { AttachmentInfo } from "../../types/attachment";
 import { PlaceDetail, PlaceInput, RentalFileInfo } from "../../types/rental";
@@ -145,7 +146,7 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
           </>
         }
       >
-        <div className="space-y-6" onChangeCapture={guard.markDirty}>
+        <div className="space-y-6" onChangeCapture={(e) => e.currentTarget.contains(e.target as Node) && guard.markDirty()}>
           {error && <Alert>{error}</Alert>}
           <AttachmentErrors attachments={attachments} />
 
@@ -195,6 +196,7 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
             description="Ownership papers, electricity bill, property tax receipts or photos."
             disabled={saving}
           />
+          {placeId !== undefined && detail && <RecordReminders kind="PLACE" id={placeId} label={detail.place.name} suggestedTitle={detail.place.name} />}
         </div>
       </Modal>
 

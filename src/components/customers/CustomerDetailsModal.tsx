@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { useEffect, useState } from "react";
 import { Customer, formatCustomerAddress } from "../../types/customer";
 import { InvoiceListItem } from "../../types/invoice";
@@ -174,6 +175,7 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
               </div>
             </>
           )}
+          <RecordReminders kind="COMPANY" id={customer.id} label={customer.name} suggestedTitle={customer.name} />
         </div>
       </Modal>
 

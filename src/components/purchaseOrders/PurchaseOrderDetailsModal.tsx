@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { deletePurchaseOrder, getPurchaseOrder, getPurchaseOrderFilePreview, openPurchaseOrderFile } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
@@ -143,6 +144,7 @@ export default function PurchaseOrderDetailsModal({ id, onClose, onChanged, onOp
               </div>
             )}
           </div>
+          <RecordReminders kind="PURCHASE_ORDER" id={data.order.id} label={data.order.po_number} suggestedTitle={`Purchase order ${data.order.po_number}`} />
         </div>
       </Modal>
 

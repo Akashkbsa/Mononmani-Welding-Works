@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { SupplierPaymentWithAllocations } from "../../types/supplierPayment";
 import { deleteSupplierPayment, getSupplierPayment } from "../../services/api";
@@ -99,6 +100,7 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
               <p className="text-slate-600 whitespace-pre-line">{p.remarks}</p>
             </div>
           )}
+          <RecordReminders kind="SUPPLIER_PAYMENT" id={p.id} label={p.payment_number} suggestedTitle={`Supplier payment ${p.payment_number}`} />
         </div>
       </Modal>
 

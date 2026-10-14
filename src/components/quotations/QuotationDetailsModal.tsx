@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { deleteQuotation, getQuotation, getQuotationFilePreview, openQuotationFile } from "../../services/api";
 import { errorMessage, formatDate } from "../../lib/format";
@@ -110,6 +111,7 @@ export default function QuotationDetailsModal({ id, onClose, onChanged, onOpenPu
               </div>
             )}
           </div>
+          <RecordReminders kind="QUOTATION" id={quotation.id} label={quotation.quotation_number} suggestedTitle={`Follow up quotation ${quotation.quotation_number}`} />
         </div>
       </Modal>
 

@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { AttachmentInfo } from "../../types/attachment";
 import { PlaceListItem, RentalFileInfo, TenantDetail, TenantInput } from "../../types/rental";
@@ -190,7 +191,7 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
           </>
         }
       >
-        <div className="space-y-6" onChangeCapture={guard.markDirty}>
+        <div className="space-y-6" onChangeCapture={(e) => e.currentTarget.contains(e.target as Node) && guard.markDirty()}>
           {error && <Alert>{error}</Alert>}
           <AttachmentErrors attachments={attachments} />
           {places.length === 0 && <Alert tone="info">Add a place in the Places tab first, then come back to add the tenant.</Alert>}
@@ -286,6 +287,7 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
               )}
             </div>
           )}
+          {tenantId !== undefined && detail && <RecordReminders kind="TENANT" id={tenantId} label={detail.tenant.name} suggestedTitle={`Collect rent from ${detail.tenant.name}`} />}
         </div>
       </Modal>
 

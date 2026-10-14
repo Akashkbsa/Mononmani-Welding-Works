@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { deleteSupplierBill, getSupplierBill, getSupplierBillFilePreview, openSupplierBillFile } from "../../services/api";
 import { errorMessage, formatDate, formatMoney } from "../../lib/format";
@@ -116,6 +117,7 @@ export default function SupplierBillDetailsModal({ id, onClose, onChanged, onOpe
               </table>
             )}
           </div>
+          <RecordReminders kind="SUPPLIER_BILL" id={bill.id} label={bill.bill_number} suggestedTitle={`Pay supplier bill ${bill.bill_number}`} />
         </div>
       </Modal>
 

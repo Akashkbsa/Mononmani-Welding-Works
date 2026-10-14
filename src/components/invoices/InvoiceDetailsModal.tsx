@@ -1,3 +1,4 @@
+import RecordReminders from "../reminders/RecordReminders";
 import { sanitizeRich } from "../../lib/richText";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Printer } from "lucide-react";
@@ -376,6 +377,7 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged, onO
               <p className="text-slate-600 whitespace-pre-line">{inv.notes}</p>
             </div>
           )}
+          <RecordReminders kind="INVOICE" id={inv.id} label={inv.invoice_number} suggestedTitle={`Follow up payment for ${inv.invoice_number}`} />
         </div>
       </Modal>
 
