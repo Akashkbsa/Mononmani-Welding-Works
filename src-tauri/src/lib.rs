@@ -8,6 +8,7 @@ mod pdf;
 pub mod purchase_orders;
 pub mod quotations;
 pub mod rentals;
+pub mod reminders;
 pub mod supplier_bills;
 pub mod supplier_payments;
 mod settings;

@@ -11,3 +11,4 @@ pub mod quotations { #[path = "../../../../src-tauri/src/quotations/models.rs"] 
 pub mod supplier_bills { #[path = "../../../../src-tauri/src/supplier_bills/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/supplier_bills/repository.rs"] pub mod repository; }
 pub mod supplier_payments { #[path = "../../../../src-tauri/src/supplier_payments/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/supplier_payments/repository.rs"] pub mod repository; }
 pub mod rentals { #[path = "../../../../src-tauri/src/rentals/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/rentals/reminder.rs"] pub mod reminder; #[path = "../../../../src-tauri/src/rentals/repository.rs"] pub mod repository; }
+pub mod reminders { #[path = "../../../../src-tauri/src/reminders/schedule.rs"] pub mod schedule; }
