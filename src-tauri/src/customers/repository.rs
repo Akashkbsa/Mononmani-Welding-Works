@@ -1,4 +1,4 @@
-use super::models::{Customer, CustomerCreateInput, CustomerUpdateInput, DuplicateCheckResult};
+use super::models::{Customer, CustomerCreateInput, CustomerUpdateInput, DuplicateCheckResult, PartyRole, PARTY_TYPES};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -22,6 +22,7 @@ impl CustomerRepository {
             last_used_at: row.get(11)?,
             created_at: row.get(12)?,
             updated_at: row.get(13)?,
+            party_type: row.get(14)?,
         })
     }
 
@@ -179,25 +180,54 @@ impl CustomerRepository {
         ))
     }
 
-    /// Retrieve all customers with default ordering:
+    /// Clean the company type text: trimmed, upper case, one of the three known values.
+    fn clean_party_type(raw: &str) -> Result<String, String> {
+        let t = raw.trim().to_uppercase();
+        if PARTY_TYPES.contains(&t.as_str()) {
+            Ok(t)
+        } else {
+            Err("Choose Customer, Supplier or Both.".to_string())
+        }
+    }
+
+    /// The `AND party_type IN (...)` part for a list filter. `None` or "ALL" means everyone.
+    fn party_clause(party: Option<&str>) -> Result<&'static str, String> {
+        match party.map(|p| p.trim().to_uppercase()).as_deref() {
+            None | Some("") | Some("ALL") => Ok(""),
+            Some("CUSTOMER") => Ok(" AND party_type IN ('CUSTOMER', 'BOTH')"),
+            Some("SUPPLIER") => Ok(" AND party_type IN ('SUPPLIER', 'BOTH')"),
+            Some(_) => Err("Unknown company type.".to_string()),
+        }
+    }
+
+    /// Retrieve all companies with default ordering:
     /// 1. Favorites first
     /// 2. Then by last_used_at (most recent first)
     /// 3. Then by created_at (newest first)
     pub fn find_all(conn: &Connection) -> Result<Vec<Customer>, String> {
-        let sql = r#"
-            SELECT 
-                id, name, gstin, phone, email, address_line1, address_line2, 
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at
+        Self::list_by_party(conn, None)
+    }
+
+    /// The same list limited to customers (Customer and Both) or suppliers (Supplier and Both).
+    pub fn list_by_party(conn: &Connection, party: Option<&str>) -> Result<Vec<Customer>, String> {
+        let sql = format!(
+            r#"
+            SELECT
+                id, name, gstin, phone, email, address_line1, address_line2,
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
             FROM customers
-            ORDER BY 
-                is_favorite DESC, 
-                (last_used_at IS NOT NULL) DESC, 
-                last_used_at DESC, 
+            WHERE 1 = 1{}
+            ORDER BY
+                is_favorite DESC,
+                (last_used_at IS NOT NULL) DESC,
+                last_used_at DESC,
                 created_at DESC
-        "#;
+            "#,
+            Self::party_clause(party)?
+        );
 
         let mut stmt = conn
-            .prepare(sql)
+            .prepare(&sql)
             .map_err(|e| format!("Failed to prepare find_all query: {}", e))?;
 
         let rows = stmt
@@ -212,34 +242,41 @@ impl CustomerRepository {
         Ok(customers)
     }
 
-    /// Search customers locally by name, gstin, phone, or email
+    /// Search companies locally by name, gstin, phone, or email
     pub fn search(conn: &Connection, query: &str) -> Result<Vec<Customer>, String> {
+        Self::search_by_party(conn, query, None)
+    }
+
+    pub fn search_by_party(conn: &Connection, query: &str, party: Option<&str>) -> Result<Vec<Customer>, String> {
         let clean_query = query.trim();
         if clean_query.is_empty() {
-            return Self::find_all(conn);
+            return Self::list_by_party(conn, party);
         }
 
         let search_pattern = format!("%{}%", clean_query);
 
-        let sql = r#"
-            SELECT 
-                id, name, gstin, phone, email, address_line1, address_line2, 
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at
+        let sql = format!(
+            r#"
+            SELECT
+                id, name, gstin, phone, email, address_line1, address_line2,
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
             FROM customers
-            WHERE 
-                name LIKE ?1 OR 
-                COALESCE(gstin, '') LIKE ?1 OR 
-                COALESCE(phone, '') LIKE ?1 OR 
-                COALESCE(email, '') LIKE ?1
-            ORDER BY 
-                is_favorite DESC, 
-                (last_used_at IS NOT NULL) DESC, 
-                last_used_at DESC, 
+            WHERE
+                (name LIKE ?1 OR
+                COALESCE(gstin, '') LIKE ?1 OR
+                COALESCE(phone, '') LIKE ?1 OR
+                COALESCE(email, '') LIKE ?1){}
+            ORDER BY
+                is_favorite DESC,
+                (last_used_at IS NOT NULL) DESC,
+                last_used_at DESC,
                 created_at DESC
-        "#;
+            "#,
+            Self::party_clause(party)?
+        );
 
         let mut stmt = conn
-            .prepare(sql)
+            .prepare(&sql)
             .map_err(|e| format!("Failed to prepare search query: {}", e))?;
 
         let rows = stmt
@@ -254,12 +291,48 @@ impl CustomerRepository {
         Ok(customers)
     }
 
+    /// Refuse a company that is the wrong type for the side of the business a record is on.
+    pub fn require_party(conn: &Connection, id: i64, role: PartyRole) -> Result<(), String> {
+        let found: Option<String> = conn
+            .query_row("SELECT party_type FROM customers WHERE id = ?1", params![id], |r| r.get(0))
+            .optional()
+            .map_err(|e| format!("Failed to check the company: {}", e))?;
+        let kind = found.ok_or_else(|| match role {
+            PartyRole::Customer => "Customer not found.".to_string(),
+            PartyRole::Supplier => "Supplier not found.".to_string(),
+        })?;
+        match (role, kind.as_str()) {
+            (PartyRole::Customer, "SUPPLIER") => Err(
+                "This company is a supplier only, so it can't be used for invoices, payments, purchase orders or quotations."
+                    .to_string(),
+            ),
+            (PartyRole::Supplier, "CUSTOMER") => Err(
+                "This company is a customer only, so it can't be used for supplier bills or supplier payments.".to_string(),
+            ),
+            _ => Ok(()),
+        }
+    }
+
+    /// Invoices, payments, orders, quotations and advances that make a company a customer.
+    fn customer_record_count(conn: &Connection, id: i64) -> Result<i64, String> {
+        conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM invoices WHERE customer_id = ?1)
+                  + (SELECT COUNT(*) FROM payments WHERE customer_id = ?1)
+                  + (SELECT COUNT(*) FROM purchase_orders WHERE customer_id = ?1)
+                  + (SELECT COUNT(*) FROM quotations WHERE customer_id = ?1)
+                  + (SELECT COUNT(*) FROM customer_credits WHERE customer_id = ?1)",
+            params![id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to check customer records: {}", e))
+    }
+
     /// Find single customer by ID
     pub fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Customer>, String> {
         let sql = r#"
             SELECT 
                 id, name, gstin, phone, email, address_line1, address_line2, 
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
             FROM customers
             WHERE id = ?1
         "#;
@@ -299,7 +372,7 @@ impl CustomerRepository {
                 let sql = r#"
                 SELECT 
                     id, name, gstin, phone, email, address_line1, address_line2, 
-                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at
+                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
                 FROM customers
                 WHERE LOWER(TRIM(name)) = LOWER(TRIM(?1)) AND id != ?2
                 LIMIT 1
@@ -315,7 +388,7 @@ impl CustomerRepository {
                 let sql = r#"
                 SELECT 
                     id, name, gstin, phone, email, address_line1, address_line2, 
-                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at
+                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
                 FROM customers
                 WHERE LOWER(TRIM(name)) = LOWER(TRIM(?1))
                 LIMIT 1
@@ -359,6 +432,10 @@ impl CustomerRepository {
             input.postal_code.as_deref(),
         )?;
 
+        let party_type = match input.party_type.as_deref() {
+            Some(p) => Self::clean_party_type(p)?,
+            None => "CUSTOMER".to_string(),
+        };
         let now = Utc::now().to_rfc3339();
         let is_favorite_int = if input.is_favorite.unwrap_or(false) {
             1
@@ -369,8 +446,8 @@ impl CustomerRepository {
         let sql = r#"
             INSERT INTO customers (
                 name, gstin, phone, email, address_line1, address_line2, 
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?11)
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?11, ?12)
         "#;
 
         conn.execute(
@@ -386,7 +463,8 @@ impl CustomerRepository {
                 state,
                 postal_code,
                 is_favorite_int,
-                now
+                now,
+                party_type
             ],
         )
         .map_err(|e| format!("Failed to insert customer: {}", e))?;
@@ -403,9 +481,7 @@ impl CustomerRepository {
         input: CustomerUpdateInput,
     ) -> Result<Customer, String> {
         // Ensure customer exists
-        if Self::find_by_id(conn, id)?.is_none() {
-            return Err(format!("Customer with ID {} not found.", id));
-        }
+        let current = Self::find_by_id(conn, id)?.ok_or_else(|| format!("Customer with ID {} not found.", id))?;
 
         let (
             name,
@@ -428,6 +504,24 @@ impl CustomerRepository {
             input.state.as_deref(),
             input.postal_code.as_deref(),
         )?;
+
+        // A company keeps its type unless the edit names another. Dropping a side of the business
+        // is refused while records of that side exist.
+        let new_type = match input.party_type.as_deref() {
+            Some(p) => Self::clean_party_type(p)?,
+            None => current.party_type.clone(),
+        };
+        if new_type != current.party_type {
+            if new_type == "SUPPLIER" {
+                let n = Self::customer_record_count(conn, id)?;
+                if n > 0 {
+                    return Err(format!(
+                        "This company has {} customer record(s) (invoices, payments, purchase orders, quotations or advances), so it can't be changed to Supplier only.",
+                        n
+                    ));
+                }
+            }
+        }
 
         let now = Utc::now().to_rfc3339();
 
@@ -506,6 +600,14 @@ impl CustomerRepository {
                 ],
             )
             .map_err(|e| format!("Failed to update customer: {}", e))?;
+        }
+
+        if new_type != current.party_type {
+            conn.execute(
+                "UPDATE customers SET party_type = ?1 WHERE id = ?2",
+                params![new_type, id],
+            )
+            .map_err(|e| format!("Failed to update customer type: {}", e))?;
         }
 
         Self::find_by_id(conn, id)?
@@ -622,6 +724,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            party_type: None,
         };
 
         let customer = CustomerRepository::create(&conn, input).expect("Failed to create customer");
@@ -650,6 +753,7 @@ mod tests {
             state: Some("Tamil Nadu".to_string()),
             postal_code: Some("600058".to_string()),
             is_favorite: Some(true),
+            party_type: None,
         };
 
         let customer = CustomerRepository::create(&conn, input).expect("Failed to create complete customer");
@@ -678,6 +782,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            party_type: None,
         };
 
         let result = CustomerRepository::create(&conn, input);
@@ -702,6 +807,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            party_type: None,
         };
         CustomerRepository::create(&conn, input).expect("Failed to create customer");
 
@@ -734,6 +840,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            party_type: None,
         };
 
         let customer = CustomerRepository::create(&conn, input).expect("Failed to create customer");
@@ -757,6 +864,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            party_type: None,
         };
 
         let result = CustomerRepository::create(&conn, input);
@@ -781,6 +889,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            party_type: None,
         };
 
         let result = CustomerRepository::create(&conn, input);
@@ -807,6 +916,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                party_type: None,
             },
         ).unwrap();
 
@@ -843,6 +953,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: Some(false),
+                party_type: None,
             },
         ).unwrap();
 
@@ -877,6 +988,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                party_type: None,
             },
         ).unwrap();
 
@@ -894,6 +1006,7 @@ mod tests {
                 state: Some("Tamil Nadu".to_string()),
                 postal_code: Some("620001".to_string()),
                 is_favorite: None,
+                party_type: None,
             },
         ).unwrap();
 
@@ -927,6 +1040,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                party_type: None,
             },
         ).unwrap();
 
@@ -956,6 +1070,7 @@ mod tests {
                     state: None,
                     postal_code: None,
                     is_favorite: Some(true),
+                    party_type: None,
                 },
             ).unwrap();
 
@@ -972,6 +1087,7 @@ mod tests {
                     state: None,
                     postal_code: None,
                     is_favorite: Some(false),
+                    party_type: None,
                 },
             ).unwrap();
         } // conn1 is closed and dropped here
@@ -1003,6 +1119,7 @@ mod tests {
                 gstin: None, phone: None, email: None, address_line1: None,
                 address_line2: None, city: None, state: None, postal_code: None,
                 is_favorite: Some(false),
+                party_type: None,
             },
         ).unwrap();
 
@@ -1014,6 +1131,7 @@ mod tests {
                 gstin: None, phone: None, email: None, address_line1: None,
                 address_line2: None, city: None, state: None, postal_code: None,
                 is_favorite: Some(false),
+                party_type: None,
             },
         ).unwrap();
 
@@ -1025,6 +1143,7 @@ mod tests {
                 gstin: None, phone: None, email: None, address_line1: None,
                 address_line2: None, city: None, state: None, postal_code: None,
                 is_favorite: Some(true),
+                party_type: None,
             },
         ).unwrap();
 
@@ -1077,6 +1196,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                party_type: None,
             },
         )
         .unwrap();
@@ -1107,6 +1227,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                party_type: None,
             },
         )
         .unwrap();
@@ -1118,5 +1239,154 @@ mod tests {
         let err = CustomerRepository::delete(&conn, customer.id).unwrap_err();
         assert_eq!(err, "This customer has 1 quotation(s), so they can't be deleted.");
         assert!(CustomerRepository::find_by_id(&conn, customer.id).unwrap().is_some());
+    }
+
+    // ---- company type ----
+
+    fn company(conn: &Connection, name: &str, party: Option<&str>) -> Customer {
+        CustomerRepository::create(
+            conn,
+            CustomerCreateInput {
+                name: name.to_string(),
+                gstin: None,
+                phone: None,
+                email: None,
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                is_favorite: None,
+                party_type: party.map(str::to_string),
+            },
+        )
+        .unwrap()
+    }
+
+    fn update_type(conn: &Connection, id: i64, name: &str, party: Option<&str>) -> Result<Customer, String> {
+        CustomerRepository::update(
+            conn,
+            id,
+            CustomerUpdateInput {
+                name: name.to_string(),
+                gstin: None,
+                phone: None,
+                email: None,
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                is_favorite: None,
+                party_type: party.map(str::to_string),
+            },
+        )
+    }
+
+    fn names(list: Vec<Customer>) -> Vec<String> {
+        let mut n: Vec<String> = list.into_iter().map(|c| c.name).collect();
+        n.sort();
+        n
+    }
+
+    #[test]
+    fn new_companies_default_to_customer_and_keep_the_type_chosen() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        assert_eq!(company(&conn, "A", None).party_type, "CUSTOMER");
+        assert_eq!(company(&conn, "B", Some("supplier")).party_type, "SUPPLIER");
+        assert_eq!(company(&conn, "C", Some("BOTH")).party_type, "BOTH");
+        let bad = CustomerRepository::create(
+            &conn,
+            CustomerCreateInput {
+                name: "D".to_string(),
+                gstin: None,
+                phone: None,
+                email: None,
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                is_favorite: None,
+                party_type: Some("VENDOR".to_string()),
+            },
+        );
+        assert_eq!(bad.unwrap_err(), "Choose Customer, Supplier or Both.");
+    }
+
+    #[test]
+    fn lists_and_searches_filter_by_party() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        company(&conn, "Alpha Traders", Some("CUSTOMER"));
+        company(&conn, "Beta Steel", Some("SUPPLIER"));
+        company(&conn, "Gamma Works", Some("BOTH"));
+        assert_eq!(CustomerRepository::list_by_party(&conn, None).unwrap().len(), 3);
+        assert_eq!(names(CustomerRepository::list_by_party(&conn, Some("CUSTOMER")).unwrap()), vec!["Alpha Traders", "Gamma Works"]);
+        assert_eq!(names(CustomerRepository::list_by_party(&conn, Some("SUPPLIER")).unwrap()), vec!["Beta Steel", "Gamma Works"]);
+        assert_eq!(names(CustomerRepository::search_by_party(&conn, "Steel", Some("SUPPLIER")).unwrap()), vec!["Beta Steel"]);
+        assert!(CustomerRepository::search_by_party(&conn, "Steel", Some("CUSTOMER")).unwrap().is_empty());
+        assert_eq!(CustomerRepository::search_by_party(&conn, "", Some("SUPPLIER")).unwrap().len(), 2);
+        assert_eq!(CustomerRepository::list_by_party(&conn, Some("VENDOR")).unwrap_err(), "Unknown company type.");
+    }
+
+    #[test]
+    fn require_party_refuses_the_wrong_type() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        let cust = company(&conn, "A", Some("CUSTOMER")).id;
+        let supp = company(&conn, "B", Some("SUPPLIER")).id;
+        let both = company(&conn, "C", Some("BOTH")).id;
+        assert!(CustomerRepository::require_party(&conn, cust, PartyRole::Customer).is_ok());
+        assert!(CustomerRepository::require_party(&conn, both, PartyRole::Customer).is_ok());
+        assert!(CustomerRepository::require_party(&conn, both, PartyRole::Supplier).is_ok());
+        assert!(CustomerRepository::require_party(&conn, supp, PartyRole::Supplier).is_ok());
+        assert_eq!(
+            CustomerRepository::require_party(&conn, supp, PartyRole::Customer).unwrap_err(),
+            "This company is a supplier only, so it can't be used for invoices, payments, purchase orders or quotations."
+        );
+        assert_eq!(
+            CustomerRepository::require_party(&conn, cust, PartyRole::Supplier).unwrap_err(),
+            "This company is a customer only, so it can't be used for supplier bills or supplier payments."
+        );
+        assert_eq!(CustomerRepository::require_party(&conn, 9999, PartyRole::Customer).unwrap_err(), "Customer not found.");
+        assert_eq!(CustomerRepository::require_party(&conn, 9999, PartyRole::Supplier).unwrap_err(), "Supplier not found.");
+    }
+
+    #[test]
+    fn a_company_with_customer_records_cannot_become_supplier_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        let id = company(&conn, "A", Some("CUSTOMER")).id;
+        let records: [(&str, &str); 5] = [
+            ("invoices", "INSERT INTO invoices (invoice_number, invoice_date, customer_id, customer_name, amount_in_words, created_at, updated_at) VALUES ('I-1', '2026-10-01', ?1, 'A', 'x', 'x', 'x')"),
+            ("payments", "INSERT INTO payments (payment_number, customer_id, customer_name, payment_date, created_at, updated_at) VALUES ('P-1', ?1, 'A', '2026-10-01', 'x', 'x')"),
+            ("purchase_orders", "INSERT INTO purchase_orders (customer_id, po_number, created_at, updated_at) VALUES (?1, 'PO-1', 'x', 'x')"),
+            ("quotations", "INSERT INTO quotations (customer_id, quotation_number, quotation_date, created_at, updated_at) VALUES (?1, 'Q-1', '2026-10-01', 'x', 'x')"),
+            ("customer_credits", "INSERT INTO customer_credits (customer_id, original_amount, remaining_amount, created_at, updated_at) VALUES (?1, 5, 5, 'x', 'x')"),
+        ];
+        for (table, insert) in records {
+            conn.execute(insert, params![id]).unwrap();
+            let err = update_type(&conn, id, "A", Some("SUPPLIER")).unwrap_err();
+            assert_eq!(
+                err,
+                "This company has 1 customer record(s) (invoices, payments, purchase orders, quotations or advances), so it can't be changed to Supplier only.",
+                "{}",
+                table
+            );
+            assert_eq!(update_type(&conn, id, "A", Some("BOTH")).unwrap().party_type, "BOTH", "{}", table);
+            update_type(&conn, id, "A", Some("CUSTOMER")).unwrap();
+            conn.execute(&format!("DELETE FROM {}", table), []).unwrap();
+        }
+        assert_eq!(update_type(&conn, id, "A", Some("SUPPLIER")).unwrap().party_type, "SUPPLIER");
+    }
+
+    #[test]
+    fn editing_without_a_type_keeps_the_current_type() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&dir.path().join("t.db"));
+        let id = company(&conn, "A", Some("SUPPLIER")).id;
+        assert_eq!(update_type(&conn, id, "A renamed", None).unwrap().party_type, "SUPPLIER");
     }
 }

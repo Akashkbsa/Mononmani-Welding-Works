@@ -816,6 +816,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                party_type: None,
             },
         )
         .unwrap()

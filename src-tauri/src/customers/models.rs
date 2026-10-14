@@ -1,5 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+/// What a company is to the business: someone it sells to, buys from, or both.
+pub const PARTY_TYPES: [&str; 3] = ["CUSTOMER", "SUPPLIER", "BOTH"];
+
+/// The side of the business a record needs the company for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartyRole {
+    Customer,
+    Supplier,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Customer {
     pub id: i64,
@@ -16,6 +26,8 @@ pub struct Customer {
     pub last_used_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// "CUSTOMER", "SUPPLIER" or "BOTH".
+    pub party_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +42,9 @@ pub struct CustomerCreateInput {
     pub state: Option<String>,
     pub postal_code: Option<String>,
     pub is_favorite: Option<bool>,
+    /// None on create means CUSTOMER; None on update leaves the type as it is.
+    #[serde(default)]
+    pub party_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +59,9 @@ pub struct CustomerUpdateInput {
     pub state: Option<String>,
     pub postal_code: Option<String>,
     pub is_favorite: Option<bool>,
+    /// None on create means CUSTOMER; None on update leaves the type as it is.
+    #[serde(default)]
+    pub party_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
