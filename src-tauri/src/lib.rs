@@ -4,6 +4,7 @@ mod customers;
 mod db;
 pub mod invoices;
 pub mod payments;
+pub mod payroll;
 mod pdf;
 pub mod purchase_orders;
 pub mod quotations;
