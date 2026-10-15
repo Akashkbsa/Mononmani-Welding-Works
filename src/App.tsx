@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
+import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -12,6 +12,7 @@ import PaymentsPage from "./pages/PaymentsPage";
 import SupplierBillsPage from "./pages/SupplierBillsPage";
 import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
 import RentalsPage from "./pages/RentalsPage";
+import EmployeesPage from "./pages/EmployeesPage";
 import RemindersPage from "./pages/RemindersPage";
 import { ReminderLinkKind } from "./types/reminder";
 import ReminderBanner from "./components/reminders/ReminderBanner";
@@ -19,7 +20,7 @@ import { RemindersContext } from "./components/reminders/RemindersContext";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
 
-export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "reminders" | "customers" | "settings";
+export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "employees" | "reminders" | "customers" | "settings";
 
 /** The menu in groups, in the order the work flows; a thin line separates the groups. */
 const NAV_GROUPS: { id: Page; label: string; icon: typeof FileText }[][] = [
@@ -38,6 +39,7 @@ const NAV_GROUPS: { id: Page; label: string; icon: typeof FileText }[][] = [
     { id: "supplierPayments", label: "Supplier payments", icon: HandCoins },
   ],
   [{ id: "customers", label: "Customers & suppliers", icon: Users }],
+  [{ id: "employees", label: "Employees", icon: HardHat }],
   [{ id: "rentals", label: "Rentals", icon: House }],
 ];
 
@@ -239,6 +241,7 @@ function App() {
                     onOpenHandled={() => setOpenSupplierPaymentId(null)}
                   />
                 )}
+                {page === "employees" && <EmployeesPage />}
                 {page === "rentals" && <RentalsPage openTenantId={otherId("TENANT")} openPlaceId={otherId("PLACE")} onOpenHandled={clearOther} />}
                 {page === "reminders" && <RemindersPage onOpenRecord={openRecord} onChanged={remindersChanged} refreshKey={remindersVersion} />}
                 {page === "customers" && <CustomersPage openId={otherId("COMPANY")} onOpenHandled={clearOther} />}

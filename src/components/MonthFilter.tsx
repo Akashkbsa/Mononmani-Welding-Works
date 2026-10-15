@@ -15,12 +15,15 @@ export default function MonthFilter({
   dates,
   value,
   onChange,
+  allowAll = true,
 }: {
   /** The records' dates as YYYY-MM-DD; empty ones are skipped. */
   dates: (string | null | undefined)[];
   /** "" for all months, otherwise YYYY-MM. */
   value: string;
   onChange: (month: string) => void;
+  /** False leaves out "All months" (a screen that always shows one month). */
+  allowAll?: boolean;
 }) {
   const months = useMemo(() => {
     const keys = new Set(dates.filter((d): d is string => !!d).map((d) => d.slice(0, 7)));
@@ -30,7 +33,7 @@ export default function MonthFilter({
 
   return (
     <select aria-label="Month" className={`${inputClass} w-48`} value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">All months</option>
+      {allowAll && <option value="">All months</option>}
       {months.map((k) => (
         <option key={k} value={k}>
           {monthTitle(k)}
