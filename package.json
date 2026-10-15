@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit -p .",
+    "test:rust": "tools\\test-harness\\test.bat"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

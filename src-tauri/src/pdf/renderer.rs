@@ -162,8 +162,8 @@ impl PdfRenderer {
 
     /// One A4 page per payload, in order, in a single HTML document.
     fn render_html_for_pages(pages: &[serde_json::Value]) -> String {
-        let template = include_str!("../../../src/template/invoice_template.html");
-        let css = include_str!("../../../src/template/invoice_styles.css");
+        let template = include_str!("../../templates/invoice_template.html");
+        let css = include_str!("../../templates/invoice_styles.css");
 
         // Escape '<' so text such as "</script>" in a description cannot end the script block.
         let json = serde_json::to_string(pages)

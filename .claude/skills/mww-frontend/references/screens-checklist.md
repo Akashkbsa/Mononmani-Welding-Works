@@ -73,7 +73,7 @@ Use this during Phase 2 (audit). For every screen, answer each question with evi
 - Footer: Delete and Cancel invoice are visually distinct from Edit and Record payment; destructive confirms say what will remain.
 - Cancelled invoices explain themselves and offer Restore.
 - Payments list inside the dialog is readable and each row links to what it is.
-- The PDF is not redesigned here; changes to `src/template/*` need the owner's approval.
+- The PDF is not redesigned here; changes to `src-tauri/templates/*` need the owner's approval.
 
 ## Payments list
 

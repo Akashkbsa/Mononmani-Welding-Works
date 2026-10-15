@@ -4,16 +4,16 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 
 ## Commands
 
-- Type-check UI: `npx tsc --noEmit -p .`
+- Type-check UI: `npm run typecheck`
 - Build UI: `npm run build`
 - Check Rust: `cargo check --manifest-path src-tauri/Cargo.toml` (needs the WinLibs MinGW `bin` folder first on PATH; see `app.bat`)
 - Run app in dev: `app.bat dev` (Vite on port 1420 + Tauri)
-- Rust tests: `tools\test-harness\test.bat` (plain `cargo test` builds but the test exe can't start on this machine, MinGW manifest issue; see `docs/PROJECT_STRUCTURE.md`). Add new data-layer modules to `tools/test-harness/src/lib.rs`.
+- Rust tests: `npm run test:rust` (runs `tools\test-harness\test.bat`; plain `cargo test` builds but the test exe can't start on this machine, MinGW manifest issue; see `docs/PROJECT_STRUCTURE.md`). Add new data-layer modules to `tools/test-harness/src/lib.rs`.
 
 ## Layout
 
-- `src/` React UI: `App.tsx` (sidebar), `pages/`, `components/` (`ui.tsx` is the shared kit), `services/api.ts` (all Tauri commands), `lib/format.ts`, `lib/gst.ts`, `template/` (invoice PDF HTML/CSS).
-- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/`, `rentals/`, `reminders/`, `payroll/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`.
+- `src/` React UI: `App.tsx` (sidebar), `pages/`, `components/` (`ui.tsx` is the shared kit), `services/api.ts` (all Tauri commands), `types/`, `lib/` (format, gst, period, payroll, reminders, ...).
+- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/`, `rentals/`, `reminders/`, `payroll/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`. The invoice PDF HTML/CSS is in `src-tauri/templates/`.
 - Full description and business rules: `docs/PROJECT_STRUCTURE.md`.
 
 ## Rules that must hold

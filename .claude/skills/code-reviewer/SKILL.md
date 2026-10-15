@@ -22,7 +22,7 @@ git diff <base>..HEAD                  # a range, e.g. main..HEAD
 
 Untracked files are not in `git diff`; read them directly. Do not read the real database under `%APPDATA%` (see AGENTS.md privacy rules).
 
-Report a short **Change summary**: files grouped by area (Rust `customers/ invoices/ payments/ db/ pdf/`, UI `pages/ components/ services/ lib/ template/`, docs/config), one line each on what changed and why it likely changed.
+Report a short **Change summary**: files grouped by area (Rust `customers/ invoices/ payments/ db/ pdf/` and `src-tauri/templates/` (invoice PDF), UI `pages/ components/ services/ lib/`, docs/config), one line each on what changed and why it likely changed.
 
 ## 2. Review
 

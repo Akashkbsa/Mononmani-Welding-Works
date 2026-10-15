@@ -18,6 +18,13 @@ __pycache__/
 tests/output/
 __agent__/
 
+# Local agent scratch (brainstorming and plan-execution workspaces)
+.superpowers/
+
+# Windows clutter
+Thumbs.db
+desktop.ini
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

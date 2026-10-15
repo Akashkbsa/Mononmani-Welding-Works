@@ -56,40 +56,63 @@ Quotations, Purchase orders and Supplier bills also have the date filter; they o
 ## Code layout
 
 ```text
+.                             project root
+  app.bat                     dev / build / open launcher (puts WinLibs MinGW on PATH)
+  package.json, vite.config.ts, tsconfig*.json, index.html   UI build (Vite + TypeScript)
+  .gitattributes, .editorconfig   LF line endings (CRLF for .bat), 2-space indent (4 for Rust)
+  AGENTS.md, CLAUDE.md        rules for anyone changing the code; .claude/ holds the AI assistant's settings and skills
+  docs/                       this guide and BRAND.md (colours, type, interface rules)
+  tools/test-harness/         runs the Rust data-layer tests (see Tests)
+
 src/                          React UI
+  main.tsx, index.css         entry point, Tailwind and the bundled IBM Plex Sans fonts (assets/fonts/)
   App.tsx                     sidebar + page switching
-  components/ui.tsx           Button, Modal, Field, Badge, ConfirmDialog, Toast, ...
+  pages/                      Dashboard, Invoices, Quotations, PurchaseOrders, Payments, SupplierBills, SupplierPayments, Rentals, Employees, Reminders, Customers, Settings
+  services/api.ts             every Tauri command, one function each
+  types/                      TypeScript shapes of the Rust models, one file per feature
+  components/ui.tsx           Button, Modal, Field, Badge, ConfirmDialog, Toast, SearchSelect, ...
+  components/MonthFilter.tsx  the date filter shared by the list screens (month, financial year, custom range)
+  components/*.tsx            BrandMark, ErrorBoundary, CustomerPicker, RichTextBox, BusinessSettingsCard, BackupCard, SnoozeSettingsCard
   components/invoices/        InvoiceFormModal, InvoiceDetailsModal
   components/payments/        PaymentFormModal, PaymentDetailsModal
   components/customers/       CustomerFormModal, CustomerDetailsModal
   components/purchaseOrders/  PurchaseOrderFormModal, PurchaseOrderDetailsModal, PurchaseOrderStatusBadge
   components/quotations/      QuotationFormModal, QuotationDetailsModal
-  components/dashboard/       charts (BarChart, Sparkline, SegmentBar, ProgressBar, ShareRing), ListCard
-  components/rentals/         ThisMonthTab, TenantsTab, PlacesTab, MarkPaidModal, TenantDetailsModal, PlaceDetailsModal, TenantFormModal, PlaceFormModal, SendRemindersModal
-  components/MonthFilter.tsx  the month picker shared by the list screens
-  components/reminders/       ReminderBanner, ReminderFormModal, RecordReminders, RemindersContext
-  components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders, quotations, supplier bills and rentals)
   components/supplierBills/   SupplierBillFormModal, SupplierBillDetailsModal, SupplierBillStatusBadge
   components/supplierPayments/ SupplierPaymentFormModal, SupplierPaymentDetailsModal
+  components/rentals/         ThisMonthTab, TenantsTab, PlacesTab, MarkPaidModal, TenantDetailsModal, PlaceDetailsModal, TenantFormModal, PlaceFormModal, SendRemindersModal
   components/employees/       PaySheetTab, EmployeesTab, EmployeeFormModal, EmployeeDetailsModal, PayMonthModal, WageEntryFormModal
-  pages/                      Dashboard, Invoices, Quotations, PurchaseOrders, Payments, SupplierBills, SupplierPayments, Rentals, Employees, Reminders, Customers, Settings
-  services/api.ts             every Tauri command, one function each
+  components/reminders/       ReminderBanner, ReminderFormModal, RecordReminders, RemindersContext
+  components/dashboard/       charts (BarChart, Sparkline, SegmentBar, ProgressBar, ShareRing), ListCard
+  components/attachments/     useFileAttachments, FileAttachmentsField, FileViewer (shared by purchase orders, quotations, supplier bills, rentals and employees)
   lib/format.ts, lib/gst.ts   money/date formatting, GST state codes
+  lib/period.ts               date-filter periods: months, financial years (April to March), custom ranges
   lib/dashboardStats.ts       monthly sums, ages, top names for the dashboard charts
   lib/usePageShortcuts.ts     "/" and Ctrl+N on list screens
   lib/payroll.ts              pay lines, Days/OT box checks and status text for the employee screens
-  template/                   invoice HTML + CSS used for the PDF
-src-tauri/src/
-  lib.rs                      app setup, command list, open PDF / data folder
-  util.rs                     dates, rounding, Indian number formatting
-  attachments.rs              file rules shared by purchase orders, quotations, supplier bills and rentals (size/type/name checks, upload decoding, temp copies)
-  db/migrations.rs            schema migrations 001–023 (each in a transaction)
-  customers/ invoices/ payments/   models, repository (rules + SQL), commands
-  purchase_orders/ quotations/ supplier_bills/ supplier_payments/   models, repository (rules + SQL), commands
-  reminders/                  schedule.rs (dates, repeats, states), models, repository, commands
-  rentals/                    models, repository (rules + SQL), commands, plus reminder.rs (the fixed message, number clean-up and WhatsApp link; no SQL)
-  payroll/                    calc.rs (pay maths and month rules; no SQL), models, repository (rules + SQL), commands
-  pdf/renderer.rs             fills the template and prints it with Edge/Chrome
+  lib/reminders.ts            reminder states, repeat and snooze labels
+  lib/richText.ts             the invoice item description rules (mirrors util::sanitize_rich_text)
+
+src-tauri/                    Rust backend (Tauri 2)
+  tauri.conf.json             app name, window, bundle and icons; identifier com.manonmani.app
+  capabilities/default.json   what the window is allowed to call
+  .cargo/config.toml          pins the WinLibs MinGW linker
+  icons/                      app icons (Windows .ico and PNGs)
+  templates/                  invoice HTML + CSS the PDF is printed from (compiled into the app)
+  src/
+    lib.rs                    app setup, command list, open PDF / data folder
+    util.rs                   dates, rounding, Indian number formatting, financial year
+    attachments.rs            file rules shared by every feature with files (size/type/name checks, upload decoding, temp copies)
+    db/migrations.rs          schema migrations 001-023 (each in a transaction)
+    storage/paths.rs          the data folder and its subfolders
+    settings/                 business, bank and tax details (app_settings)
+    backup/                   Google Drive backup: snapshot.rs, drive.rs, repository.rs (change log), commands
+    customers/ invoices/ payments/   models, repository (rules + SQL), commands
+    purchase_orders/ quotations/ supplier_bills/ supplier_payments/   models, repository (rules + SQL), commands
+    reminders/                schedule.rs (dates, repeats, states), models, repository (incl. snooze), commands
+    rentals/                  models, repository (rules + SQL), commands, plus reminder.rs (the fixed message, number clean-up and WhatsApp link; no SQL)
+    payroll/                  calc.rs (pay maths and month rules; no SQL), models, repository (rules + SQL), commands
+    pdf/renderer.rs           fills the template and prints it with Edge/Chrome
 ```
 
 ## Data on disk
@@ -99,7 +122,8 @@ src-tauri/src/
 ## Building and running
 
 - `app.bat` — the only launcher: shows a menu, or use `app.bat dev` (`npm run tauri dev`), `app.bat build` (release build), `app.bat open` (start the built app).
-- `npm run build` — type-check and build the UI only.
+- `npm run build` — type-check and build the UI only; `npm run typecheck` only type-checks.
+- `npm run test:rust` — the Rust tests (same as `tools\test-harness\test.bat`).
 
 PDF creation needs Microsoft Edge (installed with Windows) or Google Chrome.
 

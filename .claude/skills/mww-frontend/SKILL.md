@@ -38,7 +38,7 @@ Run the phases in order. Skip a phase only when the request is clearly narrower 
 ### Phase 1: Read the room (cheap, no edits)
 1. `git status`, current branch, `git log --oneline -10`. Confirm you are not on `main`.
 2. Read `AGENTS.md`, `docs/PROJECT_STRUCTURE.md`, `src/index.css`, `src/components/ui.tsx`, `src/App.tsx`.
-3. Find the real surface: `src/pages/*`, `src/components/*`, `src/components/{invoices,payments,customers}/*`, `src/template/*` (the PDF; design changes there need the owner's approval because customers receive it).
+3. Find the real surface: `src/pages/*`, `src/components/*`, `src/components/{invoices,payments,customers}/*`, `src-tauri/templates/*` (the invoice PDF; design changes there need the owner's approval because customers receive it).
 4. Write the one-line **Design read**: "Operate-mode business desktop app for a small workshop; steel-blue and navy; Segoe UI; dense but calm." Set intent for motion: **low**, because most actions repeat all day.
 
 ### Phase 2: Audit (read-only, very detailed)

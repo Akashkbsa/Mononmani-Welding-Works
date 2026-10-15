@@ -1,0 +1,15 @@
+# Text is stored with LF in the repository and checked out with LF, so Windows and editors agree.
+* text=auto eol=lf
+
+# Windows scripts must have CRLF to run in cmd.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Never touch binary files.
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary
+*.pdf binary
+*.db binary
