@@ -73,6 +73,19 @@ import { Reminder, ReminderInput, ReminderLinkKind, ReminderTab } from "../types
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
+import {
+  EmployeeDetail,
+  EmployeeFileInfo,
+  EmployeeInput,
+  EmployeeListItem,
+  EmployeePayment,
+  EmployeePaymentInput,
+  PayMonthDetail,
+  PayMonthInput,
+  PayMonthSummary,
+  PaySheet,
+  PaySheetEntry,
+} from "../types/payroll";
 
 /** Calls a Rust command and turns its error string into an Error with a readable message. */
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -324,3 +337,34 @@ export const restoreDriveBackup = (fileId: string) => call<string>("restore_driv
 // Business settings
 export const getSettings = () => call<BusinessSettings>("get_settings");
 export const saveSettings = (settings: BusinessSettings) => call<BusinessSettings>("save_settings", { settings });
+
+// Employees and payroll
+export const listEmployees = () => call<EmployeeListItem[]>("list_employees");
+export const getEmployee = (id: number) => call<EmployeeDetail | null>("get_employee", { id });
+export const createEmployee = (input: EmployeeInput) => call<EmployeeDetail>("create_employee", { input });
+export const updateEmployee = (id: number, input: EmployeeInput) => call<EmployeeDetail>("update_employee", { id, input });
+export const deleteEmployee = (id: number) => call<void>("delete_employee", { id });
+export const markEmployeeLeft = (id: number, leftOn: string) => call<EmployeeDetail>("mark_employee_left", { id, leftOn });
+export const rejoinEmployee = (id: number, joinedOn: string) => call<EmployeeDetail>("rejoin_employee", { id, joinedOn });
+/** Other employees with the same name, for a warning only. */
+export const findEmployeesByName = (name: string, excludeId?: number) =>
+  call<EmployeeListItem[]>("find_employees_by_name", { name, excludeId: excludeId ?? null });
+export const addEmployeeFile = (employeeId: number, fileName: string, dataBase64: string) =>
+  call<EmployeeFileInfo>("add_employee_file", { employeeId, fileName, dataBase64 });
+export const removeEmployeeFile = (fileId: number) => call<void>("remove_employee_file", { fileId });
+export const getEmployeeFilePreview = (fileId: number) => call<string>("get_employee_file_preview", { fileId });
+export const openEmployeeFile = (fileId: number) => call<void>("open_employee_file", { fileId });
+/** The last 12 months up to this month, newest first. */
+export const getEmployeePayHistory = (employeeId: number) => call<PayMonthSummary[]>("get_employee_pay_history", { employeeId });
+export const getPaySheet = (month: string) => call<PaySheet>("get_pay_sheet", { month });
+export const savePaySheet = (month: string, rows: PaySheetEntry[]) => call<PaySheet>("save_pay_sheet", { month, rows });
+export const getPayMonth = (employeeId: number, month: string) => call<PayMonthDetail>("get_pay_month", { employeeId, month });
+export const savePayMonth = (employeeId: number, month: string, input: PayMonthInput) =>
+  call<PayMonthDetail>("save_pay_month", { employeeId, month, input });
+export const deletePayMonth = (employeeId: number, month: string) => call<void>("delete_pay_month", { employeeId, month });
+export const createEmployeePayment = (input: EmployeePaymentInput) => call<PayMonthDetail>("create_employee_payment", { input });
+export const updateEmployeePayment = (id: number, input: EmployeePaymentInput) =>
+  call<PayMonthDetail>("update_employee_payment", { id, input });
+export const deleteEmployeePayment = (id: number) => call<void>("delete_employee_payment", { id });
+/** Advances and salary handed over between two dates (YYYY-MM-DD). */
+export const listWagePayments = (from: string, to: string) => call<EmployeePayment[]>("list_wage_payments", { from, to });
