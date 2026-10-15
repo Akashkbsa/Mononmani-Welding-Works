@@ -1,6 +1,7 @@
-use super::drive::{self, Credentials, Drive};
-use super::models::{BackupProgress, BackupResult, BackupStatus, DriveBackupList, PendingChanges};
+use super::drive::{self, Credentials, Drive, DRIVE_FULL_MESSAGE, OFFLINE_MESSAGE};
+use super::models::{AutoBackupEvent, BackupProgress, BackupResult, BackupStatus, DriveBackupList, PendingChanges};
 use super::repository::BackupRepository;
+use super::schedule::{self, SpaceState};
 use super::snapshot;
 use crate::AppState;
 use chrono::Local;
@@ -8,7 +9,12 @@ use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
+
+/// The automatic backup first looks one minute after the app opens, then every 15 minutes.
+const AUTO_FIRST_CHECK: Duration = Duration::from_secs(60);
+const AUTO_CHECK_EVERY: Duration = Duration::from_secs(15 * 60);
 
 /// Local copies kept next to the database as an offline fallback.
 const KEEP_LOCAL_COPIES: usize = 7;
@@ -68,6 +74,7 @@ pub fn backup_status(state: State<'_, AppState>) -> Result<BackupStatus, String>
     let conn = state.db.get_connection()?;
     let last_success = BackupRepository::last_run(&conn, true)?;
     let last_seq = BackupRepository::last_success_seq(&conn)?;
+    let (drive_space, drive_free_bytes) = BackupRepository::drive_space(&conn)?;
     let pending = match last_seq {
         Some(seq) => BackupRepository::pending_changes(&conn, seq)?,
         // Records made before change tracking existed are all unbacked-up.
@@ -81,7 +88,56 @@ pub fn backup_status(state: State<'_, AppState>) -> Result<BackupStatus, String>
         last_run: BackupRepository::last_run(&conn, false)?,
         pending,
         running: BUSY.load(Ordering::SeqCst),
+        drive_space,
+        drive_free_bytes,
     })
+}
+
+/// Open Google Drive in the browser so the owner can delete old backups when it is full.
+#[tauri::command]
+pub fn open_google_drive() -> Result<(), String> {
+    tauri_plugin_opener::open_url("https://drive.google.com/drive/search?q=Mononmani%20Backups", None::<&str>)
+        .map_err(|e| format!("Could not open Google Drive: {}", e))
+}
+
+/// Start the automatic daily backup: while the app is open it checks every 15 minutes and backs up
+/// once a day when something changed and Google Drive can be reached. Offline is simply tried again.
+pub fn start_auto_backup(app: AppHandle, db_path: PathBuf, dir: PathBuf) {
+    std::thread::spawn(move || {
+        std::thread::sleep(AUTO_FIRST_CHECK);
+        loop {
+            auto_backup_tick(&app, &db_path, &dir);
+            std::thread::sleep(AUTO_CHECK_EVERY);
+        }
+    });
+}
+
+fn auto_backup_tick(app: &AppHandle, db_path: &Path, dir: &Path) {
+    if BUSY.load(Ordering::SeqCst) || connected_credentials().is_err() {
+        return;
+    }
+    let due = (|| -> Result<bool, String> {
+        let conn = open(db_path)?;
+        let last = BackupRepository::last_run(&conn, true)?.map(|r| r.finished_at);
+        let has_changes = match BackupRepository::last_success_seq(&conn)? {
+            Some(last_seq) => BackupRepository::max_seq(&conn)? > last_seq,
+            None => true,
+        };
+        Ok(schedule::backup_due(last.as_deref(), &Local::now().format("%Y-%m-%d").to_string(), has_changes))
+    })();
+    if !matches!(due, Ok(true)) {
+        return;
+    }
+    match backup_blocking(app, db_path, dir, true) {
+        Ok(result) if result.outcome == "SUCCESS" => {
+            let _ = app.emit("backup-auto", AutoBackupEvent { ok: true, message: "Backed up to Google Drive.".to_string() });
+        }
+        Ok(_) => {}
+        Err(err) if err.starts_with(OFFLINE_MESSAGE) => {}
+        Err(err) => {
+            let _ = app.emit("backup-auto", AutoBackupEvent { ok: false, message: err });
+        }
+    }
 }
 
 /// Sign in to Google in the browser. Empty id/secret reuse the ones already saved.
@@ -121,20 +177,32 @@ pub fn disconnect_drive() -> Result<(), String> {
 pub async fn run_backup(app: AppHandle, state: State<'_, AppState>) -> Result<BackupResult, String> {
     let db_path = state.storage.get_db_path();
     let dir = state.storage.get_backups_dir();
-    tauri::async_runtime::spawn_blocking(move || backup_blocking(&app, &db_path, &dir))
+    tauri::async_runtime::spawn_blocking(move || backup_blocking(&app, &db_path, &dir, false))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn backup_blocking(app: &AppHandle, db_path: &Path, dir: &Path) -> Result<BackupResult, String> {
+/// `auto`: started by the daily check. Being offline is then not recorded (it is tried again soon), and
+/// the same failure is recorded only once a day so the history does not fill up.
+fn backup_blocking(app: &AppHandle, db_path: &Path, dir: &Path, auto: bool) -> Result<BackupResult, String> {
     let _guard = BusyGuard::acquire()?;
     let started = now();
     let conn = open(db_path)?;
     match do_backup(app, &conn, dir, &started) {
         Ok(result) => Ok(result),
         Err(err) => {
-            let _ = BackupRepository::record_failure(&conn, &started, &err);
-            progress(app, "failed", &err);
+            if err == DRIVE_FULL_MESSAGE {
+                let _ = BackupRepository::save_drive_space(&conn, SpaceState::Full.as_str(), Some(0));
+            }
+            let repeated = BackupRepository::last_run(&conn, false).ok().flatten().is_some_and(|r| {
+                r.status == "FAILED" && r.error.as_deref() == Some(err.as_str()) && r.finished_at.get(..10) == started.get(..10)
+            });
+            if !(auto && (err == OFFLINE_MESSAGE || repeated)) {
+                let _ = BackupRepository::record_failure(&conn, &started, &err);
+            }
+            if !auto {
+                progress(app, "failed", &err);
+            }
             Err(format!("{} Nothing was lost; the next backup will include everything.", err))
         }
     }
@@ -173,6 +241,13 @@ fn do_backup(app: &AppHandle, conn: &Connection, dir: &Path, started: &str) -> R
     let snap = snapshot::create_snapshot(conn, dir, &name)?;
     let schema = crate::db::latest_version();
 
+    // Room for this backup? If not, stop here and tell the owner to free space.
+    let (used, limit) = drive.quota().unwrap_or((None, None));
+    if schedule::space_state(used, limit, snap.size_bytes as i64) == SpaceState::Full {
+        BackupRepository::save_drive_space(conn, SpaceState::Full.as_str(), schedule::free_bytes(used, limit))?;
+        return Err(DRIVE_FULL_MESSAGE.to_string());
+    }
+
     progress(app, "upload", "Uploading to Google Drive...");
     let temp_name = format!("{}.partial", name);
     let props = serde_json::json!({
@@ -202,6 +277,19 @@ fn do_backup(app: &AppHandle, conn: &Connection, dir: &Path, started: &str) -> R
         &summary,
     )?;
     snapshot::prune_local(dir, KEEP_LOCAL_COPIES);
+
+    // Older than two years: keep the newest backup of each month. Only the app's own backups are touched.
+    progress(app, "tidy", "Tidying old backups...");
+    if let Ok(list) = drive.list_backups(&folder) {
+        let files: Vec<(String, String)> = list.into_iter().map(|b| (b.id, b.name)).collect();
+        for id in schedule::files_to_thin(&files, Local::now().date_naive()) {
+            let _ = drive.delete(&id);
+        }
+    }
+    // Remember how much room is left for the next one (about the same size as this one).
+    let (used, limit) = drive.quota().unwrap_or((None, None));
+    let space = schedule::space_state(used, limit, snap.size_bytes as i64);
+    BackupRepository::save_drive_space(conn, space.as_str(), schedule::free_bytes(used, limit))?;
     progress(app, "done", "Backup complete.");
 
     Ok(BackupResult {

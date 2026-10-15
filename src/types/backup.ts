@@ -25,6 +25,16 @@ export interface BackupStatus {
   last_run: BackupRun | null;
   pending: PendingChanges;
   running: boolean;
+  /** Google Drive space at the last check: OK, LOW (under 500 MB free) or FULL (the next backup does not fit). */
+  drive_space: "OK" | "LOW" | "FULL";
+  /** Free bytes at the last check; null when unknown or unlimited. */
+  drive_free_bytes: number | null;
+}
+
+/** Sent after an automatic backup worked or failed (never for being offline). */
+export interface AutoBackupEvent {
+  ok: boolean;
+  message: string;
 }
 
 export interface DriveBackup {

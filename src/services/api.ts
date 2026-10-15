@@ -338,6 +338,8 @@ export const disconnectDrive = () => call<void>("disconnect_drive");
 export const runBackup = () => call<BackupResult>("run_backup");
 export const listDriveBackups = () => call<DriveBackupList>("list_drive_backups");
 export const restoreDriveBackup = (fileId: string) => call<string>("restore_drive_backup", { fileId });
+/** Opens Google Drive in the browser at the Mononmani Backups folder search. */
+export const openGoogleDrive = () => call<void>("open_google_drive");
 
 // Business settings
 export const getSettings = () => call<BusinessSettings>("get_settings");

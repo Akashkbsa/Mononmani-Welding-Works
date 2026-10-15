@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
 import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -16,6 +16,8 @@ import EmployeesPage from "./pages/EmployeesPage";
 import RemindersPage from "./pages/RemindersPage";
 import { ReminderLinkKind } from "./types/reminder";
 import ReminderBanner from "./components/reminders/ReminderBanner";
+import BackupBanner from "./components/BackupBanner";
+import { todayISO } from "./lib/format";
 import { RemindersContext } from "./components/reminders/RemindersContext";
 import CustomersPage from "./pages/CustomersPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -68,7 +70,7 @@ function NavButton({
     >
       <Icon className={`w-4 h-4 ${active ? "text-white" : "text-slate-400"}`} />
       {label}
-      {badge && <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Backup due" />}
+      {badge && <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Backups need attention" />}
     </button>
   );
 }
@@ -82,6 +84,9 @@ function financialYear(now = new Date()): string {
 function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [backupDue, setBackupDue] = useState(false);
+  // Bumped after a backup (automatic or from the banner), so the Settings dot checks again.
+  const [backupVersion, setBackupVersion] = useState(0);
+  const backupChanged = useCallback(() => setBackupVersion((v) => v + 1), []);
   // An invoice another screen wants opened (for example from a purchase order); the Invoices page opens it once.
   const [openInvoiceId, setOpenInvoiceId] = useState<number | null>(null);
   // Same handoff for a quotation or a purchase order opened from the other one.
@@ -141,12 +146,16 @@ function App() {
     }
   };
 
-  // Reminds the user (a dot on Settings) when something is not backed up yet.
+  // A dot on Settings when backups need attention: Google Drive not connected, Drive almost full or
+  // full, or changes not backed up since before today (the automatic backup has not managed it yet).
   useEffect(() => {
     getBackupStatus()
-      .then((s) => setBackupDue(s.connected && (s.pending.any || !s.last_success)))
+      .then((s) => {
+        const backedUpToday = !!s.last_success && s.last_success.finished_at.slice(0, 10) >= todayISO();
+        setBackupDue(!s.connected || s.drive_space !== "OK" || (s.pending.any && !backedUpToday));
+      })
       .catch(() => setBackupDue(false));
-  }, [page]);
+  }, [page, backupVersion]);
 
   return (
     <ToastProvider>
@@ -193,6 +202,7 @@ function App() {
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[120rem] px-10 py-7">
             <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />
+            <BackupBanner refreshKey={`${page}-${backupVersion}`} onChanged={backupChanged} />
             <div key={page} className="mww-page">
               <ErrorBoundary>
                 {page === "dashboard" && <DashboardPage onNavigate={setPage} onOpenQuotation={openQuotation} />}

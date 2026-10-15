@@ -75,6 +75,7 @@ pub fn run() {
             let storage = StorageManager::new(app.handle())?;
             storage.clear_temp_dir();
             let db = DatabaseManager::new(storage.get_db_path())?;
+            backup::start_auto_backup(app.handle().clone(), storage.get_db_path(), storage.get_backups_dir());
             app.manage(AppState { storage, db });
             Ok(())
         })
@@ -118,6 +119,7 @@ pub fn run() {
             backup::run_backup,
             backup::list_drive_backups,
             backup::restore_drive_backup,
+            backup::open_google_drive,
             purchase_orders::list_purchase_orders,
             purchase_orders::get_purchase_order,
             purchase_orders::create_purchase_order,

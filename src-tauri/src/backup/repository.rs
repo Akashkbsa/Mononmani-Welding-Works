@@ -170,6 +170,27 @@ impl BackupRepository {
         .map_err(|e| e.to_string())
     }
 
+    /// The last known Google Drive space ("OK", "LOW" or "FULL") and free bytes, kept in `app_settings`.
+    pub fn drive_space(conn: &Connection) -> Result<(String, Option<i64>), String> {
+        let value: Option<String> = conn
+            .query_row("SELECT value FROM app_settings WHERE key = 'drive_space'", [], |r| r.get(0))
+            .optional()
+            .map_err(|e| format!("Could not read the Drive space: {}", e))?;
+        let parsed = value.and_then(|v| serde_json::from_str::<(String, Option<i64>)>(&v).ok());
+        Ok(parsed.unwrap_or_else(|| ("OK".to_string(), None)))
+    }
+
+    pub fn save_drive_space(conn: &Connection, state: &str, free: Option<i64>) -> Result<(), String> {
+        let value = serde_json::to_string(&(state, free)).map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES ('drive_space', ?1, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![value],
+        )
+        .map_err(|e| format!("Could not save the Drive space: {}", e))?;
+        Ok(())
+    }
+
     pub fn last_run(conn: &Connection, only_success: bool) -> Result<Option<BackupRun>, String> {
         let filter = if only_success { "WHERE status = 'SUCCESS'" } else { "" };
         conn.query_row(
@@ -313,6 +334,17 @@ mod tests {
         .unwrap();
         let p = BackupRepository::pending_changes(&conn, before).unwrap();
         assert_eq!(p.lines, vec!["1 employee added", "1 pay month added", "1 wage payment added"]);
+    }
+
+    #[test]
+    fn drive_space_is_remembered_between_checks() {
+        let (_d, conn) = setup();
+        assert_eq!(BackupRepository::drive_space(&conn).unwrap(), ("OK".to_string(), None), "nothing known yet");
+        BackupRepository::save_drive_space(&conn, "LOW", Some(400)).unwrap();
+        assert_eq!(BackupRepository::drive_space(&conn).unwrap(), ("LOW".to_string(), Some(400)));
+        BackupRepository::save_drive_space(&conn, "FULL", Some(0)).unwrap();
+        BackupRepository::save_drive_space(&conn, "OK", None).unwrap();
+        assert_eq!(BackupRepository::drive_space(&conn).unwrap(), ("OK".to_string(), None));
     }
 
     #[test]

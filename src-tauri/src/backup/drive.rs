@@ -30,7 +30,9 @@ const KEYRING_USER: &str = "google-drive";
 
 pub const REAUTH_MESSAGE: &str =
     "Google sign-in has expired or was removed. Press Connect Google Drive to reconnect; your data is safe.";
-const OFFLINE_MESSAGE: &str = "You're offline or Google Drive can't be reached. Connect to the internet and try again.";
+pub const OFFLINE_MESSAGE: &str = "You're offline or Google Drive can't be reached. Connect to the internet and try again.";
+pub const DRIVE_FULL_MESSAGE: &str =
+    "Google Drive is full. Open Google Drive, delete the oldest backups in the Mononmani Backups folder, then back up again.";
 
 /// Saved in Windows Credential Manager, never in the database or a file.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -91,7 +93,7 @@ fn api_err(resp: Response) -> String {
         return REAUTH_MESSAGE.to_string();
     }
     if body.contains("storageQuotaExceeded") || body.contains("quotaExceeded") {
-        return "Google Drive is full. Free some space in the backup Google account and try again.".to_string();
+        return DRIVE_FULL_MESSAGE.to_string();
     }
     if status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND {
         return format!(

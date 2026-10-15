@@ -70,8 +70,11 @@ export default function BackupCard() {
   useEffect(() => {
     refresh();
     const unlisten = listen<BackupProgress>("backup-progress", (e) => setStage(e.payload.message));
+    // The automatic daily backup ran in the background: show its result here too.
+    const unlistenAuto = listen("backup-auto", () => refresh());
     return () => {
       unlisten.then((f) => f());
+      unlistenAuto.then((f) => f());
     };
   }, [refresh]);
 
@@ -122,8 +125,9 @@ export default function BackupCard() {
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Back up to Google Drive</h2>
           <p className="text-sm text-slate-600 mt-1">
-            Click Back up whenever you are online, for example at the end of the day. Every backup is a complete copy
-            of your records, and older backups are kept so an earlier version can always be restored.
+            The app backs up by itself once a day while it is open and online, and tries again later if the internet
+            is off. Every backup is a complete copy of your records. Backups from the last two years are all kept;
+            older ones keep one per month. You can also press Back up now at any time.
           </p>
         </div>
         {status.connected && (
@@ -133,8 +137,10 @@ export default function BackupCard() {
 
       {needsSetup ? (
         <div className="space-y-3">
-          {status.connected === false && status.configured && (
-            <Alert tone="info">Google Drive is not connected. Press Connect to sign in again.</Alert>
+          {status.configured ? (
+            <Alert tone="info">Google Drive is not connected, so nothing is being backed up. Press Connect to sign in again.</Alert>
+          ) : (
+            <Alert>Backups aren't set up yet, so nothing is being backed up. Follow the one-time setup below to connect Google Drive.</Alert>
           )}
           <details className="text-sm text-slate-600">
             <summary className="cursor-pointer text-slate-800 font-medium">One-time setup (new Google account)</summary>

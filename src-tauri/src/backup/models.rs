@@ -33,6 +33,17 @@ pub struct BackupStatus {
     pub last_run: Option<BackupRun>,
     pub pending: PendingChanges,
     pub running: bool,
+    /// Google Drive space at the last check: "OK", "LOW" (under 500 MB free) or "FULL" (the next backup does not fit).
+    pub drive_space: String,
+    /// Free bytes at the last check; None when unknown or unlimited.
+    pub drive_free_bytes: Option<i64>,
+}
+
+/// Sent to the window after an automatic backup worked or failed (never for being offline).
+#[derive(Debug, Clone, Serialize)]
+pub struct AutoBackupEvent {
+    pub ok: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
