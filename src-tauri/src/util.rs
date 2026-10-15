@@ -8,10 +8,31 @@ pub fn round2(value: f64) -> f64 {
     if !value.is_finite() {
         return value;
     }
-    let paise: f64 = format!("{:.14e}", value * 100.0).parse().unwrap_or(value * 100.0);
+    let raw = value * 100.0;
+    // Reading the paise to 15 digits moves them by far less than this margin, so it can only change
+    // the result for a value right at half a paisa. Every other value is rounded directly, which
+    // gives the same answer without the slow text round trip (lists round thousands of amounts).
+    let margin = raw.abs() * 1e-13 + 1e-13;
+    let paise = if ((raw - raw.floor()) - 0.5).abs() > margin {
+        raw
+    } else {
+        format!("{:.14e}", raw).parse().unwrap_or(raw)
+    };
     let rounded = paise.round() / 100.0;
     // No "-0.00" for a tiny negative amount.
     if rounded == 0.0 { 0.0 } else { rounded }
+}
+
+/// Largest amount or quantity accepted anywhere: ₹1 lakh crore. Anything bigger is a typing
+/// mistake, and well below it every amount stays exact to the paisa.
+pub const MAX_AMOUNT: f64 = 1e12;
+
+/// `value` if it is a real number no bigger than `MAX_AMOUNT`, otherwise a message naming `what`.
+pub fn check_amount(value: f64, what: &str) -> Result<f64, String> {
+    if !value.is_finite() || value.abs() > MAX_AMOUNT {
+        return Err(format!("{} is too large. Check the number.", what));
+    }
+    Ok(value)
 }
 
 /// 2268000.5 -> "22,68,000.50" (Indian digit grouping).

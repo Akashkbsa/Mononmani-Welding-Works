@@ -3,7 +3,8 @@ use super::models::{
     InvoiceItemInput, InvoiceListItem, InvoiceWithItems,
 };
 use crate::util::{
-    doc_number, doc_sequence, financial_year_label, normalize_date, normalize_vehicle_number, parse_date, round2, rupees,
+    check_amount, doc_number, doc_sequence, financial_year_label, normalize_date, normalize_vehicle_number, parse_date, round2,
+    rupees,
 };
 use crate::purchase_orders::repository::PurchaseOrderRepository;
 use crate::customers::models::PartyRole;
@@ -203,11 +204,18 @@ impl InvoiceRepository {
             if item.rate < 0.0 {
                 return Err(format!("Line {}: rate cannot be negative.", idx + 1));
             }
-            item_amounts.push(round2(item.quantity * item.rate));
+            check_amount(item.quantity, &format!("Line {}: quantity", idx + 1))?;
+            check_amount(item.rate, &format!("Line {}: rate", idx + 1))?;
+            item_amounts.push(check_amount(round2(item.quantity * item.rate), &format!("Line {}: amount", idx + 1))?);
         }
 
-        let subtotal = round2(item_amounts.iter().sum());
-        let discount = round2(discount.unwrap_or(0.0).max(0.0));
+        let subtotal = check_amount(round2(item_amounts.iter().sum()), "The invoice total")?;
+        let discount = round2(check_amount(discount.unwrap_or(0.0), "Discount")?.max(0.0));
+        for rate in [cgst_rate, sgst_rate, igst_rate].into_iter().flatten() {
+            if !rate.is_finite() || rate > 100.0 {
+                return Err("A tax rate must be between 0 and 100%.".to_string());
+            }
+        }
         if discount > subtotal {
             return Err("Discount cannot be more than the subtotal.".to_string());
         }
@@ -632,15 +640,16 @@ impl InvoiceRepository {
             SELECT
                 i.id, i.invoice_number, i.invoice_date, i.due_date, i.payment_terms_days,
                 i.customer_id, i.customer_name, i.customer_gstin, i.total_amount, i.tax_type, i.status,
-                COALESCE(SUM(pa.amount_allocated), 0.0) AS paid_amount,
-                COALESCE(SUM(pa.tds_allocated), 0.0) AS tds_amount,
+                -- Looked up per invoice through the allocations index: much faster than joining every
+                -- allocation and grouping when there are thousands of invoices.
+                COALESCE((SELECT SUM(amount_allocated) FROM payment_allocations WHERE invoice_id = i.id), 0.0) AS paid_amount,
+                COALESCE((SELECT SUM(tds_allocated) FROM payment_allocations WHERE invoice_id = i.id), 0.0) AS tds_amount,
                 i.pdf_path,
                 (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS items_count,
                 i.created_at,
                 i.purchase_order_id,
                 (SELECT po_number FROM purchase_orders WHERE id = i.purchase_order_id)
             FROM invoices i
-            LEFT JOIN payment_allocations pa ON pa.invoice_id = i.id
             WHERE 1=1
             "#,
         );
@@ -670,7 +679,7 @@ impl InvoiceRepository {
             params_vec.push(Box::new(dt.format("%Y-%m-%d").to_string()));
         }
 
-        query.push_str(" GROUP BY i.id ORDER BY i.invoice_date DESC, i.id DESC");
+        query.push_str(" ORDER BY i.invoice_date DESC, i.id DESC");
 
         let mut stmt = conn
             .prepare(&query)
@@ -757,7 +766,7 @@ impl InvoiceRepository {
             return "ZERO RUPEES".to_string();
         }
         if num < 0 {
-            num = num.abs();
+            num = num.checked_abs().unwrap_or(i64::MAX);
         }
 
         let units = [
@@ -772,7 +781,9 @@ impl InvoiceRepository {
         let mut words = String::new();
 
         if num >= 1_00_00_000 {
-            words.push_str(&format!("{} CRORE ", Self::convert_sub_lakh((num / 1_00_00_000) as usize, &units, &tens)));
+            // A thousand crore or more is itself spelled out in lakhs and crores ("ONE LAKH CRORE").
+            let crores = Self::number_to_words(num / 1_00_00_000);
+            words.push_str(&format!("{} CRORE ", crores.strip_suffix(" RUPEES").unwrap_or(&crores)));
             num %= 1_00_00_000;
         }
 

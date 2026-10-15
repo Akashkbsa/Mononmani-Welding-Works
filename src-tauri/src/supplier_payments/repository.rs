@@ -6,7 +6,7 @@ use crate::rentals::reminder::{normalize_whatsapp_number, whatsapp_link};
 use crate::customers::models::PartyRole;
 use crate::customers::repository::CustomerRepository;
 use crate::util::{
-    display_date, doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today, MONEY_EPS,
+    check_amount, display_date, doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today, MONEY_EPS,
 };
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -115,8 +115,8 @@ impl SupplierPaymentRepository {
         CustomerRepository::require_party(conn, supplier_id, PartyRole::Supplier)?;
 
         let payment_date = normalize_date(&input.payment_date, "Payment date")?;
-        let amount_paid = round2(input.amount_paid);
-        let writeoff_amount = round2(input.writeoff_amount);
+        let amount_paid = round2(check_amount(input.amount_paid, "Amount paid")?);
+        let writeoff_amount = round2(check_amount(input.writeoff_amount, "Write-off")?);
         if amount_paid < 0.0 || writeoff_amount < 0.0 {
             return Err("Amounts cannot be negative.".to_string());
         }
@@ -126,7 +126,7 @@ impl SupplierPaymentRepository {
         let mut seen = HashSet::new();
         let mut allocations = Vec::new();
         for alloc in &input.allocations {
-            let amount = round2(alloc.allocated_amount);
+            let amount = round2(check_amount(alloc.allocated_amount, "An allocated amount")?);
             if amount <= 0.0 {
                 continue;
             }

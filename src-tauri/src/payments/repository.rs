@@ -6,7 +6,9 @@ use super::models::{
 use crate::customers::models::PartyRole;
 use crate::customers::repository::CustomerRepository;
 use crate::invoices::repository::InvoiceRepository;
-use crate::util::{doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today};
+use crate::util::{
+    check_amount, doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today,
+};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
@@ -138,13 +140,13 @@ impl PaymentRepository {
         CustomerRepository::require_party(conn, customer_id, PartyRole::Customer)?;
 
         let payment_date = normalize_date(&input.payment_date, "Payment date")?;
-        let amount_received = round2(input.amount_received);
-        let tds_amount = round2(input.tds_amount);
+        let amount_received = round2(check_amount(input.amount_received, "Amount received")?);
+        let tds_amount = round2(check_amount(input.tds_amount, "TDS")?);
         if amount_received < 0.0 || tds_amount < 0.0 {
             return Err("Amounts cannot be negative.".to_string());
         }
         let tds_recognized = input.tds_recognized && tds_amount > 0.0;
-        let writeoff_amount = round2(input.writeoff_amount);
+        let writeoff_amount = round2(check_amount(input.writeoff_amount, "Write-off")?);
         if writeoff_amount < 0.0 {
             return Err("Amounts cannot be negative.".to_string());
         }
@@ -155,7 +157,7 @@ impl PaymentRepository {
         let mut seen = HashSet::new();
         let mut allocations = Vec::new();
         for alloc in &input.allocations {
-            let amount = round2(alloc.allocated_amount);
+            let amount = round2(check_amount(alloc.allocated_amount, "An allocated amount")?);
             if amount <= 0.0 {
                 continue;
             }
@@ -182,7 +184,7 @@ impl PaymentRepository {
         // Advances fill any gap between the allocations and the money received.
         let id_for_exclusion = id.unwrap_or(-1);
         let available_credit = Self::available_credit(conn, customer_id, id_for_exclusion)?;
-        let credit_allowed = round2(input.credit_to_apply.max(0.0).min(available_credit));
+        let credit_allowed = round2(check_amount(input.credit_to_apply, "Advance used")?.max(0.0).min(available_credit));
         if writeoff_amount > EPS && total_allocated + EPS < total_settled {
             return Err(format!(
                 "{} written off is more than the shortfall. Only {} is short.",
@@ -714,11 +716,9 @@ impl PaymentRepository {
             .prepare(
                 r#"
                 SELECT i.total_amount,
-                       COALESCE(SUM(pa.amount_allocated + pa.tds_allocated), 0.0)
+                       COALESCE((SELECT SUM(amount_allocated + tds_allocated) FROM payment_allocations WHERE invoice_id = i.id), 0.0)
                 FROM invoices i
-                LEFT JOIN payment_allocations pa ON pa.invoice_id = i.id
                 WHERE i.status = 'ISSUED'
-                GROUP BY i.id
                 "#,
             )
             .map_err(|e| e.to_string())?;

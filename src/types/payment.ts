@@ -87,6 +87,9 @@ export interface PaymentInput {
 export interface PaymentFilter {
   query?: string;
   customer_id?: number;
+  /** YYYY-MM-DD, inclusive. */
+  date_from?: string;
+  date_to?: string;
   payment_method?: string;
   is_verified?: boolean;
 }

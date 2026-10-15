@@ -188,16 +188,18 @@ export default function DashboardPage({
 
   const load = useCallback(async () => {
     // Each part loads on its own, so one slow or failing part does not blank the whole dashboard.
+    // Money in and out is only charted for the last few months, so only those months are fetched.
+    const chartStart = `${shiftMonth(currentMonth(), -(MONTHS - 1))}-01`;
     const [summary, invoices, payments, bills, billsSummary, supplierPayments, quotations, rent, wages] = await Promise.allSettled([
       getPaymentsSummary(),
       listInvoices(),
-      listPayments(),
+      listPayments({ date_from: chartStart }),
       listSupplierBills(),
       getSupplierBillsSummary(),
-      listSupplierPayments(),
+      listSupplierPayments({ date_from: chartStart }),
       listQuotations(),
       getRentMonthOverview(currentMonth()),
-      listWagePayments(`${shiftMonth(currentMonth(), -(MONTHS - 1))}-01`, todayISO()),
+      listWagePayments(chartStart, todayISO()),
     ]);
     if (summary.status === "rejected" || invoices.status === "rejected" || payments.status === "rejected") {
       const failed = [summary, invoices, payments].find((r) => r.status === "rejected") as PromiseRejectedResult;

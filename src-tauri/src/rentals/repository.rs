@@ -4,7 +4,7 @@ use super::models::{
 };
 use super::reminder::{month_label, normalize_whatsapp_number, rent_reminder_text, whatsapp_link};
 use crate::attachments::{clean_file_name, validate_file};
-use crate::util::{normalize_date, round2};
+use crate::util::{check_amount, normalize_date, round2};
 use chrono::Utc;
 use rusqlite::{named_params, params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet};
@@ -28,7 +28,7 @@ impl RentalRepository {
         if name.is_empty() {
             return Err("Place name is required.".to_string());
         }
-        let rent = round2(input.monthly_rent);
+        let rent = round2(check_amount(input.monthly_rent, "Monthly rent")?);
         if rent < 0.0 {
             return Err("Monthly rent can't be negative.".to_string());
         }
@@ -151,7 +151,7 @@ impl RentalRepository {
             return Err(PLACE_NOT_FOUND.to_string());
         }
         let number = normalize_whatsapp_number(&input.whatsapp_number)?;
-        let rent = round2(input.monthly_rent);
+        let rent = round2(check_amount(input.monthly_rent, "Monthly rent")?);
         if !(rent > 0.0) {
             return Err("Monthly rent must be more than zero.".to_string());
         }

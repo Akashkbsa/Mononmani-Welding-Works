@@ -31,14 +31,14 @@ fn get_storage_info(state: State<'_, AppState>) -> StorageInfo {
     state.storage.get_storage_info()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_db_status(state: State<'_, AppState>) -> Result<DbStatusInfo, String> {
     state.db.get_status()
 }
 
 /// Open a generated invoice PDF in the default viewer. Only files inside the app's
 /// Invoices folder can be opened.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_invoice_pdf(path: String, state: State<'_, AppState>) -> Result<(), String> {
     let file = std::path::Path::new(&path)
         .canonicalize()
@@ -61,7 +61,7 @@ fn open_invoice_pdf(path: String, state: State<'_, AppState>) -> Result<(), Stri
 }
 
 /// Show the app's data folder (database, PDFs, backups) in the file explorer.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_data_folder(state: State<'_, AppState>) -> Result<(), String> {
     tauri_plugin_opener::open_path(state.storage.get_app_data_dir(), None::<&str>)
         .map_err(|e| format!("Could not open the folder: {}", e))

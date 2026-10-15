@@ -1,6 +1,8 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationLog {
@@ -496,7 +498,24 @@ const MIGRATIONS: &[Migration] = &[
         name: "024_log_settings_and_supplier_allocations",
         sql: LOG_SETTINGS_AND_SUPPLIER_ALLOCATIONS_SQL,
     },
+    Migration {
+        version: 25,
+        name: "025_list_order_indexes",
+        sql: LIST_ORDER_INDEXES_SQL,
+    },
 ];
+
+/// Lists show the newest first and then by id. An ascending date index read backwards gives exactly
+/// that order, so the list needs no extra sort; the older descending date indexes could not.
+pub const LIST_ORDER_INDEXES_SQL: &str = r#"
+    DROP INDEX IF EXISTS idx_invoices_date;
+    DROP INDEX IF EXISTS idx_payments_date;
+    DROP INDEX IF EXISTS idx_supplier_payments_date;
+    CREATE INDEX IF NOT EXISTS idx_invoices_date_order ON invoices(invoice_date);
+    CREATE INDEX IF NOT EXISTS idx_payments_date_order ON payments(payment_date);
+    CREATE INDEX IF NOT EXISTS idx_supplier_payments_date_order ON supplier_payments(payment_date);
+    CREATE INDEX IF NOT EXISTS idx_supplier_bills_date_order ON supplier_bills(bill_date);
+"#;
 
 /// Two tables the backup's change log missed. The owner's settings (business, bank, tax, snooze
 /// choices): without this, changing only them never started the daily backup. The backup's own
@@ -1119,18 +1138,49 @@ pub fn latest_version() -> i32 {
 
 pub struct DatabaseManager {
     db_path: String,
+    /// The one connection the app's commands share, opened on first use. Commands take turns on
+    /// it, as they did when they all ran on the UI thread, so two saves never collide.
+    shared: Mutex<Option<Connection>>,
+}
+
+/// The shared connection, held until this is dropped.
+pub struct SharedConnection<'a>(MutexGuard<'a, Option<Connection>>);
+
+impl Deref for SharedConnection<'_> {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        self.0.as_ref().expect("the shared connection is opened before it is handed out")
+    }
 }
 
 impl DatabaseManager {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let db_path = path.as_ref().to_string_lossy().to_string();
-        let manager = Self { db_path };
+        let manager = Self { db_path, shared: Mutex::new(None) };
         manager.initialize_and_migrate()?;
         Ok(manager)
     }
 
+    /// The app's shared connection, waiting for any command still using it. Keep it only as long as needed.
+    pub fn connection(&self) -> Result<SharedConnection<'_>, String> {
+        let mut guard = self.shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.is_none() {
+            *guard = Some(self.get_connection()?);
+        }
+        Ok(SharedConnection(guard))
+    }
+
+    /// Close the shared connection and keep it closed until the returned guard is dropped, so the
+    /// database file can be replaced (restore). The next command opens it again.
+    pub fn close_shared(&self) -> MutexGuard<'_, Option<Connection>> {
+        let mut guard = self.shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = None;
+        guard
+    }
+
+    /// A new connection of its own (migrations, backups, tests).
     pub fn get_connection(&self) -> Result<Connection, String> {
-        let conn = Connection::open(&self.db_path)
+        let mut conn = Connection::open(&self.db_path)
             .map_err(|e| format!("Failed to open SQLite database at {}: {}", self.db_path, e))?;
 
         conn.execute_batch(
@@ -1139,6 +1189,10 @@ impl DatabaseManager {
              PRAGMA busy_timeout = 5000;",
         )
         .map_err(|e| format!("Failed to configure SQLite pragmas: {}", e))?;
+
+        // A save takes the write lock when it starts, so it waits its turn (busy_timeout) instead of
+        // failing with "database is locked" when another connection (the backup) wrote meanwhile.
+        conn.set_transaction_behavior(TransactionBehavior::Immediate);
 
         Ok(conn)
     }

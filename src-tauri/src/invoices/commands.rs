@@ -9,68 +9,68 @@ use crate::AppState;
 use serde::Serialize;
 use tauri::State;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_invoices(
     filter: Option<InvoiceFilterInput>,
     state: State<'_, AppState>,
 ) -> Result<Vec<InvoiceListItem>, String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::find_all(&conn, filter.unwrap_or_default())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_invoice(id: i64, state: State<'_, AppState>) -> Result<Option<InvoiceWithItems>, String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::find_by_id(&conn, id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_next_invoice_number(state: State<'_, AppState>) -> Result<String, String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::get_next_invoice_number(&conn)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_duplicate_invoice_number(
     invoice_number: String,
     exclude_id: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<DuplicateInvoiceCheckResult, String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::check_duplicate_number(&conn, &invoice_number, exclude_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_invoice(input: InvoiceCreateInput, state: State<'_, AppState>) -> Result<InvoiceWithItems, String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::create(&conn, input)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_invoice(
     id: i64,
     input: InvoiceUpdateInput,
     state: State<'_, AppState>,
 ) -> Result<InvoiceWithItems, String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::update(&conn, id, input)
 }
 
 /// Cancel an invoice (`cancelled` true) or restore it to Issued (false).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_invoice_cancelled(
     id: i64,
     cancelled: bool,
     state: State<'_, AppState>,
 ) -> Result<InvoiceWithItems, String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::set_cancelled(&conn, id, cancelled)?;
     InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_invoice(id: i64, state: State<'_, AppState>) -> Result<(), String> {
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     InvoiceRepository::delete(&conn, id)
 }
 
@@ -84,7 +84,7 @@ pub async fn generate_invoice_pdf_by_id(
 ) -> Result<String, String> {
     let copy = CopyType::parse(copy_type.as_deref());
     let (invoice, seller) = {
-        let conn = state.db.get_connection()?;
+        let conn = state.db.connection()?;
         let invoice =
             InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))?;
         (invoice, crate::settings::repository::SettingsRepository::get(&conn)?)
@@ -107,7 +107,7 @@ pub async fn generate_invoice_pdf_by_id(
 
     let path = generated.to_string_lossy().to_string();
     if copy == CopyType::Original {
-        let conn = state.db.get_connection()?;
+        let conn = state.db.connection()?;
         InvoiceRepository::update_pdf_path(&conn, id, &path)?;
     }
     Ok(path)
@@ -133,7 +133,7 @@ pub async fn generate_invoice_copies_pdf(
     }
 
     let (invoice, seller) = {
-        let conn = state.db.get_connection()?;
+        let conn = state.db.connection()?;
         let invoice =
             InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))?;
         (invoice, crate::settings::repository::SettingsRepository::get(&conn)?)
@@ -186,7 +186,7 @@ pub async fn generate_month_invoices_pdf(
     let last = next_first.pred_opt().ok_or("Choose a valid month.")?;
 
     let (invoices, seller) = {
-        let conn = state.db.get_connection()?;
+        let conn = state.db.connection()?;
         let mut list = InvoiceRepository::find_all(
             &conn,
             InvoiceFilterInput {

@@ -7,6 +7,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Text shown as it is when put into HTML: `<`, `>`, `&` and quotes are escaped.
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+}
+
 /// The three copies a GST tax invoice is printed in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CopyType {
@@ -77,8 +82,9 @@ impl PdfRenderer {
                 serde_json::json!({
                     "sl_no": item.sl_no,
                     "description": crate::util::sanitize_rich_text(&item.description),
-                    "hsn_sac": item.hsn_sac,
-                    "qum": item.qum,
+                    // The template puts the line cells in with innerHTML, so plain-text cells are escaped.
+                    "hsn_sac": escape_html(&item.hsn_sac),
+                    "qum": escape_html(&item.qum),
                     "qty": item.quantity,
                     "rate": indian_number(item.rate),
                     "amount": indian_number(item.amount),

@@ -1,7 +1,7 @@
 use super::models::*;
 use crate::attachments::{clean_file_name, validate_file};
 use crate::rentals::reminder::month_label;
-use crate::util::{display_date, normalize_date, round2};
+use crate::util::{check_amount, display_date, normalize_date, round2};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -15,7 +15,7 @@ fn clean(value: &Option<String>) -> Option<String> {
 }
 
 fn check_wage(wage: f64) -> Result<f64, String> {
-    let wage = round2(wage);
+    let wage = round2(check_amount(wage, "Daily wage")?);
     if !wage.is_finite() || wage <= 0.0 {
         return Err("Daily wage must be more than 0.".to_string());
     }
@@ -23,7 +23,7 @@ fn check_wage(wage: f64) -> Result<f64, String> {
 }
 
 fn check_ot_rate(rate: f64) -> Result<f64, String> {
-    let rate = round2(rate);
+    let rate = round2(check_amount(rate, "OT rate")?);
     if !rate.is_finite() || rate < 0.0 {
         return Err("OT rate can't be negative.".to_string());
     }
@@ -484,7 +484,7 @@ impl PayrollRepository {
         if days == 0.0 && hours > 0.0 {
             return Err("OT hours need days worked.".to_string());
         }
-        let bonus = round2(input.bonus_amount);
+        let bonus = round2(check_amount(input.bonus_amount, "Bonus")?);
         if !bonus.is_finite() || bonus < 0.0 {
             return Err("Bonus can't be negative.".to_string());
         }
@@ -685,7 +685,7 @@ impl PayrollRepository {
                 return Err("A payment's employee can't be changed.".to_string());
             }
         }
-        let amount = round2(input.amount);
+        let amount = round2(check_amount(input.amount, "Amount")?);
         if !amount.is_finite() || amount <= 0.0 {
             return Err("Amount must be more than 0.".to_string());
         }

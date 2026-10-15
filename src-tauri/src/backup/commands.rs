@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The automatic backup first looks one minute after the app opens, then every 15 minutes.
 const AUTO_FIRST_CHECK: Duration = Duration::from_secs(60);
@@ -68,10 +68,10 @@ fn connected_credentials() -> Result<Credentials, String> {
         .ok_or_else(|| "Connect Google Drive first (Settings).".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_status(state: State<'_, AppState>) -> Result<BackupStatus, String> {
     let creds = drive::load_credentials().ok().flatten();
-    let conn = state.db.get_connection()?;
+    let conn = state.db.connection()?;
     let last_success = BackupRepository::last_run(&conn, true)?;
     let last_seq = BackupRepository::last_success_seq(&conn)?;
     let (drive_space, drive_free_bytes) = BackupRepository::drive_space(&conn)?;
@@ -94,7 +94,7 @@ pub fn backup_status(state: State<'_, AppState>) -> Result<BackupStatus, String>
 }
 
 /// Open Google Drive in the browser so the owner can delete old backups when it is full.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_google_drive() -> Result<(), String> {
     tauri_plugin_opener::open_url("https://drive.google.com/drive/search?q=Mononmani%20Backups", None::<&str>)
         .map_err(|e| format!("Could not open Google Drive: {}", e))
@@ -165,7 +165,7 @@ pub async fn connect_drive(client_id: String, client_secret: String) -> Result<O
     Ok(signed_in.email)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn disconnect_drive() -> Result<(), String> {
     if let Some(creds) = drive::load_credentials()? {
         drive::revoke(&creds);
@@ -315,10 +315,13 @@ pub async fn list_drive_backups() -> Result<DriveBackupList, String> {
 
 /// Replace the current data with a backup. The current data is copied aside first.
 #[tauri::command]
-pub async fn restore_drive_backup(file_id: String, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn restore_drive_backup(file_id: String, app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let db_path = state.storage.get_db_path();
     let dir = state.storage.get_backups_dir();
-    let message = tauri::async_runtime::spawn_blocking(move || restore_blocking(&db_path, &dir, &file_id))
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        restore_blocking(&state.db, &db_path, &dir, &file_id)
+    })
         .await
         .map_err(|e| e.to_string())??;
     // Bring an older backup up to the current schema.
@@ -326,7 +329,7 @@ pub async fn restore_drive_backup(file_id: String, state: State<'_, AppState>) -
     Ok(message)
 }
 
-fn restore_blocking(db_path: &Path, dir: &Path, file_id: &str) -> Result<String, String> {
+fn restore_blocking(db: &crate::db::DatabaseManager, db_path: &Path, dir: &Path, file_id: &str) -> Result<String, String> {
     let _guard = BusyGuard::acquire()?;
     let creds = connected_credentials()?;
     let drive = Drive::connect(&creds)?;
@@ -349,6 +352,10 @@ fn restore_blocking(db_path: &Path, dir: &Path, file_id: &str) -> Result<String,
         if snapshot::schema_version(&temp_db)? > crate::db::latest_version() {
             return Err("This backup was made by a newer version of the app. Update the app first.".to_string());
         }
+
+        // From here until the file is replaced, the app's commands wait: their connection is closed
+        // so nothing writes to the old file or keeps it open.
+        let _closed = db.close_shared();
 
         // Keep today's data so the restore itself can be undone.
         let before: PathBuf = dir.join(format!("before-restore-{}.db", Local::now().format("%Y-%m-%d_%H%M%S")));

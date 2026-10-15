@@ -1,26 +1,43 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
 import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
 import DashboardPage from "./pages/DashboardPage";
-import InvoicesPage from "./pages/InvoicesPage";
-import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
-import QuotationsPage from "./pages/QuotationsPage";
-import PaymentsPage from "./pages/PaymentsPage";
-import SupplierBillsPage from "./pages/SupplierBillsPage";
-import SupplierPaymentsPage from "./pages/SupplierPaymentsPage";
-import RentalsPage from "./pages/RentalsPage";
-import EmployeesPage from "./pages/EmployeesPage";
-import RemindersPage from "./pages/RemindersPage";
 import { ReminderLinkKind } from "./types/reminder";
 import ReminderBanner from "./components/reminders/ReminderBanner";
 import BackupBanner from "./components/BackupBanner";
 import { todayISO } from "./lib/format";
 import { RemindersContext } from "./components/reminders/RemindersContext";
-import CustomersPage from "./pages/CustomersPage";
-import SettingsPage from "./pages/SettingsPage";
+
+// The dashboard opens first and is part of the main file. Every other screen is its own file,
+// loaded in the background once the dashboard is up, so the app starts faster and switching
+// screens never waits.
+const pageLoaders = {
+  invoices: () => import("./pages/InvoicesPage"),
+  purchaseOrders: () => import("./pages/PurchaseOrdersPage"),
+  quotations: () => import("./pages/QuotationsPage"),
+  payments: () => import("./pages/PaymentsPage"),
+  supplierBills: () => import("./pages/SupplierBillsPage"),
+  supplierPayments: () => import("./pages/SupplierPaymentsPage"),
+  rentals: () => import("./pages/RentalsPage"),
+  employees: () => import("./pages/EmployeesPage"),
+  reminders: () => import("./pages/RemindersPage"),
+  customers: () => import("./pages/CustomersPage"),
+  settings: () => import("./pages/SettingsPage"),
+};
+const InvoicesPage = lazy(pageLoaders.invoices);
+const PurchaseOrdersPage = lazy(pageLoaders.purchaseOrders);
+const QuotationsPage = lazy(pageLoaders.quotations);
+const PaymentsPage = lazy(pageLoaders.payments);
+const SupplierBillsPage = lazy(pageLoaders.supplierBills);
+const SupplierPaymentsPage = lazy(pageLoaders.supplierPayments);
+const RentalsPage = lazy(pageLoaders.rentals);
+const EmployeesPage = lazy(pageLoaders.employees);
+const RemindersPage = lazy(pageLoaders.reminders);
+const CustomersPage = lazy(pageLoaders.customers);
+const SettingsPage = lazy(pageLoaders.settings);
 
 export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "employees" | "reminders" | "customers" | "settings";
 
@@ -157,6 +174,12 @@ function App() {
       .catch(() => setBackupDue(false));
   }, [page, backupVersion]);
 
+  // Fetch the other screens' files while the owner looks at the dashboard.
+  useEffect(() => {
+    const timer = window.setTimeout(() => Object.values(pageLoaders).forEach((load) => void load().catch(() => {})), 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <ToastProvider>
       <RemindersContext.Provider value={{ changed: remindersChanged, openRecord }}>
@@ -205,6 +228,7 @@ function App() {
             <BackupBanner refreshKey={`${page}-${backupVersion}`} onChanged={backupChanged} />
             <div key={page} className="mww-page">
               <ErrorBoundary>
+                <Suspense fallback={null}>
                 {page === "dashboard" && <DashboardPage onNavigate={setPage} onOpenQuotation={openQuotation} />}
                 {page === "invoices" && (
                   <InvoicesPage
@@ -256,6 +280,7 @@ function App() {
                 {page === "reminders" && <RemindersPage onOpenRecord={openRecord} onChanged={remindersChanged} refreshKey={remindersVersion} />}
                 {page === "customers" && <CustomersPage openId={otherId("COMPANY")} onOpenHandled={clearOther} />}
                 {page === "settings" && <SettingsPage />}
+                </Suspense>
               </ErrorBoundary>
             </div>
           </div>

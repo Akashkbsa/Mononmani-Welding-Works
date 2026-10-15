@@ -5,7 +5,7 @@ use super::models::{
 use crate::attachments::{clean_file_name, validate_file};
 use crate::customers::models::PartyRole;
 use crate::customers::repository::CustomerRepository;
-use crate::util::{normalize_date, round2, rupees, MONEY_EPS};
+use crate::util::{check_amount, normalize_date, round2, rupees, MONEY_EPS};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -42,7 +42,7 @@ impl SupplierBillRepository {
             return Err("Bill date is required.".to_string());
         }
         let date = normalize_date(date, "Bill date")?;
-        let total = round2(input.total_amount);
+        let total = round2(check_amount(input.total_amount, "Bill total")?);
         if !(total > 0.0) {
             return Err("Bill total must be more than zero.".to_string());
         }

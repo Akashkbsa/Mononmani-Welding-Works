@@ -10,6 +10,8 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 - Run app in dev: `app.bat dev` (Vite on port 1420 + Tauri)
 - UI unit tests: `npm test` (Vitest + Testing Library, `*.test.ts(x)` next to the code; mock `services/api` rather than Tauri).
 - Rust tests: `npm run test:rust` (runs `tools\test-harness\test.bat`; plain `cargo test` builds but the test exe can't start on this machine, MinGW manifest issue; see `docs/PROJECT_STRUCTURE.md`). Add new data-layer modules to `tools/test-harness/src/lib.rs`.
+- Load, stress and abuse tests (ten years of sample data, concurrent saves, hostile input): `tools\test-harness\test.bat --release --test load -- --ignored --nocapture --test-threads=1` (`LOAD_SCALE=2` doubles the data).
+- Commands run off the UI thread (`#[tauri::command(async)]`) and share one connection: use `state.db.connection()` in commands and keep it only as long as needed (drop it before slow work such as PDF printing).
 
 ## Layout
 
