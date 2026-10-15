@@ -13,7 +13,7 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 ## Layout
 
 - `src/` React UI: `App.tsx` (sidebar), `pages/`, `components/` (`ui.tsx` is the shared kit), `services/api.ts` (all Tauri commands), `lib/format.ts`, `lib/gst.ts`, `template/` (invoice PDF HTML/CSS).
-- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/`, `rentals/`, `reminders/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`.
+- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/`, `rentals/`, `reminders/`, `payroll/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`.
 - Full description and business rules: `docs/PROJECT_STRUCTURE.md`.
 
 ## Rules that must hold
@@ -24,6 +24,7 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 - Every company is a Customer, a Supplier or Both (`customers.party_type`). Invoices, payments, purchase orders and quotations accept only Customer or Both; supplier bills and supplier payments only Supplier or Both (`CustomerRepository::require_party`). Supplier write-off and round-off have no size limit; a write-off can never exceed what is actually short. Supplier payments have no advances (removed in migration 19): money paid beyond the bills is a round-off, and a payment must be applied to a bill.
 - Rent reminders only open a `https://wa.me/` link with the message typed in; the owner presses Send in WhatsApp. Never add code that sends WhatsApp messages by itself (it breaks WhatsApp's terms). Rental data has no PIN or encryption by the owner's choice and is backed up with the rest of the database (migration 16 and 17 tables are in `change_log` and the backup summary).
 - Reminders (the Reminders page and the top banner) live only inside the app: no Windows notifications and no calendar sync. Done on a repeating reminder moves it one step; Dismiss only hides it from the banner.
+- Payroll: pay = days × daily wage + OT hours × OT rate + bonus, with the rates copied onto each month. Each month stands alone: paid exactly, or rounded off and finished; an overpaid month is finished by taking it from next month, cash returned or a write-off. No loans, PF/ESI or pay slips. Rules in `payroll/repository.rs`, maths in `payroll/calc.rs`.
 - Puducherry (state code 34) → CGST + SGST; other states → IGST.
 - Business name is **Mononmani Welding Works**. Keep the Tauri identifier `com.manonmani.app` (it locates the user's data folder).
 - Schema changes go in a new numbered migration in `db/migrations.rs`; never edit an applied one.

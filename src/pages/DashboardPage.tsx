@@ -7,6 +7,7 @@ import { SupplierBillListItem, SupplierBillsSummary } from "../types/supplierBil
 import { SupplierPaymentListItem } from "../types/supplierPayment";
 import { QuotationListItem } from "../types/quotation";
 import { MonthOverview } from "../types/rental";
+import { EmployeePayment } from "../types/payroll";
 import {
   getPaymentsSummary,
   getRentMonthOverview,
@@ -16,9 +17,10 @@ import {
   listQuotations,
   listSupplierBills,
   listSupplierPayments,
+  listWagePayments,
   printInvoice,
 } from "../services/api";
-import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, todayISO } from "../lib/format";
+import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, shiftMonth, todayISO } from "../lib/format";
 import { ageInDays, compactMoney, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
 import { Alert, Button, Card, PageHeader, SectionTitle, Skeleton, useToast } from "../components/ui";
 import { BarChart, ProgressBar, Segment, SegmentBar, SharePart, ShareRing, Sparkline } from "../components/dashboard/charts";
@@ -55,6 +57,8 @@ interface Data {
   supplierPayments: SupplierPaymentListItem[];
   quotations: QuotationListItem[];
   rent: MonthOverview | null;
+  /** Advances and salary handed to employees in the chart's months. */
+  wages: EmployeePayment[];
 }
 
 /** Unpaid money split by age: up to 30 days, 31 to 90, over 90. Steel, amber, red. */
@@ -184,7 +188,7 @@ export default function DashboardPage({
 
   const load = useCallback(async () => {
     // Each part loads on its own, so one slow or failing part does not blank the whole dashboard.
-    const [summary, invoices, payments, bills, billsSummary, supplierPayments, quotations, rent] = await Promise.allSettled([
+    const [summary, invoices, payments, bills, billsSummary, supplierPayments, quotations, rent, wages] = await Promise.allSettled([
       getPaymentsSummary(),
       listInvoices(),
       listPayments(),
@@ -193,6 +197,7 @@ export default function DashboardPage({
       listSupplierPayments(),
       listQuotations(),
       getRentMonthOverview(currentMonth()),
+      listWagePayments(`${shiftMonth(currentMonth(), -(MONTHS - 1))}-01`, todayISO()),
     ]);
     if (summary.status === "rejected" || invoices.status === "rejected" || payments.status === "rejected") {
       const failed = [summary, invoices, payments].find((r) => r.status === "rejected") as PromiseRejectedResult;
@@ -209,6 +214,7 @@ export default function DashboardPage({
       supplierPayments: ok(supplierPayments, []),
       quotations: ok(quotations, []),
       rent: ok(rent, null),
+      wages: ok(wages, []),
     });
     setError(null);
   }, []);
@@ -240,7 +246,14 @@ export default function DashboardPage({
       months,
       invoiced: monthlySums(issued.map((i) => ({ date: i.invoice_date, amount: i.total_amount })), months),
       received: monthlySums(data.payments.map((p) => ({ date: p.payment_date, amount: p.amount_received })), months),
-      paidOut: monthlySums(data.supplierPayments.map((p) => ({ date: p.payment_date, amount: p.amount_paid })), months),
+      // Money out: supplier payments and wages handed to employees (advances and salary).
+      paidOut: monthlySums(
+        [
+          ...data.supplierPayments.map((p) => ({ date: p.payment_date, amount: p.amount_paid })),
+          ...data.wages.map((w) => ({ date: w.entry_date, amount: w.amount })),
+        ],
+        months
+      ),
       owedAges: ageSegments(waiting.map((i) => ({ date: i.invoice_date, amount: i.outstanding_amount })), today),
       oweAges: ageSegments(toPay.map((b) => ({ date: b.bill_date, amount: b.outstanding_amount })), today),
       customers: ringParts(issued.filter((i) => i.invoice_date >= fyStart).map((i) => ({ name: i.customer_name, amount: i.total_amount }))),

@@ -1,6 +1,6 @@
 # Mononmani Welding Works
 
-Windows desktop app for Mononmani Welding Works: GST tax invoices, quotations, purchase orders, payments received, supplier bills and payments, rentals and reminders. It runs offline on one computer and can back up to Google Drive.
+Windows desktop app for Mononmani Welding Works: GST tax invoices, quotations, purchase orders, payments received, supplier bills and payments, rentals, employees and payroll, and reminders. It runs offline on one computer and can back up to Google Drive.
 
 Built with Tauri 2 (Rust + SQLite) and React + TypeScript + Tailwind CSS.
 
