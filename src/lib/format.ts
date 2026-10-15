@@ -9,8 +9,17 @@ export function formatMoney(value: number | null | undefined): string {
   return inr.format(value ?? 0);
 }
 
+/**
+ * Round a rupee amount to paise as a calculator does: half a paisa goes up (away from zero).
+ * The paise are first read to 15 significant digits, so a stored 1.005 (really 1.00499999…) still
+ * rounds to 1.01. Mirrors `round2` in the backend's util.rs, so the screen and saved figures agree.
+ */
 export function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+  if (!Number.isFinite(value)) return value;
+  const paise = Number((value * 100).toPrecision(15));
+  const rounded = (Math.sign(paise) * Math.round(Math.abs(paise))) / 100;
+  // No "-₹0.00" for a tiny negative amount.
+  return rounded === 0 ? 0 : rounded;
 }
 
 function pad(n: number): string {
@@ -100,7 +109,7 @@ export function shortDate(value: string | null | undefined): string {
 export function formatVehicleNumber(raw: string): string | null {
   if (/[^A-Za-z0-9 .\-]/.test(raw)) return null;
   const s = raw.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-  const bh = /^(\d{2})BH(\d{4})([A-Z]{1,2})$/.exec(s);
+  const bh = /^(\d{2})BH(\d{4})([A-Z]{2})$/.exec(s);
   if (bh) return `${bh[1]} BH ${bh[2]} ${bh[3]}`;
   const m = /^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{4})$/.exec(s);
   if (!m) return null;

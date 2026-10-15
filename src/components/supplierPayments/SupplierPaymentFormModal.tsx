@@ -310,6 +310,7 @@ export default function SupplierPaymentFormModal({ payment, initialSupplierId, i
                               type="number"
                               min={0}
                               step="0.01"
+                              aria-label={`Amount for ${bill.bill_number}`}
                               className={`${inputClass} h-8 text-right tabular ${over ? "border-red-400" : ""}`}
                               value={allocations[bill.bill_id]}
                               onChange={(e) => setAllocations((a) => ({ ...a, [bill.bill_id]: e.target.value }))}

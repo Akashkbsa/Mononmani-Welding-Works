@@ -13,13 +13,13 @@ import {
   updateInvoice,
 } from "../../services/api";
 import { HOME_STATE, stateCodeFor, stateName, taxTypeFor } from "../../lib/gst";
+import { computeTotals } from "../../lib/invoiceTotals";
 import {
   errorMessage,
   formatDate,
   formatMoney,
   formatVehicleNumber,
   joinRefDate,
-  round2,
   splitRefDate,
   todayISO,
 } from "../../lib/format";
@@ -100,21 +100,6 @@ function initialForm(invoice?: InvoiceWithItems | null): InvoiceInput {
     notes: null,
     items: [emptyItem()],
   };
-}
-
-/** Same arithmetic as the backend, so the totals shown are the totals saved. */
-function computeTotals(form: InvoiceInput) {
-  const amounts = form.items.map((i) => round2((Number(i.quantity) || 0) * (Number(i.rate) || 0)));
-  const subtotal = round2(amounts.reduce((a, b) => a + b, 0));
-  const discount = round2(Math.max(0, Number(form.discount) || 0));
-  const taxable = Math.max(0, subtotal - discount);
-  const igst = form.tax_type === "IGST";
-  const cgst = igst ? 0 : round2((taxable * (Number(form.cgst_rate) || 0)) / 100);
-  const sgst = igst ? 0 : round2((taxable * (Number(form.sgst_rate) || 0)) / 100);
-  const igstAmount = igst ? round2((taxable * (Number(form.igst_rate) || 0)) / 100) : 0;
-  // Exact to the paisa: invoice totals are not rounded to the rupee.
-  const total = round2(taxable + cgst + sgst + igstAmount);
-  return { amounts, subtotal, discount, cgst, sgst, igst: igstAmount, total };
 }
 
 function Collapsible({ title, children }: { title: string; children: React.ReactNode }) {
@@ -486,6 +471,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     <td className="py-2 pr-2">
                       <input
                         className={inputClass}
+                        aria-label={`HSN/SAC for line ${idx + 1}`}
                         value={item.hsn_sac ?? ""}
                         placeholder="HSN/SAC"
                         onChange={(e) => updateItem(idx, { hsn_sac: e.target.value })}
@@ -512,6 +498,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                         min={0}
                         step="any"
                         className={`${inputClass} text-right tabular`}
+                        aria-label={`Quantity for line ${idx + 1}`}
                         value={item.quantity}
                         onChange={(e) => updateItem(idx, { quantity: e.target.value as unknown as number })}
                       />
@@ -522,6 +509,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                         min={0}
                         step="0.01"
                         className={`${inputClass} text-right tabular`}
+                        aria-label={`Rate for line ${idx + 1}`}
                         value={item.rate}
                         onChange={(e) => updateItem(idx, { rate: e.target.value as unknown as number })}
                       />
@@ -530,7 +518,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     <td className="py-2 pl-1">
                       <button
                         type="button"
-                        aria-label="Remove line"
+                        aria-label={`Remove line ${idx + 1}`}
                         disabled={form.items.length === 1}
                         onClick={() => update("items", form.items.filter((_, i) => i !== idx))}
                         className="p-2 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:invisible"

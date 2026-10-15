@@ -519,6 +519,7 @@ export default function PaymentFormModal({ payment, initialCustomerId, initialIn
                             type="number"
                             min={0}
                             step="0.01"
+                            aria-label={`Amount for ${inv.invoice_number}`}
                             className={`${inputClass} h-8 text-right tabular ${over ? "border-red-400" : ""}`}
                             value={allocations[inv.invoice_id]}
                             onChange={(e) =>

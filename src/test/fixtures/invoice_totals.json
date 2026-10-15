@@ -1,0 +1,62 @@
+[
+  {
+    "name": "local job, CGST + SGST",
+    "tax_type": "CGST_SGST", "discount": 0, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 2, "rate": 1500 }],
+    "expected": { "amounts": [3000], "subtotal": 3000, "discount": 0, "cgst": 270, "sgst": 270, "igst": 0, "total": 3540 }
+  },
+  {
+    "name": "other state, IGST",
+    "tax_type": "IGST", "discount": 0, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 1, "rate": 2000 }],
+    "expected": { "amounts": [2000], "subtotal": 2000, "discount": 0, "cgst": 0, "sgst": 0, "igst": 360, "total": 2360 }
+  },
+  {
+    "name": "line amounts ending in half a paisa round up",
+    "tax_type": "CGST_SGST", "discount": 0, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 1, "rate": 1.005 }, { "quantity": 7, "rate": 0.145 }],
+    "expected": { "amounts": [1.01, 1.02], "subtotal": 2.03, "discount": 0, "cgst": 0.18, "sgst": 0.18, "igst": 0, "total": 2.39 }
+  },
+  {
+    "name": "tax ending in half a paisa rounds up",
+    "tax_type": "CGST_SGST", "discount": 0, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 1, "rate": 105.5 }],
+    "expected": { "amounts": [105.5], "subtotal": 105.5, "discount": 0, "cgst": 9.5, "sgst": 9.5, "igst": 0, "total": 124.5 }
+  },
+  {
+    "name": "discount comes off before tax",
+    "tax_type": "CGST_SGST", "discount": 99.99, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 3, "rate": 333.33 }],
+    "expected": { "amounts": [999.99], "subtotal": 999.99, "discount": 99.99, "cgst": 81, "sgst": 81, "igst": 0, "total": 1062 }
+  },
+  {
+    "name": "fractional quantities over several lines",
+    "tax_type": "IGST", "discount": 0, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 2.5, "rate": 450 }, { "quantity": 12.75, "rate": 86.4 }, { "quantity": 1, "rate": 0.01 }],
+    "expected": { "amounts": [1125, 1101.6, 0.01], "subtotal": 2226.61, "discount": 0, "cgst": 0, "sgst": 0, "igst": 400.79, "total": 2627.4 }
+  },
+  {
+    "name": "large amount stays exact to the paisa",
+    "tax_type": "CGST_SGST", "discount": 0, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 1, "rate": 12345678.9 }],
+    "expected": { "amounts": [12345678.9], "subtotal": 12345678.9, "discount": 0, "cgst": 1111111.1, "sgst": 1111111.1, "igst": 0, "total": 14567901.1 }
+  },
+  {
+    "name": "other rates from Settings",
+    "tax_type": "CGST_SGST", "discount": 0, "cgst_rate": 6, "sgst_rate": 6, "igst_rate": 12,
+    "items": [{ "quantity": 10, "rate": 99.99 }],
+    "expected": { "amounts": [999.9], "subtotal": 999.9, "discount": 0, "cgst": 59.99, "sgst": 59.99, "igst": 0, "total": 1119.88 }
+  },
+  {
+    "name": "discount equal to the subtotal",
+    "tax_type": "CGST_SGST", "discount": 500, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 1, "rate": 500 }],
+    "expected": { "amounts": [500], "subtotal": 500, "discount": 500, "cgst": 0, "sgst": 0, "igst": 0, "total": 0 }
+  },
+  {
+    "name": "free line on a paid job",
+    "tax_type": "IGST", "discount": 0, "cgst_rate": 9, "sgst_rate": 9, "igst_rate": 18,
+    "items": [{ "quantity": 4, "rate": 0 }, { "quantity": 1, "rate": 750 }],
+    "expected": { "amounts": [0, 750], "subtotal": 750, "discount": 0, "cgst": 0, "sgst": 0, "igst": 135, "total": 885 }
+  }
+]

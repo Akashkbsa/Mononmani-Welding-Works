@@ -8,6 +8,7 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 - Build UI: `npm run build`
 - Check Rust: `cargo check --manifest-path src-tauri/Cargo.toml` (needs the WinLibs MinGW `bin` folder first on PATH; see `app.bat`)
 - Run app in dev: `app.bat dev` (Vite on port 1420 + Tauri)
+- UI unit tests: `npm test` (Vitest + Testing Library, `*.test.ts(x)` next to the code; mock `services/api` rather than Tauri).
 - Rust tests: `npm run test:rust` (runs `tools\test-harness\test.bat`; plain `cargo test` builds but the test exe can't start on this machine, MinGW manifest issue; see `docs/PROJECT_STRUCTURE.md`). Add new data-layer modules to `tools/test-harness/src/lib.rs`.
 
 ## Layout

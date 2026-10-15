@@ -1,8 +1,17 @@
 use chrono::{Datelike, Local, NaiveDate};
 
-/// Round a rupee amount to paise.
+/// Round a rupee amount to paise as a calculator does: half a paisa goes up (away from zero).
+/// The paise are first read to 15 significant digits, so a stored 1.005 (really 1.00499999…)
+/// still rounds to 1.01. `round2` in src/lib/format.ts does exactly the same, so the screen and
+/// the saved figures always agree.
 pub fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
+    if !value.is_finite() {
+        return value;
+    }
+    let paise: f64 = format!("{:.14e}", value * 100.0).parse().unwrap_or(value * 100.0);
+    let rounded = paise.round() / 100.0;
+    // No "-0.00" for a tiny negative amount.
+    if rounded == 0.0 { 0.0 } else { rounded }
 }
 
 /// 2268000.5 -> "22,68,000.50" (Indian digit grouping).
@@ -114,14 +123,9 @@ pub fn normalize_vehicle_number(raw: &str) -> Result<String, String> {
     let digit: fn(&char) -> bool = |c| c.is_ascii_digit();
     let letter: fn(&char) -> bool = |c| c.is_ascii_alphabetic();
 
-    // Bharat series: 22 BH 1234 AA
-    if (10..=11).contains(&s.len())
-        && all(0, 2, digit)
-        && text(2, 4) == "BH"
-        && all(4, 8, digit)
-        && all(8, s.len(), letter)
-    {
-        return Ok(format!("{} BH {} {}", text(0, 2), text(4, 8), text(8, s.len())));
+    // Bharat series: 22 BH 1234 AA, always two letters at the end (same rule as the UI).
+    if s.len() == 10 && all(0, 2, digit) && text(2, 4) == "BH" && all(4, 8, digit) && all(8, 10, letter) {
+        return Ok(format!("{} BH {} {}", text(0, 2), text(4, 8), text(8, 10)));
     }
 
     // State, RTO number, optional series letters, four-digit number.
@@ -300,5 +304,161 @@ mod tests {
         assert_eq!(rich_text_to_plain("<b></b><br>"), "");
         assert_eq!(rich_text_to_plain("<b>Weld</b><br><i>plate</i>"), "Weldplate");
         assert_eq!(rich_text_to_plain("5 < 6"), "5 < 6");
+        assert_eq!(rich_text_to_plain("a&nbsp;b"), "a b");
+        assert_eq!(rich_text_to_plain(""), "");
+    }
+
+    #[test]
+    fn round2_matches_a_calculator_and_the_ui() {
+        // The same cases as src/lib/format.test.ts; both sides must round alike.
+        for (value, expected) in [
+            (1.005, 1.01),
+            (2.675, 2.68),
+            (7.0 * 0.145, 1.02),
+            (1.5 * 1.67, 2.51),
+            (0.125, 0.13),
+            (1000.005, 1000.01),
+            (123456.785, 123456.79),
+            (99999999.995, 100000000.0),
+            (-1.005, -1.01),
+            (-0.005, -0.01),
+            (10.004, 10.0),
+            (1e12, 1e12),
+        ] {
+            assert_eq!(round2(value), expected, "round2({value})");
+        }
+        // A tiny negative amount is plain zero, never "-0.00".
+        assert!(round2(-0.001).is_sign_positive());
+        assert_eq!(rupees(round2(-0.001)), "₹0.00");
+        assert!(round2(f64::NAN).is_nan());
+    }
+
+    #[test]
+    fn round2_rounds_to_paise() {
+        assert_eq!(round2(10.0), 10.0);
+        assert_eq!(round2(10.004), 10.0);
+        assert_eq!(round2(10.006), 10.01);
+        assert_eq!(round2(0.1 + 0.2), 0.3);
+        assert_eq!(round2(2.505), 2.51);
+        assert_eq!(round2(-3.14159), -3.14);
+        assert_eq!(round2(0.0), 0.0);
+    }
+
+    #[test]
+    fn indian_grouping_edges() {
+        assert_eq!(indian_number(0.0), "0.00");
+        assert_eq!(indian_number(999.0), "999.00");
+        assert_eq!(indian_number(1000.0), "1,000.00");
+        assert_eq!(indian_number(99999.99), "99,999.99");
+        assert_eq!(indian_number(100000.0), "1,00,000.00");
+        assert_eq!(indian_number(10000000.0), "1,00,00,000.00");
+        assert_eq!(indian_number(123456789.12), "12,34,56,789.12");
+        assert_eq!(indian_number(0.004), "0.00");
+        assert_eq!(indian_number(1.999), "2.00");
+        assert_eq!(rupees(2900.0), "₹2,900.00");
+        assert_eq!(rupees(-50.5), "₹-50.50");
+    }
+
+    #[test]
+    fn parse_date_accepts_two_forms_and_nothing_else() {
+        let d = |y, m, day| NaiveDate::from_ymd_opt(y, m, day);
+        assert_eq!(parse_date("2026-10-15"), d(2026, 10, 15));
+        assert_eq!(parse_date("15-10-2026"), d(2026, 10, 15));
+        assert_eq!(parse_date("  2026-10-15  "), d(2026, 10, 15));
+        assert_eq!(parse_date("29-02-2024"), d(2024, 2, 29));
+        assert_eq!(parse_date("29-02-2025"), None);
+        assert_eq!(parse_date("2026-13-01"), None);
+        assert_eq!(parse_date("15/10/2026"), None);
+        assert_eq!(parse_date("10-15-2026"), None);
+        assert_eq!(parse_date(""), None);
+        assert_eq!(parse_date("today"), None);
+    }
+
+    #[test]
+    fn normalize_date_names_the_field_in_its_error() {
+        assert_eq!(normalize_date("  01-04-2026 ", "Invoice date").unwrap(), "2026-04-01");
+        assert_eq!(normalize_date("", "Invoice date").unwrap_err(), "Invoice date is not a valid date.");
+        assert_eq!(normalize_date("2026/04/01", "Due").unwrap_err(), "Due is not a valid date.");
+    }
+
+    #[test]
+    fn display_date_shows_dd_mm_yyyy_or_the_text_as_is() {
+        assert_eq!(display_date("2026-01-05"), "05-01-2026");
+        assert_eq!(display_date("05-01-2026"), "05-01-2026");
+        assert_eq!(display_date("  sometime  "), "sometime");
+        assert_eq!(display_date(""), "");
+    }
+
+    #[test]
+    fn financial_year_label_is_two_short_years() {
+        let label = financial_year_label();
+        let (a, b) = label.split_once('-').unwrap();
+        assert_eq!((a.len(), b.len()), (2, 2));
+        let (a, b): (u32, u32) = (a.parse().unwrap(), b.parse().unwrap());
+        assert_eq!((a + 1) % 100, b);
+        // It agrees with the folder name for today.
+        assert!(financial_year_folder(today()).ends_with(&format!("-{:02}", b)));
+        assert!(financial_year_folder(today()).starts_with(&format!("20{:02}", a)));
+    }
+
+    #[test]
+    fn document_numbers_edges() {
+        assert_eq!(doc_number("MWW", 1, "26-27"), "MWW/26-27/001");
+        assert_eq!(doc_number("MWW", 1234, "26-27"), "MWW/26-27/1234");
+        assert_eq!(doc_sequence("MWW/26-27/1234", "MWW", "26-27"), Some(1234));
+        // Spaces and the prefix's case do not matter.
+        assert_eq!(doc_sequence(" mww / 26-27 / 012 ", "MWW", "26-27"), Some(12));
+        // Anything that is not a running number is not counted.
+        assert_eq!(doc_sequence("MWW/26-27/A12", "MWW", "26-27"), None);
+        assert_eq!(doc_sequence("MWW/26-27/", "MWW", "26-27"), None);
+        assert_eq!(doc_sequence("MWW/26-27/009/x", "MWW", "26-27"), None);
+        assert_eq!(doc_sequence("", "MWW", "26-27"), None);
+        // A number from another year is not part of this year's numbering.
+        assert_eq!(doc_sequence("MWW/25-26/050", "MWW", "26-27"), None);
+    }
+
+    #[test]
+    fn vehicle_number_edges() {
+        assert_eq!(normalize_vehicle_number("22bh1234ab").unwrap(), "22 BH 1234 AB");
+        assert_eq!(normalize_vehicle_number("tn.09.ab.1234").unwrap(), "TN 09 AB 1234");
+        assert_eq!(normalize_vehicle_number("TN9ABC1234").unwrap(), "TN 9A BC 1234");
+        assert_eq!(normalize_vehicle_number("TN09ABC1234").unwrap(), "TN 09 ABC 1234");
+        for bad in ["", "TN09ABCD1234", "TN123AB1234", "22BH1234", "22BH1234A", "22BH1234ABC", "TN09A1B1234", "TN 09 AB 1234!"] {
+            assert!(normalize_vehicle_number(bad).is_err(), "{bad} should be rejected");
+        }
+        let err = normalize_vehicle_number("  bad  ").unwrap_err();
+        assert!(err.starts_with("\"bad\" is not a valid Indian vehicle number."), "{err}");
+    }
+
+    #[test]
+    fn rich_text_edges() {
+        assert_eq!(sanitize_rich_text(""), "");
+        assert_eq!(sanitize_rich_text("\n\n"), "");
+        assert_eq!(sanitize_rich_text("x <"), "x &lt;");
+        assert_eq!(sanitize_rich_text("<FONT SIZE = '7'>x</FONT>"), "<font size=\"7\">x</font>");
+        assert_eq!(sanitize_rich_text("<font size=0>x</font>"), "&lt;font size=0>x</font>");
+        assert_eq!(sanitize_rich_text("<strong>a</strong><BR>b"), "<b>a</b><br>b");
+        assert_eq!(sanitize_rich_text("a\rb"), "a<br>b");
+        // Running it again changes nothing.
+        let once = sanitize_rich_text("<em>x</em>\n<font size=2>y</font> <z>");
+        assert_eq!(sanitize_rich_text(&once), once);
+    }
+
+    #[test]
+    fn rich_text_matches_the_ui_rules() {
+        // The same inputs as src/lib/richText.test.ts; both sides must agree.
+        for (input, expected) in [
+            ("<b>bold</b> <i>it</i><br><font size=\"5\">big</font>", "<b>bold</b> <i>it</i><br><font size=\"5\">big</font>"),
+            ("<strong>a</strong><em>b</em>c<br/>d<br />e<BR>f", "<b>a</b><i>b</i>c<br>d<br>e<br>f"),
+            ("<B> x </ B>", "<b> x &lt;/ B>"),
+            ("<font size=7>x</font>", "<font size=\"7\">x</font>"),
+            ("<script>alert(1)</script>", "&lt;script>alert(1)&lt;/script>"),
+            ("<font color=\"red\">x</font>", "&lt;font color=\"red\">x</font>"),
+            ("a < b", "a &lt; b"),
+            ("one\ntwo\r\nthree\rfour", "one<br>two<br>three<br>four"),
+            ("  text\n\n", "text"),
+        ] {
+            assert_eq!(sanitize_rich_text(input), expected, "input: {input}");
+        }
     }
 }

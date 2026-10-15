@@ -170,4 +170,105 @@ mod tests {
         bad.bank_ifsc = "SHORT".into();
         assert!(SettingsRepository::save(&conn, bad).is_err());
     }
+
+    fn save_with(conn: &Connection, change: impl FnOnce(&mut BusinessSettings)) -> Result<BusinessSettings, String> {
+        let mut s = BusinessSettings::default();
+        change(&mut s);
+        SettingsRepository::save(conn, s)
+    }
+
+    #[test]
+    fn gstin_is_checked_and_written_in_capitals() {
+        let (_d, conn) = setup();
+        assert_eq!(save_with(&conn, |s| s.gstin = " 34airpv5028n1zg ".into()).unwrap().gstin, "34AIRPV5028N1ZG");
+        // No GSTIN is allowed (an unregistered business).
+        assert_eq!(save_with(&conn, |s| s.gstin = "   ".into()).unwrap().gstin, "");
+        for bad in ["34AIRPV5028N1Z", "34AIRPV5028N1ZGX", "34AIRPV5028N1Z-"] {
+            let err = save_with(&conn, |s| s.gstin = bad.into()).unwrap_err();
+            assert!(err.starts_with("GSTIN should be 15"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn bank_details_are_checked() {
+        let (_d, conn) = setup();
+        assert!(save_with(&conn, |s| s.bank_account_no = "123456".into()).is_ok());
+        assert!(save_with(&conn, |s| s.bank_account_no = "123456789012345678".into()).is_ok());
+        assert!(save_with(&conn, |s| s.bank_account_no = "".into()).is_ok());
+        for bad in ["12345", "1234567890123456789", "12 345 678"] {
+            assert_eq!(
+                save_with(&conn, |s| s.bank_account_no = bad.into()).unwrap_err(),
+                "Account number should be 6 to 18 digits.",
+                "{bad}"
+            );
+        }
+        assert_eq!(save_with(&conn, |s| s.bank_ifsc = "".into()).unwrap().bank_ifsc, "");
+        assert_eq!(
+            save_with(&conn, |s| s.bank_ifsc = "IDIB000M07!".into()).unwrap_err(),
+            "IFSC should be 11 characters, like IDIB000M070."
+        );
+    }
+
+    #[test]
+    fn tax_rates_must_be_0_to_100() {
+        let (_d, conn) = setup();
+        let saved = save_with(&conn, |s| {
+            s.cgst_rate = 0.0;
+            s.sgst_rate = 0.0;
+            s.igst_rate = 100.0;
+        })
+        .unwrap();
+        assert_eq!((saved.cgst_rate, saved.igst_rate), (0.0, 100.0));
+        assert_eq!(save_with(&conn, |s| s.sgst_rate = -0.5).unwrap_err(), "SGST rate must be between 0 and 100.");
+        assert_eq!(save_with(&conn, |s| s.igst_rate = 100.01).unwrap_err(), "IGST rate must be between 0 and 100.");
+        assert_eq!(save_with(&conn, |s| s.cgst_rate = f64::NAN).unwrap_err(), "CGST rate must be between 0 and 100.");
+        assert_eq!(save_with(&conn, |s| s.cgst_rate = f64::INFINITY).unwrap_err(), "CGST rate must be between 0 and 100.");
+    }
+
+    #[test]
+    fn a_refused_save_changes_nothing() {
+        let (_d, conn) = setup();
+        let before = SettingsRepository::get(&conn).unwrap();
+        assert!(save_with(&conn, |s| {
+            s.bank_name = "Other Bank".into();
+            s.igst_rate = 500.0;
+        })
+        .is_err());
+        assert_eq!(SettingsRepository::get(&conn).unwrap(), before);
+    }
+
+    #[test]
+    fn text_is_trimmed_but_inner_lines_of_terms_are_kept() {
+        let (_d, conn) = setup();
+        let saved = save_with(&conn, |s| {
+            s.business_name = "  Mononmani Welding Works ".into();
+            s.terms_and_conditions = "\n 1. Goods once sold.\n 2. Subject to Pondicherry jurisdiction. \n".into();
+        })
+        .unwrap();
+        assert_eq!(saved.business_name, "Mononmani Welding Works");
+        assert_eq!(saved.terms_and_conditions, "1. Goods once sold.\n 2. Subject to Pondicherry jurisdiction.");
+        assert_eq!(SettingsRepository::get(&conn).unwrap().terms_and_conditions, saved.terms_and_conditions);
+    }
+
+    #[test]
+    fn a_stored_rate_that_is_not_a_number_falls_back_to_the_default() {
+        let (_d, conn) = setup();
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES ('cgst_rate', 'nine', '2026-01-01')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+        assert_eq!(SettingsRepository::get(&conn).unwrap().cgst_rate, 9.0);
+    }
+
+    #[test]
+    fn saving_twice_keeps_one_row_per_setting() {
+        let (_d, conn) = setup();
+        save_with(&conn, |s| s.phone = "1".into()).unwrap();
+        save_with(&conn, |s| s.phone = "2".into()).unwrap();
+        let rows: i64 = conn.query_row("SELECT COUNT(*) FROM app_settings WHERE key = 'phone'", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 1);
+        assert_eq!(SettingsRepository::get(&conn).unwrap().phone, "2");
+    }
 }

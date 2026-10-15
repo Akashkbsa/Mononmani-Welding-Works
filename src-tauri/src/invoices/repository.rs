@@ -1295,5 +1295,47 @@ mod tests {
         assert!(err.contains("supplier only"), "{}", err);
         assert!(InvoiceRepository::create(&conn, link_input(both, "Both Co", "MWW/26-27/002", None, None)).is_ok());
     }
-}
 
+    /// The same cases as src/lib/invoiceTotals.test.ts, so the totals shown on screen are the totals saved.
+    #[test]
+    fn totals_match_the_shared_cases_the_ui_checks() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../../src/test/fixtures/invoice_totals.json")).unwrap();
+        for c in cases.as_array().unwrap() {
+            let name = c["name"].as_str().unwrap();
+            let num = |v: &serde_json::Value| v.as_f64().unwrap();
+            let items: Vec<InvoiceItemInput> = c["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| InvoiceItemInput {
+                    sl_no: None,
+                    description: "Work".to_string(),
+                    hsn_sac: None,
+                    qum: None,
+                    quantity: num(&i["quantity"]),
+                    rate: num(&i["rate"]),
+                })
+                .collect();
+            let t = InvoiceRepository::calculate_financials(
+                &items,
+                c["tax_type"].as_str().unwrap(),
+                Some(num(&c["discount"])),
+                Some(num(&c["cgst_rate"])),
+                Some(num(&c["sgst_rate"])),
+                Some(num(&c["igst_rate"])),
+            )
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let e = &c["expected"];
+            let amounts: Vec<f64> = e["amounts"].as_array().unwrap().iter().map(num).collect();
+            assert_eq!(t.item_amounts, amounts, "{name}: line amounts");
+            assert_eq!(t.subtotal, num(&e["subtotal"]), "{name}: subtotal");
+            assert_eq!(t.discount, num(&e["discount"]), "{name}: discount");
+            assert_eq!(t.cgst_amount, num(&e["cgst"]), "{name}: CGST");
+            assert_eq!(t.sgst_amount, num(&e["sgst"]), "{name}: SGST");
+            assert_eq!(t.igst_amount, num(&e["igst"]), "{name}: IGST");
+            assert_eq!(t.total_amount, num(&e["total"]), "{name}: total");
+            assert_eq!(t.round_off, 0.0, "{name}: no round-off to the rupee");
+        }
+    }
+}
