@@ -3,7 +3,7 @@ import { HandCoins, Plus, Search } from "lucide-react";
 import { PAYMENT_METHODS } from "../types/payment";
 import { SupplierPaymentListItem, SupplierPaymentsSummary } from "../types/supplierPayment";
 import { getSupplierPaymentsSummary, listSupplierPayments } from "../services/api";
-import { errorMessage, formatDate, formatMoney, monthTitle, todayISO } from "../lib/format";
+import { errorMessage, formatDate, formatMoney, todayISO } from "../lib/format";
 import {
   Alert,
   Badge,
@@ -25,6 +25,7 @@ import SupplierPaymentDetailsModal from "../components/supplierPayments/Supplier
 import SupplierPaymentFormModal from "../components/supplierPayments/SupplierPaymentFormModal";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
 import MonthFilter, { inMonth } from "../components/MonthFilter";
+import { periodTitle } from "../lib/period";
 
 interface Props {
   /** A payment to open as soon as the page shows (set by another screen). */
@@ -144,7 +145,7 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
         ) : shown.length === 0 ? (
           <EmptyState
             icon={HandCoins}
-            title={filtered ? "No supplier payments match these filters" : month && payments.length > 0 ? `No supplier payments in ${monthTitle(month)}` : "No supplier payments yet"}
+            title={filtered ? "No supplier payments match these filters" : month && payments.length > 0 ? `No supplier payments in ${periodTitle(month)}` : "No supplier payments yet"}
             description={filtered || (month && payments.length > 0) ? undefined : "Record a payment when you pay a supplier."}
           />
         ) : (

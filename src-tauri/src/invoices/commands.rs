@@ -6,7 +6,6 @@ use super::repository::InvoiceRepository;
 use crate::pdf::{CopyType, PdfRenderer};
 use crate::util::parse_date;
 use crate::AppState;
-use chrono::Datelike;
 use serde::Serialize;
 use tauri::State;
 
@@ -91,10 +90,8 @@ pub async fn generate_invoice_pdf_by_id(
         (invoice, crate::settings::repository::SettingsRepository::get(&conn)?)
     };
 
-    let year = parse_date(&invoice.invoice.invoice_date)
-        .map(|d| d.year())
-        .unwrap_or_else(|| crate::util::today().year())
-        .to_string();
+    // Saved in the invoice's financial year folder, e.g. Invoices6-27.
+    let year = crate::util::financial_year_folder(parse_date(&invoice.invoice.invoice_date).unwrap_or_else(crate::util::today));
     let filename = format!(
         "{}_{}.pdf",
         invoice.invoice.invoice_number.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_"),
@@ -142,10 +139,8 @@ pub async fn generate_invoice_copies_pdf(
         (invoice, crate::settings::repository::SettingsRepository::get(&conn)?)
     };
 
-    let year = parse_date(&invoice.invoice.invoice_date)
-        .map(|d| d.year())
-        .unwrap_or_else(|| crate::util::today().year())
-        .to_string();
+    // Saved in the invoice's financial year folder, e.g. Invoices6-27.
+    let year = crate::util::financial_year_folder(parse_date(&invoice.invoice.invoice_date).unwrap_or_else(crate::util::today));
     let suffix = if copies.len() == 3 {
         "all-copies".to_string()
     } else {

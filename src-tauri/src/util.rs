@@ -60,6 +60,12 @@ pub fn financial_year_label() -> String {
     format!("{:02}-{:02}", start % 100, (start + 1) % 100)
 }
 
+/// Folder name for a date's financial year (1 April to 31 March), e.g. "2026-27".
+pub fn financial_year_folder(date: NaiveDate) -> String {
+    let start = if date.month() >= 4 { date.year() } else { date.year() - 1 };
+    format!("{}-{:02}", start, (start + 1) % 100)
+}
+
 /// Two amounts closer than this (half a paisa) are the same amount.
 pub const MONEY_EPS: f64 = 0.005;
 
@@ -220,6 +226,15 @@ pub fn rich_text_to_plain(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invoice_folders_follow_the_financial_year() {
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        assert_eq!(financial_year_folder(d("2026-04-01")), "2026-27");
+        assert_eq!(financial_year_folder(d("2027-03-31")), "2026-27");
+        assert_eq!(financial_year_folder(d("2026-03-31")), "2025-26");
+        assert_eq!(financial_year_folder(d("2099-12-31")), "2099-00");
+    }
 
     #[test]
     fn document_numbers_put_the_year_before_the_running_number() {

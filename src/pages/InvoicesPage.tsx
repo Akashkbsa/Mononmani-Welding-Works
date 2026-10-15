@@ -22,6 +22,7 @@ import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
 import MonthFilter, { inMonth } from "../components/MonthFilter";
+import { isMonth } from "../lib/period";
 
 type Tab = "all" | "due" | "paid" | "draft" | "cancelled";
 
@@ -178,7 +179,7 @@ export default function InvoicesPage({
 
       <div className="flex items-center gap-3 mb-4">
         <MonthFilter dates={(invoices ?? []).map((i) => i.invoice_date)} value={month} onChange={setMonth} />
-        {month && (
+        {isMonth(month) && (
           <>
             <Button
               icon={<Download className="w-4 h-4" />}

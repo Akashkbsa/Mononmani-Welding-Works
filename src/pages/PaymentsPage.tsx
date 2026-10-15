@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CreditCard, Plus, Search } from "lucide-react";
 import { PAYMENT_METHODS, PaymentListItem, PaymentsSummary } from "../types/payment";
 import { getPaymentsSummary, listPayments } from "../services/api";
-import { errorMessage, formatDate, formatMoney, monthTitle, todayISO } from "../lib/format";
+import { errorMessage, formatDate, formatMoney, todayISO } from "../lib/format";
 import { Alert, Badge, Button, Card, EmptyState, inputClass, ListSkeleton, PageHeader, RowChevron, rowClass, rowProps, Stat, StatStrip, theadClass, useToast } from "../components/ui";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 import PaymentDetailsModal from "../components/payments/PaymentDetailsModal";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
 import MonthFilter, { inMonth } from "../components/MonthFilter";
+import { periodTitle } from "../lib/period";
 
 export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
   const toast = useToast();
@@ -142,7 +143,7 @@ export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?
         ) : shown.length === 0 ? (
           <EmptyState
             icon={CreditCard}
-            title={filtered ? "No payments match these filters" : month && payments.length > 0 ? `No payments in ${monthTitle(month)}` : "No payments recorded yet"}
+            title={filtered ? "No payments match these filters" : month && payments.length > 0 ? `No payments in ${periodTitle(month)}` : "No payments recorded yet"}
             description={filtered || (month && payments.length > 0) ? undefined : "Record a payment when a customer pays an invoice."}
           />
         ) : (
