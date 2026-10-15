@@ -3,7 +3,7 @@ import { EmployeePayment, EmployeePaymentInput, PayMonthDetail, WageKind } from 
 import { PAYMENT_METHODS } from "../../types/payment";
 import { createEmployeePayment, deleteEmployeePayment, getPayMonth, updateEmployeePayment } from "../../services/api";
 import { errorMessage, formatMoney, monthTitle, round2, shiftMonth, todayISO } from "../../lib/format";
-import { WAGE_KIND_LABEL } from "../../lib/payroll";
+import { finishStartsTicked, WAGE_KIND_LABEL } from "../../lib/payroll";
 import { Alert, Button, Checkbox, ConfirmDialog, Field, inputClass, Loading, Modal, SearchSelect, useToast } from "../ui";
 
 interface Props {
@@ -57,7 +57,7 @@ export default function WageEntryFormModal({ detail: given, kind, existing, empl
   const [date, setDate] = useState(existing?.entry_date ?? todayISO());
   const [method, setMethod] = useState(existing?.payment_method ?? "Cash");
   const [note, setNote] = useState(existing?.note ?? "");
-  const [finish, setFinish] = useState(existing ? existing.round_off !== 0 : false);
+  const [finish, setFinish] = useState(existing ? finishStartsTicked(existing, balanceWithout) : false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -198,6 +198,11 @@ export default function WageEntryFormModal({ detail: given, kind, existing, empl
                     difference < 0 && (
                       <p className="text-amber-700 tabular">This pays {formatMoney(-difference)} more than is due. The month will show Overpaid.</p>
                     )
+                  )}
+                  {finish && existing && existing.round_off !== 0 && round2(existing.round_off) !== difference && (
+                    <p className="text-amber-700 tabular">
+                      The round-off changes from {formatMoney(Math.abs(existing.round_off))} to {formatMoney(Math.abs(difference))}.
+                    </p>
                   )}
                   {finish && Math.abs(difference) > 100 && (
                     <p className="text-amber-700">That's a round-off of more than ₹100. Check the amount.</p>

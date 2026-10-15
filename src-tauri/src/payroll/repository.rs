@@ -129,6 +129,7 @@ impl PayrollRepository {
                 return Err("The joining date can't be after the leaving date.".to_string());
             }
         }
+        Self::check_rows_fit(conn, id, &e.joined_on, current.left_on.as_deref())?;
         conn.execute(
             "UPDATE employees SET name = ?1, role = ?2, phone = ?3, address = ?4, joined_on = ?5, daily_wage = ?6,
                  ot_rate = ?7, notes = ?8, updated_at = ?9 WHERE id = ?10",
@@ -206,6 +207,28 @@ impl PayrollRepository {
         Ok(n > 0)
     }
 
+    /// Every entered month must still fit its days inside the employed days these dates allow.
+    fn check_rows_fit(conn: &Connection, id: i64, joined_on: &str, left_on: Option<&str>) -> Result<(), String> {
+        let mut stmt = conn
+            .prepare("SELECT month, days_worked FROM pay_months WHERE employee_id = ?1 ORDER BY month")
+            .map_err(|e| format!("Failed to check pay records: {}", e))?;
+        let rows = stmt
+            .query_map(params![id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))
+            .map_err(|e| format!("Failed to check pay records: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to check pay records: {}", e))?;
+        for (month, days) in rows {
+            if days > super::calc::employed_days(&month, joined_on, left_on)? as f64 + 1e-9 {
+                return Err(format!(
+                    "{} already has {} days entered, more than this date allows. Change that month first.",
+                    month_label(&month)?,
+                    days
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn mark_left(conn: &Connection, id: i64, left_on: &str) -> Result<EmployeeDetail, String> {
         let e = Self::employee(conn, id)?;
         if e.left_on.is_some() {
@@ -220,6 +243,7 @@ impl PayrollRepository {
                 return Err(format!("There are pay records for {}, after this leaving date.", month_label(&last)?));
             }
         }
+        Self::check_rows_fit(conn, id, &e.joined_on, Some(&left_on))?;
         conn.execute(
             "UPDATE employees SET left_on = ?1, updated_at = ?2 WHERE id = ?3",
             params![left_on, Utc::now().to_rfc3339(), id],
@@ -236,6 +260,10 @@ impl PayrollRepository {
         if joined_on <= left {
             return Err(format!("The rejoining date must be after the leaving date ({}).", display_date(&left)));
         }
+        // A short break inside one month is not a new start: keep the joining date so that month's
+        // days are not cut down to the days after rejoining.
+        let joined_on = if joined_on[..7] == left[..7] { e.joined_on.clone() } else { joined_on };
+        Self::check_rows_fit(conn, id, &joined_on, None)?;
         conn.execute(
             "UPDATE employees SET joined_on = ?1, left_on = NULL, updated_at = ?2 WHERE id = ?3",
             params![joined_on, Utc::now().to_rfc3339(), id],
@@ -453,6 +481,9 @@ impl PayrollRepository {
         let max_days = super::calc::employed_days(month, &e.joined_on, e.left_on.as_deref())?;
         let days = super::calc::check_days(input.days_worked, max_days)?;
         let hours = super::calc::check_ot_hours(input.ot_hours, month_days)?;
+        if days == 0.0 && hours > 0.0 {
+            return Err("OT hours need days worked.".to_string());
+        }
         let bonus = round2(input.bonus_amount);
         if !bonus.is_finite() || bonus < 0.0 {
             return Err("Bonus can't be negative.".to_string());
@@ -862,7 +893,7 @@ mod tests {
             PayrollRepository::mark_left(&conn, a, "2026-09-30").unwrap_err(),
             "There are pay records for October 2026, after this leaving date."
         );
-        PayrollRepository::mark_left(&conn, a, "2026-10-05").unwrap();
+        PayrollRepository::mark_left(&conn, a, "2026-10-25").unwrap();
         let r = emp(&conn, "Ravi", "2026-01-01");
         raw_payment(&conn, r, "2026-09", "CARRIED", Some("2026-10"));
         assert_eq!(
@@ -1012,6 +1043,42 @@ mod tests {
         PayrollRepository::save_pay_month(&conn, a, "2026-03", days(31.0), TODAY).unwrap();
         assert!(PayrollRepository::pay_sheet(&conn, "2026-05", TODAY).unwrap().rows.is_empty());
         assert_eq!(PayrollRepository::save_pay_month(&conn, a, "2026-05", days(1.0), TODAY).unwrap_err(), "Anbu isn't on the pay sheet for May 2026.");
+    }
+
+    #[test]
+    fn rejoining_in_the_month_they_left_keeps_the_whole_month() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        PayrollRepository::mark_left(&conn, a, "2026-10-10").unwrap();
+        let e = PayrollRepository::rejoin(&conn, a, "2026-10-20").unwrap().employee;
+        assert_eq!((e.joined_on.as_str(), e.left_on), ("2026-01-01", None), "a short break inside one month is not a new start");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(22.0), TODAY).unwrap();
+    }
+
+    #[test]
+    fn dates_cannot_cut_below_days_already_entered() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(20.0), TODAY).unwrap();
+        assert_eq!(
+            PayrollRepository::mark_left(&conn, a, "2026-10-10").unwrap_err(),
+            "October 2026 already has 20 days entered, more than this date allows. Change that month first."
+        );
+        assert_eq!(
+            PayrollRepository::update_employee(&conn, a, input("Anbu", "2026-10-25")).unwrap_err(),
+            "October 2026 already has 20 days entered, more than this date allows. Change that month first."
+        );
+        PayrollRepository::mark_left(&conn, a, "2026-10-20").unwrap();
+    }
+
+    #[test]
+    fn ot_hours_need_days_worked() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        assert_eq!(
+            PayrollRepository::save_pay_month(&conn, a, "2026-10", PayMonthInput { ot_hours: 4.0, ..days(0.0) }, TODAY).unwrap_err(),
+            "OT hours need days worked."
+        );
     }
 
     #[test]

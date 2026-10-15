@@ -62,3 +62,17 @@ export const WAGE_KIND_LABEL: Record<WageKind, string> = {
 export function carriedInLabel(fromMonth: string): string {
   return `Advance carried from ${monthTitle(fromMonth)}`;
 }
+
+/**
+ * When editing a salary, "Round off and finish" starts ticked only if its round-off still matches
+ * the month. If wages were added after it was finished, saving it again must not quietly write
+ * them off.
+ */
+export function finishStartsTicked(existing: { kind: WageKind; amount: number; round_off: number }, balanceWithout: number): boolean {
+  return existing.kind === "SALARY" && existing.round_off !== 0 && round2(balanceWithout - existing.amount) === round2(existing.round_off);
+}
+
+/** Enter days sends only rows whose days or OT hours differ from what is saved. */
+export function entryChanged(r: { row: { days_worked: number; ot_hours: number } | null }, e: { days_worked: number; ot_hours: number }): boolean {
+  return !r.row || r.row.days_worked !== e.days_worked || r.row.ot_hours !== e.ot_hours;
+}

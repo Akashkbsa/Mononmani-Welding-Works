@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, HandCoins, HardHat, Plus } from "lucide-react";
 import { getPaySheet, savePaySheet } from "../../services/api";
 import { currentMonth, errorMessage, formatMoney, monthTitle, shiftMonth } from "../../lib/format";
-import { parseQuantity, payLine, STATUS_TONE, statusText } from "../../lib/payroll";
+import { entryChanged, parseQuantity, payLine, STATUS_TONE, statusText } from "../../lib/payroll";
 import { PaySheet, PaySheetEntry, PaySheetRow } from "../../types/payroll";
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, inputClass, ListSkeleton, rowClass, rowProps, theadClass, useToast } from "../ui";
 import MonthFilter from "../MonthFilter";
@@ -95,9 +95,11 @@ export default function PaySheetTab() {
   const hasErrors = Object.values(read).some((x) => x.days || x.hours);
 
   const saveDays = async () => {
-    const entries = Object.values(read)
-      .map((x) => x.entry)
-      .filter((x): x is PaySheetEntry => x !== null);
+    // Only rows that changed: an untouched month is never re-checked or re-saved.
+    const entries = (sheet?.rows ?? [])
+      .map((r) => ({ r, entry: read[r.employee_id]?.entry ?? null }))
+      .filter((x): x is { r: PaySheetRow; entry: PaySheetEntry } => x.entry !== null && entryChanged(x.r, x.entry))
+      .map((x) => x.entry);
     setSaving(true);
     setError(null);
     try {
