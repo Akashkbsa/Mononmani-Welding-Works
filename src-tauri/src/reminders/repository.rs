@@ -5,6 +5,9 @@ use chrono::{Datelike, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
 const NOT_FOUND: &str = "Reminder not found.";
+const SNOOZE_RANGE: &str = "Snooze can be 1 to 365 days.";
+/// `app_settings` key holding the banner's snooze choices in days, e.g. "1,3,7".
+const SNOOZE_KEY: &str = "reminder_snooze_days";
 
 /// The record kinds a reminder can link to, with the table that holds them.
 const LINK_TABLES: [(&str, &str); 9] = [
@@ -107,7 +110,7 @@ impl ReminderRepository {
         let c = Self::clean(conn, &input)?;
         conn.execute(
             "UPDATE reminders SET title = ?1, note = ?2, due_date = ?3, remind_days = ?4, repeat = ?5, repeat_day = ?6, month_end = ?7,
-                    link_kind = ?8, link_id = ?9, dismissed = 0, updated_at = ?10 WHERE id = ?11",
+                    link_kind = ?8, link_id = ?9, dismissed = 0, snoozed_until = NULL, updated_at = ?10 WHERE id = ?11",
             params![c.title, c.note, c.due_date, c.remind_days, c.repeat.as_str(), c.repeat_day, c.month_end, c.link_kind, c.link_id, Utc::now().to_rfc3339(), id],
         )
         .map_err(|e| format!("Failed to save the reminder: {}", e))?;
@@ -139,7 +142,7 @@ impl ReminderRepository {
     fn load(conn: &Connection, filter: &str, args: &[&dyn rusqlite::ToSql], today: NaiveDate) -> Result<Vec<Reminder>, String> {
         let sql = format!(
             "SELECT r.id, r.title, r.note, r.due_date, r.remind_days, r.repeat, r.month_end, r.link_kind, r.link_id, {},
-                    r.dismissed, r.done_on, r.last_done_on, r.created_at, r.updated_at
+                    r.dismissed, r.done_on, r.last_done_on, r.created_at, r.updated_at, r.snoozed_until
              FROM reminders r WHERE {} ORDER BY r.due_date, r.id",
             LINK_LABEL_SQL, filter
         );
@@ -161,6 +164,7 @@ impl ReminderRepository {
                     link_id: r.get(8)?,
                     link_label,
                     dismissed: r.get(10)?,
+                    snoozed_until: r.get(15)?,
                     done_on: r.get(11)?,
                     last_done_on: r.get(12)?,
                     state: String::new(),
@@ -211,9 +215,13 @@ impl ReminderRepository {
         }
     }
 
-    /// What the top banner shows: the Due list without the dismissed ones.
+    /// What the top banner shows: the Due list without the dismissed ones and those snoozed past today.
     pub fn banner(conn: &Connection, today: NaiveDate) -> Result<Vec<Reminder>, String> {
-        Ok(Self::list(conn, "DUE", today)?.into_iter().filter(|r| !r.dismissed).collect())
+        let today_text = today.format("%Y-%m-%d").to_string();
+        Ok(Self::list(conn, "DUE", today)?
+            .into_iter()
+            .filter(|r| !r.dismissed && r.snoozed_until.as_deref().map_or(true, |until| until <= today_text.as_str()))
+            .collect())
     }
 
     /// Open (not done) reminders linked to one record, by date.
@@ -236,11 +244,11 @@ impl ReminderRepository {
         let now = Utc::now().to_rfc3339();
         match next_date(due, repeat, repeat_day.unwrap_or(due.day()), month_end) {
             None => conn.execute(
-                "UPDATE reminders SET done_on = ?1, updated_at = ?2 WHERE id = ?3",
+                "UPDATE reminders SET done_on = ?1, snoozed_until = NULL, updated_at = ?2 WHERE id = ?3",
                 params![today_text, now, id],
             ),
             Some(next) => conn.execute(
-                "UPDATE reminders SET due_date = ?1, last_done_on = ?2, dismissed = 0, updated_at = ?3 WHERE id = ?4",
+                "UPDATE reminders SET due_date = ?1, last_done_on = ?2, dismissed = 0, snoozed_until = NULL, updated_at = ?3 WHERE id = ?4",
                 params![next.format("%Y-%m-%d").to_string(), today_text, now, id],
             ),
         }
@@ -254,6 +262,62 @@ impl ReminderRepository {
         conn.execute("UPDATE reminders SET done_on = NULL, updated_at = ?1 WHERE id = ?2", params![Utc::now().to_rfc3339(), id])
             .map_err(|e| format!("Failed to save the reminder: {}", e))?;
         Self::reload(conn, id)
+    }
+
+    /// Keep a reminder off the banner for `days` days from today (it stays on the Reminders page).
+    /// 0 days takes the snooze off.
+    pub fn snooze(conn: &Connection, id: i64, days: i64, today: NaiveDate) -> Result<Reminder, String> {
+        if !(0..=365).contains(&days) {
+            return Err(SNOOZE_RANGE.to_string());
+        }
+        Self::require(conn, id)?;
+        let until = (days > 0).then(|| (today + chrono::Duration::days(days)).format("%Y-%m-%d").to_string());
+        conn.execute(
+            "UPDATE reminders SET snoozed_until = ?1, updated_at = ?2 WHERE id = ?3",
+            params![until, Utc::now().to_rfc3339(), id],
+        )
+        .map_err(|e| format!("Failed to save the reminder: {}", e))?;
+        Self::get(conn, id, today)?.ok_or_else(|| NOT_FOUND.to_string())
+    }
+
+    /// The snooze lengths the banner offers, in days, shortest first. Tomorrow only until changed.
+    pub fn snooze_choices(conn: &Connection) -> Result<Vec<i64>, String> {
+        let value: Option<String> = conn
+            .query_row("SELECT value FROM app_settings WHERE key = ?1", params![SNOOZE_KEY], |r| r.get(0))
+            .optional()
+            .map_err(|e| format!("Failed to load the snooze choices: {}", e))?;
+        let mut days: Vec<i64> = value
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|d| d.trim().parse().ok())
+            .filter(|d| (1..=365).contains(d))
+            .collect();
+        days.sort_unstable();
+        days.dedup();
+        Ok(if days.is_empty() { vec![1] } else { days })
+    }
+
+    pub fn save_snooze_choices(conn: &Connection, days: Vec<i64>) -> Result<Vec<i64>, String> {
+        let mut days = days;
+        days.sort_unstable();
+        days.dedup();
+        if days.is_empty() {
+            return Err("Keep at least one snooze choice.".to_string());
+        }
+        if days.iter().any(|d| !(1..=365).contains(d)) {
+            return Err(SNOOZE_RANGE.to_string());
+        }
+        if days.len() > 5 {
+            return Err("Up to 5 snooze choices.".to_string());
+        }
+        let text = days.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(",");
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![SNOOZE_KEY, text, Utc::now().to_rfc3339()],
+        )
+        .map_err(|e| format!("Failed to save the snooze choices: {}", e))?;
+        Ok(days)
     }
 
     /// Take a reminder off the banner (it stays on the Reminders page), or put it back.
@@ -483,5 +547,47 @@ mod tests {
         let mut monthly = input("Pay GST", "2026-04-30", 3, "MONTHLY");
         monthly.month_end = true;
         assert!(ReminderRepository::create(&conn, monthly).unwrap().month_end);
+    }
+
+    #[test]
+    fn snooze_hides_from_the_banner_until_the_day() {
+        let (_d, conn) = setup();
+        let id = add(&conn, "Pay GST", "2026-11-05", 0, "NONE");
+        let r = ReminderRepository::snooze(&conn, id, 1, d("2026-11-10")).unwrap();
+        assert_eq!(r.snoozed_until.as_deref(), Some("2026-11-11"));
+        assert!(ReminderRepository::banner(&conn, d("2026-11-10")).unwrap().is_empty(), "hidden today");
+        assert_eq!(ReminderRepository::list(&conn, "DUE", d("2026-11-10")).unwrap().len(), 1, "still on the Reminders page");
+        assert_eq!(titles(&ReminderRepository::banner(&conn, d("2026-11-11")).unwrap()), vec!["Pay GST"], "back the next day");
+        ReminderRepository::snooze(&conn, id, 7, d("2026-11-10")).unwrap();
+        assert!(ReminderRepository::banner(&conn, d("2026-11-16")).unwrap().is_empty());
+        let r = ReminderRepository::snooze(&conn, id, 0, d("2026-11-10")).unwrap();
+        assert_eq!(r.snoozed_until, None, "0 days un-snoozes");
+        assert_eq!(ReminderRepository::banner(&conn, d("2026-11-10")).unwrap().len(), 1);
+        assert_eq!(ReminderRepository::snooze(&conn, id, 366, d("2026-11-10")).unwrap_err(), "Snooze can be 1 to 365 days.");
+        assert_eq!(ReminderRepository::snooze(&conn, 9999, 1, d("2026-11-10")).unwrap_err(), "Reminder not found.");
+    }
+
+    #[test]
+    fn done_and_editing_clear_a_snooze() {
+        let (_d, conn) = setup();
+        let today = d("2026-11-10");
+        let id = add(&conn, "Collect rent", "2026-11-06", 2, "MONTHLY");
+        ReminderRepository::snooze(&conn, id, 30, today).unwrap();
+        assert_eq!(ReminderRepository::mark_done(&conn, id, today).unwrap().snoozed_until, None, "the next date is not snoozed");
+        ReminderRepository::snooze(&conn, id, 30, today).unwrap();
+        let r = ReminderRepository::update(&conn, id, input("Collect rent", "2026-11-06", 2, "MONTHLY")).unwrap();
+        assert_eq!(r.snoozed_until, None);
+    }
+
+    #[test]
+    fn snooze_choices_default_to_one_day_and_can_be_changed() {
+        let (_d, conn) = setup();
+        assert_eq!(ReminderRepository::snooze_choices(&conn).unwrap(), vec![1]);
+        assert_eq!(ReminderRepository::save_snooze_choices(&conn, vec![7, 1, 3, 3]).unwrap(), vec![1, 3, 7], "sorted, no repeats");
+        assert_eq!(ReminderRepository::snooze_choices(&conn).unwrap(), vec![1, 3, 7]);
+        assert_eq!(ReminderRepository::save_snooze_choices(&conn, vec![]).unwrap_err(), "Keep at least one snooze choice.");
+        assert_eq!(ReminderRepository::save_snooze_choices(&conn, vec![0]).unwrap_err(), "Snooze can be 1 to 365 days.");
+        assert_eq!(ReminderRepository::save_snooze_choices(&conn, vec![1, 2, 3, 4, 5, 6]).unwrap_err(), "Up to 5 snooze choices.");
+        assert_eq!(ReminderRepository::snooze_choices(&conn).unwrap(), vec![1, 3, 7], "a refused save changes nothing");
     }
 }

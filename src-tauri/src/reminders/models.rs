@@ -36,6 +36,8 @@ pub struct Reminder {
     pub link_missing: bool,
     /// Taken off the banner by the owner; still not done.
     pub dismissed: bool,
+    /// YYYY-MM-DD: off the banner until this day. None when not snoozed.
+    pub snoozed_until: Option<String>,
     /// When a one-time reminder was finished.
     pub done_on: Option<String>,
     /// When a repeating reminder was last marked done.

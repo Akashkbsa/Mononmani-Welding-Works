@@ -486,7 +486,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "022_payroll",
         sql: PAYROLL_SQL,
     },
+    Migration {
+        version: 23,
+        name: "023_reminder_snooze",
+        sql: REMINDER_SNOOZE_SQL,
+    },
 ];
+
+/// Snooze: a reminder stays off the banner until this day (YYYY-MM-DD). The reminders table is
+/// already tracked in `change_log`, so the backup picks up the new column.
+pub const REMINDER_SNOOZE_SQL: &str = "ALTER TABLE reminders ADD COLUMN snoozed_until TEXT NULL;";
 
 
 /// Employees and payroll: employees, one pay row per employee per month (days, OT hours and the
@@ -1684,13 +1693,23 @@ mod tests {
     fn migration_22_adds_payroll_tables_and_leaves_data_alone() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_15(dir.path()));
-        assert_eq!(latest_version(), 22);
+        assert!(latest_version() >= 22);
         for table in ["employees", "pay_months", "employee_payments", "employee_files"] {
             let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
             assert_eq!(n, 0, "{}", table);
         }
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM customers", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn migration_23_adds_reminder_snooze() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        assert_eq!(latest_version(), 23);
+        conn.execute("INSERT INTO reminders (title, due_date, created_at, updated_at) VALUES ('Pay GST', '2026-10-31', 'x', 'x')", []).unwrap();
+        let snoozed: Option<String> = conn.query_row("SELECT snoozed_until FROM reminders", [], |r| r.get(0)).unwrap();
+        assert_eq!(snoozed, None);
     }
 
     #[test]

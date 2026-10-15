@@ -48,6 +48,8 @@ export interface Reminder {
   link_missing: boolean;
   /** Taken off the banner; still not done. */
   dismissed: boolean;
+  /** YYYY-MM-DD: off the banner until this day; null when not snoozed. */
+  snoozed_until: string | null;
   done_on: string | null;
   last_done_on: string | null;
   state: ReminderState;

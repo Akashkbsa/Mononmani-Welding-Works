@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BellRing, Plus } from "lucide-react";
-import { deleteReminder, listReminders, markReminderDone, markReminderNotDone, setReminderDismissed } from "../services/api";
-import { errorMessage, formatDate } from "../lib/format";
+import { deleteReminder, listReminders, markReminderDone, markReminderNotDone, setReminderDismissed, snoozeReminder } from "../services/api";
+import { errorMessage, formatDate, todayISO } from "../lib/format";
 import { remindText, repeatText, STATE_STYLE, whenText } from "../lib/reminders";
 import { LINK_KIND_LABEL, Reminder, ReminderLinkKind, ReminderTab } from "../types/reminder";
 import { Alert, Button, Card, ConfirmDialog, EmptyState, ListSkeleton, PageHeader, theadClass, useToast } from "../components/ui";
@@ -147,6 +147,7 @@ export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: P
                     <td className="py-3 px-4 whitespace-nowrap">
                       <span className={`inline-block rounded-sm px-1.5 py-0.5 text-xs font-medium ${style.chip}`}>{style.label}</span>
                       {r.dismissed && r.state !== "DONE" && <div className="mt-1 text-xs text-slate-500">Hidden from the top</div>}
+                      {snoozed(r) && <div className="mt-1 text-xs text-slate-500">Snoozed until {formatDate(r.snoozed_until)}</div>}
                     </td>
                     <td className="max-w-[22rem] py-3 pr-4">
                       <div className="font-medium text-slate-900">{r.title}</div>
@@ -186,6 +187,11 @@ export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: P
                         ) : (
                           <Button size="sm" onClick={() => act(() => markReminderDone(r.id), r.repeat === "NONE" ? "Marked as done" : "Moved to the next date")}>
                             Done
+                          </Button>
+                        )}
+                        {snoozed(r) && (
+                          <Button size="sm" variant="ghost" onClick={() => act(() => snoozeReminder(r.id, 0), "Snooze taken off")}>
+                            Unsnooze
                           </Button>
                         )}
                         {r.dismissed && r.state !== "DONE" && (
@@ -235,4 +241,9 @@ export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: P
       )}
     </>
   );
+}
+
+/** Snoozed to a later day than today, so it is off the banner for now. */
+function snoozed(r: Reminder): boolean {
+  return r.state !== "DONE" && r.snoozed_until !== null && r.snoozed_until > todayISO();
 }

@@ -216,6 +216,9 @@ pub fn run() {
             reminders::mark_reminder_done,
             reminders::mark_reminder_not_done,
             reminders::set_reminder_dismissed,
+            reminders::snooze_reminder,
+            reminders::get_snooze_choices,
+            reminders::save_snooze_choices,
             settings::get_settings,
             settings::save_settings
         ])

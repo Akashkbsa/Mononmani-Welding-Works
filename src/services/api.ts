@@ -305,6 +305,11 @@ export const markReminderNotDone = (id: number) => call<Reminder>("mark_reminder
 /** Take a reminder off the banner (true) or put it back (false). */
 export const setReminderDismissed = (id: number, dismissed: boolean) =>
   call<Reminder>("set_reminder_dismissed", { id, dismissed });
+/** Keep a reminder off the banner for `days` days; 0 takes the snooze off. */
+export const snoozeReminder = (id: number, days: number) => call<Reminder>("snooze_reminder", { id, days });
+/** The snooze lengths the banner offers, in days. */
+export const getSnoozeChoices = () => call<number[]>("get_snooze_choices");
+export const saveSnoozeChoices = (days: number[]) => call<number[]>("save_snooze_choices", { days });
 
 // Payments
 export const listPayments = (filter: PaymentFilter = {}) => call<PaymentListItem[]>("list_payments", { filter });

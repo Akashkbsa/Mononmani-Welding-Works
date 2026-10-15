@@ -60,3 +60,23 @@ pub fn set_reminder_dismissed(id: i64, dismissed: bool, state: State<'_, AppStat
     let conn = state.db.get_connection()?;
     ReminderRepository::set_dismissed(&conn, id, dismissed)
 }
+
+/// Keep a reminder off the banner for `days` days from today; 0 takes the snooze off.
+#[tauri::command]
+pub fn snooze_reminder(id: i64, days: i64, state: State<'_, AppState>) -> Result<Reminder, String> {
+    let conn = state.db.get_connection()?;
+    ReminderRepository::snooze(&conn, id, days, today())
+}
+
+/// The snooze lengths the banner offers, in days.
+#[tauri::command]
+pub fn get_snooze_choices(state: State<'_, AppState>) -> Result<Vec<i64>, String> {
+    let conn = state.db.get_connection()?;
+    ReminderRepository::snooze_choices(&conn)
+}
+
+#[tauri::command]
+pub fn save_snooze_choices(days: Vec<i64>, state: State<'_, AppState>) -> Result<Vec<i64>, String> {
+    let conn = state.db.get_connection()?;
+    ReminderRepository::save_snooze_choices(&conn, days)
+}

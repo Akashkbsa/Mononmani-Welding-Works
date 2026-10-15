@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { BellRing } from "lucide-react";
-import { getReminderBanner, markReminderDone, setReminderDismissed } from "../../services/api";
+import { getReminderBanner, getSnoozeChoices, markReminderDone, setReminderDismissed, snoozeReminder } from "../../services/api";
 import { errorMessage, formatDate } from "../../lib/format";
-import { STATE_STYLE, whenText } from "../../lib/reminders";
+import { snoozeLabel, STATE_STYLE, whenText } from "../../lib/reminders";
 import { LINK_KIND_LABEL, Reminder } from "../../types/reminder";
 import { Button, useToast } from "../ui";
 import { useReminders } from "./RemindersContext";
@@ -24,7 +24,7 @@ interface Props {
 
 /**
  * Reminders that are coming up, due or overdue, at the top of every screen. They stay until the owner
- * presses Done or Dismiss.
+ * presses Done or Dismiss, or snoozes them until a later day.
  */
 export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   const toast = useToast();
@@ -32,6 +32,25 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   const [items, setItems] = useState<Reminder[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
+  const [snoozeDays, setSnoozeDays] = useState<number[]>([1]);
+  /** The reminder whose "how long?" snooze menu is open. */
+  const [menuId, setMenuId] = useState<number | null>(null);
+
+  // Close the snooze menu on a click elsewhere or Escape.
+  useEffect(() => {
+    if (menuId === null) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e instanceof MouseEvent && (e.target as HTMLElement).closest("[data-snooze-menu]")) return;
+      setMenuId(null);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menuId]);
 
   // Check again every minute, so a reminder appears when the date changes while the app is open.
   useEffect(() => {
@@ -43,6 +62,8 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
     let cancelled = false;
     getReminderBanner()
       .then((list) => !cancelled && setItems(list))
+      .then(() => getSnoozeChoices())
+      .then((days) => !cancelled && days && days.length > 0 && setSnoozeDays(days))
       .catch(() => {
         // The banner is a helper; a failed check leaves the screen as it is.
       });
@@ -54,6 +75,7 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   if (items.length === 0) return null;
 
   const act = async (r: Reminder, action: () => Promise<unknown>, message: string) => {
+    setMenuId(null);
     setBusyId(r.id);
     try {
       await action();
@@ -67,12 +89,12 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   };
 
   return (
-    <section role="region" aria-label="Reminders" className="mww-fade mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-card">
+    <section role="region" aria-label="Reminders" className="mww-fade mb-5 rounded-lg border border-slate-200 bg-white shadow-card">
       <ul className="divide-y divide-slate-200">
         {items.slice(0, SHOWN).map((r) => {
           const style = STATE_STYLE[r.state];
           return (
-            <li key={r.id} className={`relative flex items-center gap-3 py-2.5 pl-5 pr-3 ${ROW_TINT[r.state] ?? ""}`}>
+            <li key={r.id} className={`relative flex items-center gap-3 py-2.5 pl-5 pr-3 first:rounded-t-lg last:rounded-b-lg ${ROW_TINT[r.state] ?? ""}`}>
               <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${style.stripe}`} />
               <BellRing className="h-4 w-4 shrink-0 text-slate-600" />
               <div className="min-w-0 flex-1">
@@ -104,6 +126,37 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
                 >
                   Done
                 </Button>
+                <div className="relative" data-snooze-menu>
+                  <Button
+                    size="sm"
+                    disabled={busyId === r.id}
+                    aria-haspopup={snoozeDays.length > 1 ? "menu" : undefined}
+                    aria-expanded={snoozeDays.length > 1 ? menuId === r.id : undefined}
+                    title={snoozeDays.length === 1 ? `Hide until ${snoozeLabel(snoozeDays[0]).toLowerCase()}. It comes back by itself.` : "Hide for a while. It comes back by itself."}
+                    onClick={() =>
+                      snoozeDays.length === 1
+                        ? act(r, () => snoozeReminder(r.id, snoozeDays[0]), `Snoozed: back ${snoozeDays[0] === 1 ? "tomorrow" : `in ${snoozeLabel(snoozeDays[0])}`}`)
+                        : setMenuId(menuId === r.id ? null : r.id)
+                    }
+                  >
+                    Snooze
+                  </Button>
+                  {menuId === r.id && (
+                    <div role="menu" className="absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-card">
+                      {snoozeDays.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          role="menuitem"
+                          className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => act(r, () => snoozeReminder(r.id, d), `Snoozed: back ${d === 1 ? "tomorrow" : `in ${snoozeLabel(d)}`}`)}
+                        >
+                          {snoozeLabel(d)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Button
                   size="sm"
                   disabled={busyId === r.id}

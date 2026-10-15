@@ -7,6 +7,7 @@ import { errorMessage } from "../lib/format";
 import { Alert, Button, Card, Loading, PageHeader, useToast } from "../components/ui";
 import BackupCard from "../components/BackupCard";
 import BusinessSettingsCard from "../components/BusinessSettingsCard";
+import SnoozeSettingsCard from "../components/SnoozeSettingsCard";
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -57,6 +58,7 @@ export default function SettingsPage() {
 
       <div className="mt-6 space-y-6">
         <BusinessSettingsCard />
+        <SnoozeSettingsCard />
         <BackupCard />
       </div>
     </>

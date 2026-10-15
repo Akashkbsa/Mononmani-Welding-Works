@@ -37,3 +37,14 @@ export function remindText(days: number): string {
   if (days === 7) return "1 week before";
   return `${days} day${days === 1 ? "" : "s"} before`;
 }
+
+/** How a snooze length reads: 1 is "Tomorrow", 7 is "1 week", 30 is "1 month". */
+export function snoozeLabel(days: number): string {
+  if (days === 1) return "Tomorrow";
+  if (days === 30) return "1 month";
+  if (days % 7 === 0) return days === 7 ? "1 week" : `${days / 7} weeks`;
+  return `${days} days`;
+}
+
+/** The snooze lengths the owner can pick from in Settings. */
+export const SNOOZE_OPTIONS = [1, 2, 3, 7, 14, 30];
