@@ -630,6 +630,123 @@ impl PayrollRepository {
             })
             .collect()
     }
+
+    // --------------------------------------------------------------- entries
+
+    fn payment(conn: &Connection, id: i64) -> Result<EmployeePayment, String> {
+        conn.query_row(&format!("SELECT {} FROM employee_payments WHERE id = ?1", PAYMENT_COLUMNS), params![id], map_payment)
+            .optional()
+            .map_err(|e| format!("Failed to load the payment: {}", e))?
+            .ok_or_else(|| "That payment is no longer there.".to_string())
+    }
+
+    /// Check an entry against its month as if `existing` were not there yet, then store it.
+    fn write_payment(conn: &Connection, existing: Option<&EmployeePayment>, input: &EmployeePaymentInput, today: &str) -> Result<(), String> {
+        let kind = input.kind.as_str();
+        if !matches!(kind, "ADVANCE" | "SALARY" | "RETURNED" | "WRITE_OFF" | "CARRIED") {
+            return Err("Unknown payment kind.".to_string());
+        }
+        if let Some(old) = existing {
+            if old.kind != kind {
+                return Err("A payment's kind can't be changed.".to_string());
+            }
+            if old.employee_id != input.employee_id {
+                return Err("A payment's employee can't be changed.".to_string());
+            }
+        }
+        let amount = round2(input.amount);
+        if !amount.is_finite() || amount <= 0.0 {
+            return Err("Amount must be more than 0.".to_string());
+        }
+        let entry_date = normalize_date(&input.entry_date, "Date")?;
+        let month = input.month.as_str();
+        let label = month_label(month)?;
+        let e = Self::employee(conn, input.employee_id)?;
+        Self::check_open(conn, &e, month, today)?;
+        let payment_method = match kind {
+            "ADVANCE" | "SALARY" | "RETURNED" => Some(clean(&input.payment_method).ok_or_else(|| "Choose how it was paid.".to_string())?),
+            _ => None,
+        };
+        if input.finish && kind != "SALARY" {
+            return Err("Only a salary payment can be rounded off.".to_string());
+        }
+        let (row, before) = Self::month_figures(conn, e.id, month, existing.map(|p| p.id))?;
+        let mut round_off = 0.0;
+        let mut carried_to = None;
+        if kind == "SALARY" && input.finish {
+            if row.is_none() {
+                return Err(format!("Enter the days for {} before rounding off.", label));
+            }
+            round_off = round2(before.balance - amount);
+        }
+        if matches!(kind, "RETURNED" | "WRITE_OFF" | "CARRIED") {
+            if row.is_none() {
+                return Err(format!("Enter the days for {} first.", label));
+            }
+            if before.balance >= 0.0 {
+                return Err(format!("{} is not overpaid.", label));
+            }
+            let overpaid = round2(-before.balance);
+            if amount > overpaid {
+                return Err(format!("That is more than the {} overpaid.", crate::util::rupees(overpaid)));
+            }
+        }
+        if kind == "CARRIED" {
+            let target = super::calc::next_month(month)?;
+            // The month after the current one is allowed here: the money really was handed over.
+            if !super::calc::in_window(&target, &e.joined_on, e.left_on.as_deref(), &target) {
+                return Err(format!("{} isn't working in {}. Use Cash returned or Write off.", e.name, month_label(&target)?));
+            }
+            carried_to = Some(target);
+        }
+        let note = clean(&input.note);
+        let now = Utc::now().to_rfc3339();
+        let result = match existing {
+            Some(old) => conn.execute(
+                "UPDATE employee_payments SET month = ?1, entry_date = ?2, amount = ?3, round_off = ?4, carried_to = ?5,
+                     payment_method = ?6, note = ?7, updated_at = ?8 WHERE id = ?9",
+                params![month, entry_date, amount, round_off, carried_to, payment_method, note, now, old.id],
+            ),
+            None => conn.execute(
+                "INSERT INTO employee_payments (employee_id, month, kind, entry_date, amount, round_off, carried_to, payment_method, note, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+                params![e.id, month, kind, entry_date, amount, round_off, carried_to, payment_method, note, now],
+            ),
+        };
+        result.map_err(|e| format!("Failed to save the payment: {}", e))?;
+        Ok(())
+    }
+
+    pub fn create_payment(conn: &Connection, input: EmployeePaymentInput, today: &str) -> Result<PayMonthDetail, String> {
+        Self::write_payment(conn, None, &input, today)?;
+        Self::pay_month(conn, input.employee_id, &input.month, today)
+    }
+
+    pub fn update_payment(conn: &Connection, id: i64, input: EmployeePaymentInput, today: &str) -> Result<PayMonthDetail, String> {
+        let existing = Self::payment(conn, id)?;
+        Self::write_payment(conn, Some(&existing), &input, today)?;
+        Self::pay_month(conn, input.employee_id, &input.month, today)
+    }
+
+    /// Always allowed: the month (and, for a carried advance, both months) just shows the difference.
+    pub fn delete_payment(conn: &Connection, id: i64) -> Result<(), String> {
+        Self::payment(conn, id)?;
+        conn.execute("DELETE FROM employee_payments WHERE id = ?1", params![id])
+            .map_err(|e| format!("Failed to delete the payment: {}", e))?;
+        Ok(())
+    }
+
+    /// Money actually handed over (advances and salary) between two dates, for the dashboard.
+    pub fn list_wage_payments(conn: &Connection, from: &str, to: &str) -> Result<Vec<EmployeePayment>, String> {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT {} FROM employee_payments WHERE kind IN ('ADVANCE', 'SALARY') AND entry_date BETWEEN ?1 AND ?2 ORDER BY entry_date, id",
+                PAYMENT_COLUMNS
+            ))
+            .map_err(|e| format!("Failed to load wages: {}", e))?;
+        let rows = stmt.query_map(params![from, to], map_payment).map_err(|e| format!("Failed to load wages: {}", e))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| format!("Failed to read wages: {}", e))
+    }
 }
 
 #[cfg(test)]
@@ -957,5 +1074,191 @@ mod tests {
         assert_eq!((h[0].month.as_str(), h[0].status.as_str()), ("2026-10", "TO_PAY"));
         assert_eq!((h[1].month.as_str(), h[1].status.as_str()), ("2026-09", "NOT_ENTERED"));
         assert_eq!(h[11].month, "2025-11");
+    }
+
+    // --------------------------------------------------------------- entries
+
+    fn pay(employee_id: i64, month: &str, kind: &str, amount: f64) -> EmployeePaymentInput {
+        EmployeePaymentInput {
+            employee_id,
+            month: month.into(),
+            kind: kind.into(),
+            entry_date: "2026-10-15".into(),
+            amount,
+            finish: false,
+            payment_method: Some("Cash".into()),
+            note: None,
+        }
+    }
+
+    /// Murugan at ₹600 a day and ₹80 an hour, October entered: 25.5 days, 12 OT hours, ₹16,260 earned.
+    fn murugan_october(conn: &Connection) -> i64 {
+        let a = emp(conn, "Murugan", "2026-01-01");
+        PayrollRepository::save_pay_month(conn, a, "2026-10", PayMonthInput { ot_hours: 12.0, ..days(25.5) }, TODAY).unwrap();
+        a
+    }
+
+    fn create(conn: &Connection, input: EmployeePaymentInput) -> Result<PayMonthDetail, String> {
+        PayrollRepository::create_payment(conn, input, TODAY)
+    }
+
+    #[test]
+    fn paying_exactly_finishes_the_month() {
+        let (_d, conn) = setup();
+        let a = murugan_october(&conn);
+        let d = create(&conn, pay(a, "2026-10", "ADVANCE", 3000.0)).unwrap();
+        assert_eq!((d.status.as_str(), d.figures.balance), ("TO_PAY", 13260.0));
+        let d = create(&conn, pay(a, "2026-10", "SALARY", 13260.0)).unwrap();
+        assert_eq!((d.status.as_str(), d.figures.balance, d.entries.len()), ("PAID", 0.0, 2));
+    }
+
+    #[test]
+    fn rounding_off_down_and_up_finishes_the_month() {
+        let (_d, conn) = setup();
+        let a = murugan_october(&conn);
+        create(&conn, pay(a, "2026-10", "ADVANCE", 3000.0)).unwrap();
+        let d = create(&conn, EmployeePaymentInput { finish: true, ..pay(a, "2026-10", "SALARY", 13250.0) }).unwrap();
+        let salary = d.entries.iter().find(|e| e.kind == "SALARY").unwrap().clone();
+        assert_eq!((salary.round_off, d.status.as_str(), d.figures.rounded_off), (10.0, "PAID", 10.0));
+        PayrollRepository::delete_payment(&conn, salary.id).unwrap();
+        assert_eq!(PayrollRepository::pay_month(&conn, a, "2026-10", TODAY).unwrap().figures.balance, 13260.0);
+        let d = create(&conn, EmployeePaymentInput { finish: true, ..pay(a, "2026-10", "SALARY", 13300.0) }).unwrap();
+        assert_eq!((d.figures.rounded_off, d.status.as_str()), (-40.0, "PAID"));
+    }
+
+    #[test]
+    fn rounding_off_needs_a_salary_and_the_days() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        assert_eq!(
+            create(&conn, EmployeePaymentInput { finish: true, ..pay(a, "2026-10", "SALARY", 100.0) }).unwrap_err(),
+            "Enter the days for October 2026 before rounding off."
+        );
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(1.0), TODAY).unwrap();
+        assert_eq!(
+            create(&conn, EmployeePaymentInput { finish: true, ..pay(a, "2026-10", "ADVANCE", 100.0) }).unwrap_err(),
+            "Only a salary payment can be rounded off."
+        );
+    }
+
+    #[test]
+    fn paying_more_without_rounding_off_shows_overpaid() {
+        let (_d, conn) = setup();
+        let a = murugan_october(&conn);
+        let d = create(&conn, pay(a, "2026-10", "SALARY", 16300.0)).unwrap();
+        assert_eq!((d.status.as_str(), d.figures.balance), ("OVERPAID", -40.0));
+    }
+
+    #[test]
+    fn editing_the_finishing_payment_keeps_the_month_paid() {
+        let (_d, conn) = setup();
+        let a = murugan_october(&conn);
+        let adv = create(&conn, pay(a, "2026-10", "ADVANCE", 3000.0)).unwrap().entries[0].id;
+        let d = create(&conn, EmployeePaymentInput { finish: true, ..pay(a, "2026-10", "SALARY", 13250.0) }).unwrap();
+        let sal = d.entries.iter().find(|e| e.kind == "SALARY").unwrap().id;
+        let d = PayrollRepository::update_payment(&conn, sal, EmployeePaymentInput { finish: true, ..pay(a, "2026-10", "SALARY", 13200.0) }, TODAY).unwrap();
+        assert_eq!((d.figures.rounded_off, d.status.as_str()), (60.0, "PAID"));
+        let d = PayrollRepository::update_payment(&conn, adv, pay(a, "2026-10", "ADVANCE", 2500.0), TODAY).unwrap();
+        assert_eq!((d.status.as_str(), d.figures.balance), ("TO_PAY", 500.0));
+        assert_eq!(
+            PayrollRepository::update_payment(&conn, adv, pay(a, "2026-10", "SALARY", 2500.0), TODAY).unwrap_err(),
+            "A payment's kind can't be changed."
+        );
+    }
+
+    #[test]
+    fn editing_a_paid_month_reopens_it() {
+        let (_d, conn) = setup();
+        let a = murugan_october(&conn);
+        create(&conn, pay(a, "2026-10", "SALARY", 16260.0)).unwrap();
+        let d = PayrollRepository::save_pay_month(&conn, a, "2026-10", PayMonthInput { ot_hours: 12.0, ..days(26.5) }, TODAY).unwrap();
+        assert_eq!((d.status.as_str(), d.figures.balance), ("TO_PAY", 600.0));
+    }
+
+    #[test]
+    fn an_overpaid_month_is_finished_three_ways() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        let mut i = input("Anbu", "2026-01-01");
+        i.daily_wage = 400.0;
+        PayrollRepository::update_employee(&conn, a, i).unwrap();
+        PayrollRepository::save_pay_month(&conn, a, "2026-09", days(10.0), TODAY).unwrap();
+        let d = create(&conn, pay(a, "2026-09", "ADVANCE", 5000.0)).unwrap();
+        assert_eq!((d.status.as_str(), d.figures.balance), ("OVERPAID", -1000.0));
+        assert_eq!(create(&conn, pay(a, "2026-09", "RETURNED", 1200.0)).unwrap_err(), "That is more than the ₹1,000.00 overpaid.");
+        create(&conn, pay(a, "2026-09", "RETURNED", 400.0)).unwrap();
+        let d = create(&conn, EmployeePaymentInput { payment_method: None, ..pay(a, "2026-09", "WRITE_OFF", 600.0) }).unwrap();
+        assert_eq!(d.status, "PAID");
+
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(10.0), TODAY).unwrap();
+        create(&conn, pay(a, "2026-10", "ADVANCE", 5000.0)).unwrap();
+        let d = create(&conn, EmployeePaymentInput { payment_method: None, ..pay(a, "2026-10", "CARRIED", 1000.0) }).unwrap();
+        let carried = d.entries.iter().find(|e| e.kind == "CARRIED").unwrap().clone();
+        assert_eq!((d.status.as_str(), carried.carried_to.as_deref(), carried.payment_method), ("PAID", Some("2026-11"), None));
+        let next = PayrollRepository::pay_month(&conn, a, "2026-11", TODAY).unwrap();
+        assert_eq!((next.carried_in.len(), next.figures.given, next.editable), (1, 1000.0, false));
+        assert_eq!(PayrollRepository::pay_sheet(&conn, "2026-11", TODAY).unwrap().rows.len(), 1, "a carried-in advance shows next month");
+        PayrollRepository::delete_payment(&conn, carried.id).unwrap();
+        assert_eq!(PayrollRepository::pay_month(&conn, a, "2026-10", TODAY).unwrap().status, "OVERPAID");
+    }
+
+    #[test]
+    fn cleared_entries_need_an_overpaid_month_with_days() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        let w = |amount| EmployeePaymentInput { payment_method: None, ..pay(a, "2026-10", "WRITE_OFF", amount) };
+        create(&conn, pay(a, "2026-10", "ADVANCE", 500.0)).unwrap();
+        assert_eq!(create(&conn, w(100.0)).unwrap_err(), "Enter the days for October 2026 first.");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(10.0), TODAY).unwrap();
+        assert_eq!(create(&conn, w(100.0)).unwrap_err(), "October 2026 is not overpaid.");
+    }
+
+    #[test]
+    fn taking_from_next_month_needs_the_employee_there() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Murugan", "2026-01-01");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(1.0), TODAY).unwrap();
+        create(&conn, pay(a, "2026-10", "ADVANCE", 5000.0)).unwrap();
+        PayrollRepository::mark_left(&conn, a, "2026-10-20").unwrap();
+        let c = EmployeePaymentInput { payment_method: None, ..pay(a, "2026-10", "CARRIED", 100.0) };
+        assert_eq!(create(&conn, c).unwrap_err(), "Murugan isn't working in November 2026. Use Cash returned or Write off.");
+    }
+
+    #[test]
+    fn entries_need_an_amount_a_method_and_an_open_month() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        let err = |i| create(&conn, i).unwrap_err();
+        assert_eq!(err(pay(a, "2026-10", "LOAN", 100.0)), "Unknown payment kind.");
+        assert_eq!(err(pay(a, "2026-10", "ADVANCE", 0.0)), "Amount must be more than 0.");
+        assert_eq!(err(EmployeePaymentInput { payment_method: Some("  ".into()), ..pay(a, "2026-10", "ADVANCE", 100.0) }), "Choose how it was paid.");
+        assert_eq!(err(pay(a, "2026-11", "ADVANCE", 100.0)), "November 2026 hasn't started yet.");
+        assert_eq!(err(pay(a, "2025-12", "ADVANCE", 100.0)), "Anbu isn't on the pay sheet for December 2025.");
+    }
+
+    #[test]
+    fn the_dashboard_gets_only_money_handed_over() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Anbu", "2026-01-01");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(1.0), TODAY).unwrap();
+        create(&conn, pay(a, "2026-10", "ADVANCE", 1000.0)).unwrap();
+        create(&conn, EmployeePaymentInput { payment_method: None, ..pay(a, "2026-10", "WRITE_OFF", 400.0) }).unwrap();
+        let list = PayrollRepository::list_wage_payments(&conn, "2026-10-01", "2026-10-31").unwrap();
+        assert_eq!(list.iter().map(|p| (p.kind.as_str(), p.amount)).collect::<Vec<_>>(), vec![("ADVANCE", 1000.0)]);
+        assert!(PayrollRepository::list_wage_payments(&conn, "2026-11-01", "2026-11-30").unwrap().is_empty());
+    }
+
+    #[test]
+    fn float_dust_does_not_leave_a_paisa_open() {
+        let (_d, conn) = setup();
+        let mut i = input("Anbu", "2026-01-01");
+        i.daily_wage = 433.33;
+        i.ot_rate = 66.67;
+        let a = PayrollRepository::create_employee(&conn, i).unwrap().employee.id;
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", PayMonthInput { ot_hours: 1.75, ..days(3.0) }, TODAY).unwrap();
+        create(&conn, pay(a, "2026-10", "ADVANCE", 0.1)).unwrap();
+        create(&conn, pay(a, "2026-10", "ADVANCE", 0.2)).unwrap();
+        let d = create(&conn, pay(a, "2026-10", "SALARY", 1416.36)).unwrap();
+        assert_eq!((d.figures.balance, d.status.as_str()), (0.0, "PAID"));
     }
 }
