@@ -75,7 +75,7 @@ export default function QuotationsPage({ openQuotationId = null, onOpenHandled, 
         }
       />
 
-      <div className="flex justify-end mb-4">
+      <div className="flex flex-wrap justify-end gap-3 mb-4">
         <div className="relative w-72">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input

@@ -86,8 +86,8 @@ export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?
         </div>
       )}
 
-      <div className="flex items-center gap-3 mb-4">
-        <div className="relative w-80">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="relative w-80 max-w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             ref={searchRef}

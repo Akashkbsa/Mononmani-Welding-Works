@@ -137,7 +137,7 @@ export default function InvoicesPage({
         }
       />
 
-      <div className="flex items-end justify-between gap-4 mb-4 border-b border-slate-200">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 mb-4 border-b border-slate-200">
         <div role="tablist" aria-label="Invoice status" className="relative flex gap-1">
           <span
             aria-hidden="true"
@@ -164,7 +164,7 @@ export default function InvoicesPage({
             </button>
           ))}
         </div>
-        <div className="relative w-72 mb-2">
+        <div className="relative w-72 max-w-full mb-2 ml-auto">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             ref={searchRef}
@@ -177,7 +177,7 @@ export default function InvoicesPage({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <MonthFilter dates={(invoices ?? []).map((i) => i.invoice_date)} value={month} onChange={setMonth} />
         {isMonth(month) && (
           <>

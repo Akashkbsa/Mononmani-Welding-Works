@@ -126,7 +126,7 @@ export default function SupplierBillsPage({
         </div>
       )}
 
-      <div className="flex items-end justify-between gap-4 mb-4 border-b border-slate-200">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 mb-4 border-b border-slate-200">
         <div role="tablist" aria-label="Supplier bill status" className="relative flex shrink-0 gap-1">
           <span
             aria-hidden="true"
@@ -153,7 +153,7 @@ export default function SupplierBillsPage({
             </button>
           ))}
         </div>
-        <div className="mb-2 flex items-center gap-3">
+        <div className="mb-2 ml-auto flex flex-wrap items-center gap-3">
           <div className="relative w-72">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input

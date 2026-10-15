@@ -19,7 +19,7 @@ Windows desktop app for GST tax invoices, customer records and payments. React +
 | Customers & suppliers | Every company with a type (Customer, Supplier or Both) and a filter for it; search, frequent star. The details window shows balance due, advance held, invoices and payments received (customers) and amount owed, supplier bills and payments made (suppliers); click any of them to open it on top, and closing it comes back to the company. |
 | Settings | Where the data folder is (with a button to open it), your business details, bank details, terms and tax rates printed on invoices, and Google Drive backup. |
 
-Quotations, Purchase orders and Supplier bills also have the month filter; they open on **All months** so nothing still open is hidden. The month filter also offers **This financial year** and **Last financial year** (1 April to 31 March; `src/lib/period.ts`).
+Quotations, Purchase orders and Supplier bills also have the date filter; they open on **All dates** so nothing still open is hidden. The date filter (`components/MonthFilter.tsx`, rules in `src/lib/period.ts`) shows **All dates**, a **Month** or a **Financial year** (1 April to 31 March), each with ‹ › to step back and forward (never past this month or year), or a **Custom range** of days. The toolbars wrap onto a second line in a narrow window.
 
 **Keyboard:** on every list screen `/` jumps to the search box and **Ctrl+N** starts a new record (invoice, quotation, purchase order, payment, supplier bill, supplier payment, company, reminder, tenant, place or employee). The Dashboard's Ctrl+N starts a new invoice. Both keys are ignored while typing or while a window is open (`src/lib/usePageShortcuts.ts`).
 
