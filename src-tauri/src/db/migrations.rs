@@ -491,7 +491,47 @@ const MIGRATIONS: &[Migration] = &[
         name: "023_reminder_snooze",
         sql: REMINDER_SNOOZE_SQL,
     },
+    Migration {
+        version: 24,
+        name: "024_log_settings_and_supplier_allocations",
+        sql: LOG_SETTINGS_AND_SUPPLIER_ALLOCATIONS_SQL,
+    },
 ];
+
+/// Two tables the backup's change log missed. The owner's settings (business, bank, tax, snooze
+/// choices): without this, changing only them never started the daily backup. The backup's own
+/// note of Drive space (`drive_space`) is not a change, and saving a value unchanged is not either.
+/// And how supplier payments are shared over bills, like `payment_allocations` on the customer side.
+pub const LOG_SETTINGS_AND_SUPPLIER_ALLOCATIONS_SQL: &str = r#"
+    CREATE TRIGGER IF NOT EXISTS trg_app_settings_insert_log AFTER INSERT ON app_settings
+    WHEN NEW.key <> 'drive_space'
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('app_settings', NEW.rowid, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_app_settings_update_log AFTER UPDATE ON app_settings
+    WHEN NEW.key <> 'drive_space' AND OLD.value IS NOT NEW.value
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('app_settings', NEW.rowid, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_app_settings_delete_log AFTER DELETE ON app_settings
+    WHEN OLD.key <> 'drive_space'
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('app_settings', OLD.rowid, 'DELETE', datetime('now'));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_payment_allocations_insert_log AFTER INSERT ON supplier_payment_allocations
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_payment_allocations', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_payment_allocations_update_log AFTER UPDATE ON supplier_payment_allocations
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_payment_allocations', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_supplier_payment_allocations_delete_log AFTER DELETE ON supplier_payment_allocations
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('supplier_payment_allocations', OLD.id, 'DELETE', datetime('now'));
+    END;
+"#;
 
 /// Snooze: a reminder stays off the banner until this day (YYYY-MM-DD). The reminders table is
 /// already tracked in `change_log`, so the backup picks up the new column.
@@ -1706,7 +1746,7 @@ mod tests {
     fn migration_23_adds_reminder_snooze() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_15(dir.path()));
-        assert_eq!(latest_version(), 23);
+        assert!(latest_version() >= 23);
         conn.execute("INSERT INTO reminders (title, due_date, created_at, updated_at) VALUES ('Pay GST', '2026-10-31', 'x', 'x')", []).unwrap();
         let snoozed: Option<String> = conn.query_row("SELECT snoozed_until FROM reminders", [], |r| r.get(0)).unwrap();
         assert_eq!(snoozed, None);

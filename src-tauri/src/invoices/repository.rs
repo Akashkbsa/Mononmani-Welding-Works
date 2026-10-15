@@ -301,13 +301,15 @@ impl InvoiceRepository {
             .filter(|s| ["ISSUED", "DRAFT", "CANCELLED"].contains(&s.as_str()))
             .unwrap_or_else(|| "ISSUED".to_string());
 
+        // Anything the form leaves blank comes from the owner's Settings, never a built-in value.
+        let seller = crate::settings::repository::SettingsRepository::get(conn)?;
         let totals = Self::calculate_financials(
             &input.items,
             tax_type,
             input.discount,
-            input.cgst_rate,
-            input.sgst_rate,
-            input.igst_rate,
+            input.cgst_rate.or(Some(seller.cgst_rate)),
+            input.sgst_rate.or(Some(seller.sgst_rate)),
+            input.igst_rate.or(Some(seller.igst_rate)),
         )?;
 
         if let Some(existing_id) = id {
@@ -401,11 +403,11 @@ impl InvoiceRepository {
             totals.round_off,
             totals.total_amount,
             totals.amount_in_words,
-            clean(input.bank_name).unwrap_or_else(|| "Indian Bank".to_string()),
-            clean(input.bank_branch).unwrap_or_else(|| "Mettupalayam (PONDY)".to_string()),
-            clean(input.bank_account_no).unwrap_or_else(|| "498877880".to_string()),
-            clean(input.bank_ifsc).unwrap_or_else(|| "IDIB000M070".to_string()),
-            clean(input.terms_and_conditions).unwrap_or_else(|| DEFAULT_TERMS.to_string()),
+            clean(input.bank_name).unwrap_or(seller.bank_name),
+            clean(input.bank_branch).unwrap_or(seller.bank_branch),
+            clean(input.bank_account_no).unwrap_or(seller.bank_account_no),
+            clean(input.bank_ifsc).unwrap_or(seller.bank_ifsc),
+            clean(input.terms_and_conditions).unwrap_or(seller.terms_and_conditions),
             status,
             clean(input.notes),
             now,

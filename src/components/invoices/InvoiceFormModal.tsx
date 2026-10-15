@@ -37,9 +37,6 @@ interface Props {
 // Units a welding shop uses most; JOB is for lump-sum work.
 const UNITS = ["NOS", "KGS", "MTR", "SQFT", "SET", "HRS", "LTRS", "JOB"];
 
-const DEFAULT_TERMS =
-  "1. Goods once sold will not be taken back or Exchanged\n2. Dispute if any will be subject to Puducherry.\n3. Payment within due date else 21% p.a. interest will be charged";
-
 const emptyItem = (): InvoiceItemInput => ({ description: "", hsn_sac: "", qum: "NOS", quantity: 1, rate: 0 });
 
 /** The form starts from the invoice being edited, or from sensible defaults for a new one. */
@@ -91,11 +88,12 @@ function initialForm(invoice?: InvoiceWithItems | null): InvoiceInput {
     cgst_rate: 9,
     sgst_rate: 9,
     igst_rate: 18,
-    bank_name: "Indian Bank",
-    bank_branch: "Mettupalayam (PONDY)",
-    bank_account_no: "498877880",
-    bank_ifsc: "IDIB000M070",
-    terms_and_conditions: DEFAULT_TERMS,
+    // Filled from Settings once they load; left blank, the backend uses Settings too.
+    bank_name: "",
+    bank_branch: "",
+    bank_account_no: "",
+    bank_ifsc: "",
+    terms_and_conditions: null,
     status: "ISSUED",
     notes: null,
     items: [emptyItem()],
@@ -645,8 +643,8 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
           </Collapsible>
 
           <p className="text-xs text-slate-500">
-            Printed bank details ({form.bank_name}, A/c {form.bank_account_no}), terms and tax rates come from
-            Settings.
+            Printed bank details{form.bank_name ? ` (${form.bank_name}, A/c ${form.bank_account_no})` : ""}, terms and
+            tax rates come from Settings.
           </p>
 
           <Field label="Internal note" hint="Only you see this. It isn't printed.">

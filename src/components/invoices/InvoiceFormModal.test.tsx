@@ -396,6 +396,19 @@ describe("a new invoice", () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ invoice: expect.objectContaining({ id: 100 }) }), false);
   });
 
+  it("saved before Settings arrive, leaves bank and terms for the backend to take from Settings", async () => {
+    api.getSettings.mockReturnValue(new Promise(() => {}));
+    await open();
+    expect(screen.getByText(/Printed bank details, terms and tax rates come from Settings/)).toBeInTheDocument();
+    await pickCustomer("Anand Steels — Puducherry");
+    describeLine(1, "Gate welding");
+    setLine(1, "1", "1000");
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(api.createInvoice).toHaveBeenCalledOnce());
+    const input: InvoiceInput = api.createInvoice.mock.calls[0][0];
+    expect(input).toMatchObject({ bank_name: "", bank_account_no: "", terms_and_conditions: null });
+  });
+
   it("Save and print asks for the PDF too", async () => {
     await open();
     await pickCustomer("Anand Steels — Puducherry");
