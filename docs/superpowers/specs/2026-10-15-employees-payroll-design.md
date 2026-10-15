@@ -123,7 +123,7 @@ Example: wage ₹600, OT rate ₹80. October: 25.5 days, 12 OT hours, an advance
 5. An employee with any pay row or entry can't be deleted ("Mark as left instead"). Files go with the employee.
 6. Changing the wage or OT rate changes only months not yet entered.
 
-**Which months are open.** Month M is open for E when (M is from E's joining month to E's leaving month, or to the current month if E hasn't left) and M ≤ the current month, **or** E already has a record in M. Open months are the ones that list E on the pay sheet and accept pay rows and entries. The one exception is the target of "Take from next month", which can be the month after the current month (rule 15).
+**Which months are open.** Month M is open for E when M ≤ the current month **and** (M is from E's joining month to E's leaving month, or E already has a record in M). Open months are the ones that accept pay rows and entries. The pay sheet lists E in every open month, and also in a later month that holds an advance carried into it (shown, not editable until that month starts). The one exception is the target of "Take from next month", which can be the month after the current month (rule 15).
 
 **Pay rows**
 7. Days: 0 up to the days E was employed in M, in steps of 0.5. That is the whole month (28–31), except that a joining date or leaving date inside M limits it to the days from joining or up to leaving. For a month before the current joining date (kept because it has records), the whole month counts. 0 is allowed and means absent all month.
