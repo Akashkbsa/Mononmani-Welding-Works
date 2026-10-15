@@ -19,6 +19,8 @@ import {
 } from "../components/ui";
 import PurchaseOrderFormModal from "../components/purchaseOrders/PurchaseOrderFormModal";
 import PurchaseOrderDetailsModal from "../components/purchaseOrders/PurchaseOrderDetailsModal";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
+import MonthFilter, { inMonth } from "../components/MonthFilter";
 
 type Tab = "all" | "notStarted" | "partial" | "completed";
 
@@ -63,16 +65,7 @@ export default function PurchaseOrdersPage({
   const [sliderReady, setSliderReady] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.key !== "/" || e.ctrlKey || e.metaKey || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  usePageShortcuts({ searchRef, onNew: () => setCreating(true) });
 
   const load = useCallback(async () => {
     try {
@@ -88,14 +81,17 @@ export default function PurchaseOrdersPage({
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  // Opens on all months so nothing still open is hidden.
+  const [month, setMonth] = useState("");
+  const monthItems = useMemo(() => (purchaseOrders ?? []).filter((r) => inMonth(r.po_date, month)), [purchaseOrders, month]);
   const counts = useMemo(
     () =>
-      Object.fromEntries(TABS.map((t) => [t.id, (purchaseOrders ?? []).filter(t.match).length])) as Record<Tab, number>,
-    [purchaseOrders]
+      Object.fromEntries(TABS.map((t) => [t.id, monthItems.filter(t.match).length])) as Record<Tab, number>,
+    [monthItems]
   );
   const visible = useMemo(
-    () => (purchaseOrders ?? []).filter(TABS.find((t) => t.id === tab)!.match),
-    [purchaseOrders, tab]
+    () => monthItems.filter(TABS.find((t) => t.id === tab)!.match),
+    [monthItems, tab]
   );
 
   useLayoutEffect(() => {
@@ -116,7 +112,7 @@ export default function PurchaseOrdersPage({
         title="Purchase orders"
         description="Customer purchase orders and the invoices linked to them."
         actions={
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)}>
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)} title="New purchase order (Ctrl+N)">
             New purchase order
           </Button>
         }
@@ -160,6 +156,7 @@ export default function PurchaseOrdersPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <MonthFilter dates={(purchaseOrders ?? []).map((r) => r.po_date)} value={month} onChange={setMonth} />
       </div>
 
       {error && (
@@ -178,7 +175,7 @@ export default function PurchaseOrdersPage({
             description={
               purchaseOrders.length === 0 && !query
                 ? "Add the first purchase order to start keeping customer references and attachments together."
-                : "Try another tab, or clear the search box."
+                : "Try another tab or month, or clear the search box."
             }
             action={
               purchaseOrders.length === 0 && !query ? (

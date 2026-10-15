@@ -1,8 +1,14 @@
 import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
-import { SupplierPaymentWithAllocations } from "../../types/supplierPayment";
-import { deleteSupplierPayment, getSupplierPayment } from "../../services/api";
-import { errorMessage, formatDate, formatMoney } from "../../lib/format";
+import { Copy, MessageCircle } from "lucide-react";
+import { SupplierPaymentMessage, SupplierPaymentWithAllocations } from "../../types/supplierPayment";
+import {
+  deleteSupplierPayment,
+  getSupplierPayment,
+  getSupplierPaymentMessage,
+  openSupplierPaymentWhatsApp,
+} from "../../services/api";
+import { errorMessage, formatDate, formatMoney, formatPhone } from "../../lib/format";
 import { Alert, Button, ConfirmDialog, Loading, Modal, SectionTitle, useToast } from "../ui";
 import SupplierPaymentFormModal from "./SupplierPaymentFormModal";
 
@@ -18,6 +24,9 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [message, setMessage] = useState<SupplierPaymentMessage | null>(null);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -27,7 +36,40 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
     } catch (err) {
       setError(errorMessage(err));
     }
+    try {
+      setMessage(await getSupplierPaymentMessage(paymentId));
+      setMessageError(null);
+    } catch (err) {
+      setMessage(null);
+      setMessageError(errorMessage(err));
+    }
   }, [paymentId]);
+
+  // WhatsApp opens with the message typed in; the owner presses Send there. Opening it counts as sent.
+  const sendOnWhatsApp = async () => {
+    setOpening(true);
+    try {
+      const sent = await openSupplierPaymentWhatsApp(paymentId);
+      setMessage(sent);
+      setData((d) => (d ? { ...d, payment: { ...d.payment, whatsapp_sent_on: sent.whatsapp_sent_on } } : d));
+      toast("WhatsApp opened. Press Send there.");
+      onChanged();
+    } catch (err) {
+      setMessageError(errorMessage(err));
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  const copyMessage = async () => {
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message.message);
+      toast("Message copied");
+    } catch {
+      setMessageError("Could not copy the message.");
+    }
+  };
 
   useEffect(() => {
     load();
@@ -91,6 +133,34 @@ export default function SupplierPaymentDetailsModal({ paymentId, onClose, onChan
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+
+          <div>
+            <SectionTitle>WhatsApp message</SectionTitle>
+            {messageError && <Alert>{messageError}</Alert>}
+            {message && (
+              <div className="space-y-3">
+                <pre className="whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2.5 font-sans text-slate-700 tabular">
+                  {message.message}
+                </pre>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="primary" loading={opening} onClick={sendOnWhatsApp}>
+                    <MessageCircle className="h-4 w-4" aria-hidden />
+                    {p.whatsapp_sent_on ? "Send again" : "Send on WhatsApp"}
+                  </Button>
+                  <Button onClick={copyMessage}>
+                    <Copy className="h-4 w-4" aria-hidden />
+                    Copy message
+                  </Button>
+                  <span className="text-xs text-slate-500 tabular">To {formatPhone(message.number)}</span>
+                </div>
+                {p.whatsapp_sent_on ? (
+                  <p className="text-xs font-medium text-emerald-700">Message sent on {formatDate(p.whatsapp_sent_on)}</p>
+                ) : (
+                  <p className="text-xs text-slate-500">WhatsApp opens with the message ready. Press Send there.</p>
+                )}
+              </div>
             )}
           </div>
 

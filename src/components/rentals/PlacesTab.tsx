@@ -5,6 +5,8 @@ import { errorMessage, formatMoney } from "../../lib/format";
 import { PlaceListItem } from "../../types/rental";
 import { Alert, Button, Card, EmptyState, ListSkeleton, RowChevron, rowClass, rowProps, theadClass } from "../ui";
 import PlaceFormModal from "./PlaceFormModal";
+import PlaceDetailsModal from "./PlaceDetailsModal";
+import { usePageShortcuts } from "../../lib/usePageShortcuts";
 
 /** The properties you rent out and who lives in each. Tap a row to see or change it. */
 export default function PlacesTab({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
@@ -13,11 +15,11 @@ export default function PlacesTab({ openId = null, onOpenHandled }: { openId?: n
   // Bumped after a change so the list loads again.
   const [version, setVersion] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [viewingId, setViewingId] = useState<number | null>(null);
 
   useEffect(() => {
     if (openId === null) return;
-    setEditingId(openId);
+    setViewingId(openId);
     onOpenHandled?.();
   }, [openId, onOpenHandled]);
 
@@ -36,11 +38,12 @@ export default function PlacesTab({ openId = null, onOpenHandled }: { openId?: n
   }, [version]);
 
   const reload = () => setVersion((v) => v + 1);
+  usePageShortcuts({ onNew: () => setCreating(true) });
 
   return (
     <>
       <div className="flex justify-end mb-4">
-        <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)}>
+        <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)} title="New place (Ctrl+N)">
           New place
         </Button>
       </div>
@@ -79,7 +82,7 @@ export default function PlacesTab({ openId = null, onOpenHandled }: { openId?: n
             </thead>
             <tbody className="divide-y divide-slate-100">
               {places.map((p) => (
-                <tr key={p.id} {...rowProps(() => setEditingId(p.id))} className={rowClass}>
+                <tr key={p.id} {...rowProps(() => setViewingId(p.id))} className={rowClass}>
                   <td className="max-w-[14rem] truncate py-3 px-4 font-medium text-slate-900" title={p.name}>
                     {p.name}
                   </td>
@@ -109,15 +112,8 @@ export default function PlacesTab({ openId = null, onOpenHandled }: { openId?: n
         />
       )}
 
-      {editingId !== null && (
-        <PlaceFormModal
-          placeId={editingId}
-          onClose={() => setEditingId(null)}
-          onSaved={() => {
-            setEditingId(null);
-            reload();
-          }}
-        />
+      {viewingId !== null && (
+        <PlaceDetailsModal placeId={viewingId} onClose={() => setViewingId(null)} onChanged={reload} />
       )}
     </>
   );

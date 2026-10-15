@@ -101,6 +101,19 @@ export interface MonthRow {
   last_sent_on: string | null;
 }
 
+/** One month in a tenant's rent history. */
+export interface RentHistoryRow {
+  /** YYYY-MM */
+  month: string;
+  paid: boolean;
+  /** YYYY-MM-DD */
+  paid_on: string | null;
+  /** What was recorded for a paid month, else the tenant's current rent. */
+  amount: number;
+  note: string | null;
+  reminders_sent: number;
+}
+
 /** One reminder for a tenant and month. */
 export interface ReminderEntry {
   id: number;

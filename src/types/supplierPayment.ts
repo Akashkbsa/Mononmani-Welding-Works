@@ -22,6 +22,17 @@ export interface SupplierPayment {
   remarks: string | null;
   created_at: string;
   updated_at: string;
+  /** YYYY-MM-DD the WhatsApp message was last opened for the supplier; null if never. */
+  whatsapp_sent_on: string | null;
+}
+
+/** The WhatsApp message for one payment and the link that opens the supplier's chat with it typed in. */
+export interface SupplierPaymentMessage {
+  message: string;
+  /** `+` and digits. */
+  number: string;
+  link: string;
+  whatsapp_sent_on: string | null;
 }
 
 export interface SupplierAllocationDetail {
@@ -51,6 +62,7 @@ export interface SupplierPaymentListItem {
   excess_amount: number;
   excess_action: SupplierExcessAction;
   bills_covered: string[];
+  whatsapp_sent_on: string | null;
 }
 
 export interface SupplierPaymentInput {

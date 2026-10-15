@@ -1,11 +1,9 @@
-import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { AttachmentInfo } from "../../types/attachment";
 import { PlaceDetail, PlaceInput, RentalFileInfo } from "../../types/rental";
 import {
   addRentalFile,
   createRentalPlace,
-  deleteRentalPlace,
   getRentalPlace,
   openRentalFile,
   removeRentalFile,
@@ -19,7 +17,7 @@ import { useFileAttachments } from "../attachments/useFileAttachments";
 interface Props {
   placeId?: number;
   onClose: () => void;
-  /** Called after the place was saved or deleted, so the list can reload and close the form. */
+  /** Called after the place was saved, so the list can reload and close the form. */
   onSaved: (id: number) => void;
 }
 
@@ -37,7 +35,6 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
   const [notes, setNotes] = useState("");
   const [storedFiles, setStoredFiles] = useState<RentalFileInfo[]>([]);
   const [removeFile, setRemoveFile] = useState<AttachmentInfo | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,11 +131,6 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
         size="wide"
         footer={
           <>
-            {isEdit && (
-              <Button variant="dangerText" className="mr-auto" onClick={() => setDeleting(true)}>
-                Delete place
-              </Button>
-            )}
             <Button onClick={guard.requestClose}>Cancel</Button>
             <Button variant="primary" loading={saving || attachments.uploading} onClick={save}>
               {isEdit ? "Save changes" : "Save place"}
@@ -196,7 +188,6 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
             description="Ownership papers, electricity bill, property tax receipts or photos."
             disabled={saving}
           />
-          {placeId !== undefined && detail && <RecordReminders kind="PLACE" id={placeId} label={detail.place.name} suggestedTitle={detail.place.name} />}
         </div>
       </Modal>
 
@@ -214,19 +205,6 @@ export default function PlaceFormModal({ placeId, onClose, onSaved }: Props) {
         />
       )}
 
-      {deleting && placeId !== undefined && (
-        <ConfirmDialog
-          title={`Delete ${detail?.place.name ?? "this place"}?`}
-          message="The place and its files will be deleted. This can't be undone. A place that has had tenants can't be deleted."
-          confirmLabel="Delete place"
-          onConfirm={async () => {
-            await deleteRentalPlace(placeId);
-            toast("Place deleted");
-            onSaved(placeId);
-          }}
-          onClose={() => setDeleting(false)}
-        />
-      )}
 
       {guard.confirm}
     </>

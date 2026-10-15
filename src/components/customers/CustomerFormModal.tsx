@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Customer, CustomerCreateInput, PARTY_TYPE_LABEL, PartyType } from "../../types/customer";
 import { checkDuplicateCustomer, createCustomer, updateCustomer } from "../../services/api";
 import { GST_STATES, HOME_STATE, stateCodeFor, stateName } from "../../lib/gst";
-import { errorMessage } from "../../lib/format";
+import { errorMessage, formatPhone } from "../../lib/format";
 import { Alert, Button, Checkbox, Field, inputClass, Modal, useDiscardGuard } from "../ui";
 
 interface Props {
@@ -29,6 +29,12 @@ function validate(input: CustomerCreateInput): Record<string, string> {
     const digits = input.phone.replace(/[\s\-()+]/g, "");
     if (!/^[\d\s\-()+]+$/.test(input.phone) || digits.length < 7 || digits.length > 15) {
       errors.phone = "Enter a phone number with 7 to 15 digits.";
+    }
+  }
+  if (input.whatsapp_number) {
+    const digits = input.whatsapp_number.replace(/\D/g, "");
+    if (!/^\+?[\d\s\-()]+$/.test(input.whatsapp_number) || digits.length < 10 || digits.length > 15) {
+      errors.whatsapp_number = "Enter a 10-digit mobile number, or include the country code.";
     }
   }
   if (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) {
@@ -60,6 +66,9 @@ export default function CustomerFormModal({
     postal_code: customer?.postal_code ?? "",
     is_favorite: customer?.is_favorite ?? false,
     party_type: (customer?.party_type ?? defaultPartyType) as PartyType,
+    // Ticked means WhatsApp messages go to the phone number.
+    whatsapp_is_phone: !customer?.whatsapp_number,
+    whatsapp_number: customer?.whatsapp_number ? formatPhone(customer.whatsapp_number) : "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [duplicate, setDuplicate] = useState<Customer | null>(null);
@@ -104,6 +113,7 @@ export default function CustomerFormModal({
       postal_code: clean(form.postal_code),
       is_favorite: form.is_favorite,
       party_type: form.party_type,
+      whatsapp_number: form.whatsapp_is_phone ? null : clean(form.whatsapp_number),
     };
 
     const found = validate(input);
@@ -214,6 +224,24 @@ export default function CustomerFormModal({
           <Field label="Phone" error={errors.phone}>
             <input className={inputClass} value={form.phone} onChange={(e) => set("phone")(e.target.value)} />
           </Field>
+        </div>
+
+        <div className="space-y-2">
+          <Checkbox
+            checked={form.whatsapp_is_phone}
+            onChange={set("whatsapp_is_phone")}
+            label="This phone number is also on WhatsApp"
+            description="Untick to give a different WhatsApp number."
+          />
+          {!form.whatsapp_is_phone && (
+            <Field label="WhatsApp number" error={errors.whatsapp_number} hint="Optional. 10-digit mobile, or +country code.">
+              <input
+                className={inputClass}
+                value={form.whatsapp_number}
+                onChange={(e) => set("whatsapp_number")(e.target.value)}
+              />
+            </Field>
+          )}
         </div>
 
         <Field label="Email" error={errors.email}>

@@ -1,11 +1,9 @@
-import RecordReminders from "../reminders/RecordReminders";
 import { useCallback, useEffect, useState } from "react";
 import { AttachmentInfo } from "../../types/attachment";
 import { PlaceListItem, RentalFileInfo, TenantDetail, TenantInput } from "../../types/rental";
 import {
   addRentalFile,
   createRentalTenant,
-  deleteRentalTenant,
   getRentalTenant,
   listRentalPlaces,
   openRentalFile,
@@ -21,7 +19,7 @@ import { useFileAttachments } from "../attachments/useFileAttachments";
 interface Props {
   tenantId?: number;
   onClose: () => void;
-  /** Called after the tenant was saved or deleted, so the list can reload and close the form. */
+  /** Called after the tenant was saved, so the list can reload and close the form. */
   onSaved: (id: number) => void;
 }
 
@@ -44,7 +42,6 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
   const [removeFile, setRemoveFile] = useState<AttachmentInfo | null>(null);
   const [movedOutOn, setMovedOutOn] = useState(todayISO());
   const [movingOut, setMovingOut] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -179,11 +176,6 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
         size="wide"
         footer={
           <>
-            {isEdit && (
-              <Button variant="dangerText" className="mr-auto" onClick={() => setDeleting(true)}>
-                Delete tenant
-              </Button>
-            )}
             <Button onClick={guard.requestClose}>Cancel</Button>
             <Button variant="primary" loading={saving || attachments.uploading} onClick={save}>
               {isEdit ? "Save changes" : "Save tenant"}
@@ -287,7 +279,6 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
               )}
             </div>
           )}
-          {tenantId !== undefined && detail && <RecordReminders kind="TENANT" id={tenantId} label={detail.tenant.name} suggestedTitle={`Collect rent from ${detail.tenant.name}`} />}
         </div>
       </Modal>
 
@@ -305,19 +296,6 @@ export default function TenantFormModal({ tenantId, onClose, onSaved }: Props) {
         />
       )}
 
-      {deleting && tenantId !== undefined && (
-        <ConfirmDialog
-          title={`Delete ${detail?.tenant.name ?? "this tenant"}?`}
-          message="The tenant and their files will be deleted. This can't be undone. A tenant with rent records can't be deleted; mark them as moved out instead."
-          confirmLabel="Delete tenant"
-          onConfirm={async () => {
-            await deleteRentalTenant(tenantId);
-            toast("Tenant deleted");
-            onSaved(tenantId);
-          }}
-          onClose={() => setDeleting(false)}
-        />
-      )}
 
       {guard.confirm}
     </>

@@ -108,6 +108,19 @@ pub struct MonthRow {
     pub last_sent_on: Option<String>,
 }
 
+/// One month in a tenant's rent history: paid or not, and how many reminders went out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RentHistoryRow {
+    /// YYYY-MM
+    pub month: String,
+    pub paid: bool,
+    pub paid_on: Option<String>,
+    /// What was recorded for a paid month, else the tenant's current rent.
+    pub amount: f64,
+    pub note: Option<String>,
+    pub reminders_sent: i64,
+}
+
 /// One reminder for a tenant and month. `number` is 1 for the first reminder, 2 for the second, and so on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReminderEntry {

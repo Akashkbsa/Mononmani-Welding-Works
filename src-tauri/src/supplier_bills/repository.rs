@@ -362,6 +362,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: Some(party.to_string()),
             },
         )

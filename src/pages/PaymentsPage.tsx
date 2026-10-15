@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CreditCard, Plus, Search } from "lucide-react";
 import { PAYMENT_METHODS, PaymentListItem, PaymentsSummary } from "../types/payment";
 import { getPaymentsSummary, listPayments } from "../services/api";
-import { errorMessage, formatDate, formatMoney } from "../lib/format";
+import { errorMessage, formatDate, formatMoney, monthTitle, todayISO } from "../lib/format";
 import { Alert, Badge, Button, Card, EmptyState, inputClass, ListSkeleton, PageHeader, RowChevron, rowClass, rowProps, Stat, StatStrip, theadClass, useToast } from "../components/ui";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 import PaymentDetailsModal from "../components/payments/PaymentDetailsModal";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
+import MonthFilter, { inMonth } from "../components/MonthFilter";
 
 export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
   const toast = useToast();
@@ -50,13 +52,20 @@ export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?
 
   const filtered = query || method || unclearedOnly;
 
+  // Opens on this month; "" shows every month.
+  const [month, setMonth] = useState(() => todayISO().slice(0, 7));
+  const shown = useMemo(() => (payments ?? []).filter((p) => inMonth(p.payment_date, month)), [payments, month]);
+  const shownTotal = shown.reduce((sum, p) => sum + p.amount_received, 0);
+  const searchRef = useRef<HTMLInputElement>(null);
+  usePageShortcuts({ searchRef, onNew: () => setRecording(true) });
+
   return (
     <>
       <PageHeader
         title="Payments"
         description="Money received from customers."
         actions={
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setRecording(true)}>
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setRecording(true)} title="Record payment (Ctrl+N)">
             Record payment
           </Button>
         }
@@ -80,13 +89,15 @@ export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?
         <div className="relative w-80">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
+            ref={searchRef}
             aria-label="Search payments"
             className={`${inputClass} pl-9`}
-            placeholder="Search customer, number, reference"
+            placeholder="Search customer, number, reference   ( / )"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <MonthFilter dates={(payments ?? []).map((r) => r.payment_date)} value={month} onChange={setMonth} />
         <div className="w-44">
           <select className={inputClass} value={method} onChange={(e) => setMethod(e.target.value)}>
             <option value="">All methods</option>
@@ -128,13 +139,14 @@ export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?
       <Card>
         {payments === null ? (
           <ListSkeleton label="Loading payments" />
-        ) : payments.length === 0 ? (
+        ) : shown.length === 0 ? (
           <EmptyState
             icon={CreditCard}
-            title={filtered ? "No payments match these filters" : "No payments recorded yet"}
-            description={filtered ? undefined : "Record a payment when a customer pays an invoice."}
+            title={filtered ? "No payments match these filters" : month && payments.length > 0 ? `No payments in ${monthTitle(month)}` : "No payments recorded yet"}
+            description={filtered || (month && payments.length > 0) ? undefined : "Record a payment when a customer pays an invoice."}
           />
         ) : (
+          <>
           <table className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
@@ -148,7 +160,7 @@ export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {payments.map((p) => (
+              {shown.map((p) => (
                 <tr key={p.id} {...rowProps(() => setViewingId(p.id))} className={rowClass}>
                   <td className="py-3 px-4 font-medium text-slate-900">{p.payment_number}</td>
                   <td className="py-3 pr-4 text-slate-600">{formatDate(p.payment_date)}</td>
@@ -181,6 +193,15 @@ export default function PaymentsPage({ openId = null, onOpenHandled }: { openId?
               ))}
             </tbody>
           </table>
+          <div className="flex justify-between px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg text-sm text-slate-600">
+            <span>
+              {shown.length} payment{shown.length === 1 ? "" : "s"}
+            </span>
+            <span>
+              Received <span className="font-semibold text-slate-900 tabular">{formatMoney(shownTotal)}</span>
+            </span>
+          </div>
+          </>
         )}
       </Card>
 

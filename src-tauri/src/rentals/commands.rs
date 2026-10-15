@@ -1,5 +1,5 @@
 use super::models::{
-    MarkPaidInput, MonthOverview, PlaceDetail, PlaceInput, PlaceListItem, ReminderEntry, RentReminder, RentalFileInfo, TenantDetail, TenantInput,
+    MarkPaidInput, MonthOverview, PlaceDetail, PlaceInput, PlaceListItem, ReminderEntry, RentHistoryRow, RentReminder, RentalFileInfo, TenantDetail, TenantInput,
     TenantListItem,
 };
 use super::repository::RentalRepository;
@@ -132,6 +132,13 @@ pub fn open_rent_reminder(tenant_id: i64, month: String, state: State<'_, AppSta
 pub fn get_rent_reminder_history(tenant_id: i64, month: String, state: State<'_, AppState>) -> Result<Vec<ReminderEntry>, String> {
     let conn = state.db.get_connection()?;
     RentalRepository::reminder_history(&conn, tenant_id, &month)
+}
+
+/// The tenant's last 12 months up to this month, newest first, paid or not.
+#[tauri::command]
+pub fn get_tenant_rent_history(tenant_id: i64, state: State<'_, AppState>) -> Result<Vec<RentHistoryRow>, String> {
+    let conn = state.db.get_connection()?;
+    RentalRepository::rent_history(&conn, tenant_id, &today().format("%Y-%m").to_string(), 12)
 }
 
 // ------------------------------------------------------------------ files

@@ -20,15 +20,6 @@ pub fn search_customers(
 }
 
 #[tauri::command]
-pub fn get_customer(
-    id: i64,
-    state: State<'_, AppState>,
-) -> Result<Option<Customer>, String> {
-    let conn = state.db.get_connection()?;
-    CustomerRepository::find_by_id(&conn, id)
-}
-
-#[tauri::command]
 pub fn check_duplicate_customer(
     name: String,
     exclude_id: Option<i64>,

@@ -946,6 +946,7 @@ mod tests {
                 state: Some("Puducherry".to_string()),
                 postal_code: Some("605009".to_string()),
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         )
@@ -1029,6 +1030,7 @@ mod tests {
                 state: Some("Tamil Nadu".to_string()),
                 postal_code: Some("600001".to_string()),
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         )
@@ -1069,6 +1071,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         )

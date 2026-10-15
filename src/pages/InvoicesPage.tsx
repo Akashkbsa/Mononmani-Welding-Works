@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Download, FileText, Plus, Search } from "lucide-react";
 import { InvoiceListItem } from "../types/invoice";
 import { downloadMonthInvoices, listInvoices, printInvoice } from "../services/api";
-import { errorMessage, formatDate, formatMoney, todayISO } from "../lib/format";
+import { errorMessage, formatDate, formatMoney, todayISO, monthTitle } from "../lib/format";
 import {
   Alert,
   Button,
@@ -20,6 +20,8 @@ import {
 } from "../components/ui";
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
+import MonthFilter, { inMonth } from "../components/MonthFilter";
 
 type Tab = "all" | "due" | "paid" | "draft" | "cancelled";
 
@@ -30,27 +32,6 @@ const TABS: { id: Tab; label: string; match: (i: InvoiceListItem) => boolean }[]
   { id: "draft", label: "Drafts", match: (i) => i.status === "DRAFT" },
   { id: "cancelled", label: "Cancelled", match: (i) => i.status === "CANCELLED" },
 ];
-
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
-/** "2026-10" -> "October 2026" */
-function monthLabel(key: string): string {
-  const [y, m] = key.split("-");
-  return `${MONTH_NAMES[Number(m) - 1] ?? m} ${y}`;
-}
 
 export default function InvoicesPage({
   openInvoiceId = null,
@@ -89,17 +70,7 @@ export default function InvoicesPage({
   }, [flashId]);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // "/" jumps to search, unless the user is already typing somewhere.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.key !== "/" || e.ctrlKey || e.metaKey || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  usePageShortcuts({ searchRef, onNew: () => setCreating(true) });
 
   const load = useCallback(async () => {
     try {
@@ -115,22 +86,15 @@ export default function InvoicesPage({
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  // Months that have invoices, newest first. The chosen month stays listed even if a search hides it.
-  const months = useMemo(() => {
-    const keys = new Set((invoices ?? []).map((i) => i.invoice_date.slice(0, 7)));
-    if (month) keys.add(month);
-    return Array.from(keys).sort().reverse();
-  }, [invoices, month]);
-
-  const inMonth = useMemo(
-    () => (invoices ?? []).filter((i) => !month || i.invoice_date.startsWith(month)),
+  const monthInvoices = useMemo(
+    () => (invoices ?? []).filter((i) => inMonth(i.invoice_date, month)),
     [invoices, month]
   );
   const counts = useMemo(
-    () => Object.fromEntries(TABS.map((t) => [t.id, inMonth.filter(t.match).length])) as Record<Tab, number>,
-    [inMonth]
+    () => Object.fromEntries(TABS.map((t) => [t.id, monthInvoices.filter(t.match).length])) as Record<Tab, number>,
+    [monthInvoices]
   );
-  const visible = useMemo(() => inMonth.filter(TABS.find((t) => t.id === tab)!.match), [inMonth, tab]);
+  const visible = useMemo(() => monthInvoices.filter(TABS.find((t) => t.id === tab)!.match), [monthInvoices, tab]);
 
   // Measure the active tab. The first measurement is placed without animation.
   useLayoutEffect(() => {
@@ -145,7 +109,7 @@ export default function InvoicesPage({
   }, [slider, sliderReady]);
   const visibleDue = visible.reduce((s, i) => s + (i.status === "ISSUED" ? i.outstanding_amount : 0), 0);
   const visibleTotal = visible.reduce((s, i) => s + (i.status === "ISSUED" ? i.total_amount : 0), 0);
-  const monthPdfCount = inMonth.filter((i) => i.status === "ISSUED" || i.status === "CANCELLED").length;
+  const monthPdfCount = monthInvoices.filter((i) => i.status === "ISSUED" || i.status === "CANCELLED").length;
 
   const exportMonth = async () => {
     const [y, m] = month.split("-").map(Number);
@@ -166,7 +130,7 @@ export default function InvoicesPage({
         title="Invoices"
         description="Tax invoices issued to customers."
         actions={
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)}>
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)} title="New invoice (Ctrl+N)">
             New invoice
           </Button>
         }
@@ -213,19 +177,7 @@ export default function InvoicesPage({
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <select
-          aria-label="Month"
-          className={`${inputClass} w-48`}
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-        >
-          <option value="">All months</option>
-          {months.map((k) => (
-            <option key={k} value={k}>
-              {monthLabel(k)}
-            </option>
-          ))}
-        </select>
+        <MonthFilter dates={(invoices ?? []).map((i) => i.invoice_date)} value={month} onChange={setMonth} />
         {month && (
           <>
             <Button
@@ -235,7 +187,7 @@ export default function InvoicesPage({
               title="One PDF with every invoice of this month, to send to the accountant"
               onClick={exportMonth}
             >
-              Download {monthLabel(month)} (PDF)
+              Download {monthTitle(month)} (PDF)
             </Button>
             <span className="text-xs text-slate-500">
               {monthPdfCount} invoice{monthPdfCount === 1 ? "" : "s"} in the PDF, cancelled ones marked; drafts are left out

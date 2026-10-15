@@ -44,6 +44,7 @@ import {
   PlaceListItem,
   ReminderEntry,
   RentalFileInfo,
+  RentHistoryRow,
   RentalOwnerKind,
   RentReminder,
   TenantDetail,
@@ -63,6 +64,7 @@ import {
   SupplierPaymentFilter,
   SupplierPaymentInput,
   SupplierPaymentListItem,
+  SupplierPaymentMessage,
   SupplierPaymentsSummary,
   SupplierPaymentWithAllocations,
   UnpaidBill,
@@ -229,6 +231,11 @@ export const getNextSupplierPaymentNumber = () => call<string>("get_next_supplie
 export const getUnpaidBillsForSupplier = (supplierId: number, excludePaymentId?: number) =>
   call<UnpaidBill[]>("get_unpaid_bills_for_supplier", { supplierId, excludePaymentId: excludePaymentId ?? null });
 export const getSupplierPaymentsSummary = () => call<SupplierPaymentsSummary>("get_supplier_payments_summary");
+export const getSupplierPaymentMessage = (id: number) =>
+  call<SupplierPaymentMessage>("get_supplier_payment_message", { id });
+/** Opens the supplier's WhatsApp chat with the message typed in and marks it sent; the owner presses Send there. */
+export const openSupplierPaymentWhatsApp = (id: number) =>
+  call<SupplierPaymentMessage>("open_supplier_payment_whatsapp", { id });
 
 // Rentals
 export const listRentalPlaces = () => call<PlaceListItem[]>("list_rental_places");
@@ -258,6 +265,9 @@ export const getRentReminder = (tenantId: number, month: string) =>
 /** Opens the tenant's WhatsApp chat with the reminder typed in; the owner presses Send there. */
 export const openRentReminder = (tenantId: number, month: string) =>
   call<RentReminder>("open_rent_reminder", { tenantId, month });
+
+/** The tenant's last 12 months up to this month, newest first, paid or not. */
+export const getTenantRentHistory = (tenantId: number) => call<RentHistoryRow[]>("get_tenant_rent_history", { tenantId });
 
 export const getRentReminderHistory = (tenantId: number, month: string) =>
   call<ReminderEntry[]>("get_rent_reminder_history", { tenantId, month });

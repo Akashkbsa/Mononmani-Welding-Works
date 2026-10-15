@@ -1,12 +1,13 @@
 use super::models::{
-    MarkPaidInput, MonthOverview, MonthRow, MonthSummary, Place, PlaceDetail, PlaceInput, PlaceListItem, ReminderEntry, RentReminder,
-    RentalFileInfo, Tenant, TenantDetail, TenantInput, TenantListItem,
+    MarkPaidInput, MonthOverview, MonthRow, MonthSummary, Place, PlaceDetail, PlaceInput, PlaceListItem, ReminderEntry, RentHistoryRow,
+    RentReminder, RentalFileInfo, Tenant, TenantDetail, TenantInput, TenantListItem,
 };
 use super::reminder::{month_label, normalize_whatsapp_number, rent_reminder_text, whatsapp_link};
 use crate::attachments::{clean_file_name, validate_file};
 use crate::util::{normalize_date, round2};
 use chrono::Utc;
 use rusqlite::{named_params, params, Connection, OptionalExtension};
+use std::collections::{BTreeMap, BTreeSet};
 
 const FILE_GONE: &str = "That file is no longer there.";
 const PLACE_NOT_FOUND: &str = "Place not found.";
@@ -400,6 +401,70 @@ impl RentalRepository {
         Ok((tenant, label))
     }
 
+    /// The tenant's months, newest first, up to `limit`: every month they lived there up to
+    /// `through_month` (YYYY-MM, usually this month), plus any other month marked paid. The same
+    /// months the monthly list shows them in.
+    pub fn rent_history(conn: &Connection, tenant_id: i64, through_month: &str, limit: usize) -> Result<Vec<RentHistoryRow>, String> {
+        month_label(through_month)?;
+        let tenant = Self::get_tenant(conn, tenant_id)?.ok_or_else(|| TENANT_NOT_FOUND.to_string())?.tenant;
+
+        // Recorded months: paid date, amount and note.
+        let mut recorded: BTreeMap<String, (Option<String>, Option<f64>, Option<String>)> = BTreeMap::new();
+        let mut stmt = conn
+            .prepare("SELECT month, paid_on, amount, note FROM rent_months WHERE tenant_id = ?1")
+            .map_err(|e| format!("Failed to load the rent history: {}", e))?;
+        let rows = stmt
+            .query_map(params![tenant_id], |r| Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?, r.get(3)?))))
+            .map_err(|e| format!("Failed to load the rent history: {}", e))?;
+        for row in rows {
+            let (month, data) = row.map_err(|e| format!("Failed to read the rent history: {}", e))?;
+            recorded.insert(month, data);
+        }
+        let mut reminders: BTreeMap<String, i64> = BTreeMap::new();
+        let mut stmt = conn
+            .prepare("SELECT month, COUNT(*) FROM rent_reminders WHERE tenant_id = ?1 GROUP BY month")
+            .map_err(|e| format!("Failed to load the reminders: {}", e))?;
+        let rows = stmt
+            .query_map(params![tenant_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| format!("Failed to load the reminders: {}", e))?;
+        for row in rows {
+            let (month, n) = row.map_err(|e| format!("Failed to read the reminders: {}", e))?;
+            reminders.insert(month, n);
+        }
+
+        // Months lived there: from moving in (or being added) to moving out, never past `through_month`.
+        let start = tenant.move_in_date.as_deref().unwrap_or(&tenant.created_at).get(..7).unwrap_or(through_month).to_string();
+        let end = match tenant.moved_out_date.as_deref().and_then(|d| d.get(..7)) {
+            Some(out) if out < through_month => out.to_string(),
+            _ => through_month.to_string(),
+        };
+        let mut months: BTreeSet<String> = BTreeSet::new();
+        let mut month = start;
+        while month <= end && months.len() < 1200 {
+            months.insert(month.clone());
+            month = next_month(&month);
+        }
+        months.extend(recorded.iter().filter(|(_, (paid_on, _, _))| paid_on.is_some()).map(|(m, _)| m.clone()));
+
+        Ok(months
+            .into_iter()
+            .rev()
+            .take(limit)
+            .map(|month| {
+                let (paid_on, amount, note) = recorded.get(&month).cloned().unwrap_or((None, None, None));
+                let paid = paid_on.is_some();
+                RentHistoryRow {
+                    reminders_sent: reminders.get(&month).copied().unwrap_or(0),
+                    paid,
+                    amount: if paid { amount.unwrap_or(tenant.monthly_rent) } else { tenant.monthly_rent },
+                    note: if paid { note } else { None },
+                    paid_on,
+                    month,
+                }
+            })
+            .collect())
+    }
+
     /// Everyone on the month's list with paid / not paid, by tenant name. Saves nothing.
     pub fn month_overview(conn: &Connection, month: &str) -> Result<MonthOverview, String> {
         month_label(month)?;
@@ -552,6 +617,19 @@ impl RentalRepository {
     }
 }
 
+/// "2026-12" -> "2027-01". Text that is not a month is returned past every month, ending a loop.
+fn next_month(month: &str) -> String {
+    let (y, m) = match (month.get(..4).and_then(|y| y.parse::<i32>().ok()), month.get(5..7).and_then(|m| m.parse::<u32>().ok())) {
+        (Some(y), Some(m)) => (y, m),
+        _ => return "9999-99".to_string(),
+    };
+    if m >= 12 {
+        format!("{:04}-01", y + 1)
+    } else {
+        format!("{:04}-{:02}", y, m + 1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,6 +687,35 @@ mod tests {
 
     fn row(conn: &Connection, month: &str, tenant_id: i64) -> MonthRow {
         RentalRepository::month_overview(conn, month).unwrap().rows.into_iter().find(|r| r.tenant_id == tenant_id).unwrap()
+    }
+
+    #[test]
+    fn rent_history_shows_lived_months_newest_first_with_paid_and_reminders() {
+        let (_d, conn) = setup();
+        let p = place(&conn, "Flat 2B");
+        let mut input = tenant_input(p, "Ravi");
+        input.move_in_date = Some("2026-08-20".to_string());
+        let t = RentalRepository::create_tenant(&conn, input).unwrap().tenant.id;
+        let mut sep = pay(t, "2026-09");
+        sep.amount = Some(4800.0);
+        sep.note = Some("Less for repairs".to_string());
+        RentalRepository::mark_paid(&conn, sep).unwrap();
+        RentalRepository::stamp_reminded(&conn, t, "2026-10", "2026-10-07").unwrap();
+
+        let history = RentalRepository::rent_history(&conn, t, "2026-10", 12).unwrap();
+        let months: Vec<&str> = history.iter().map(|h| h.month.as_str()).collect();
+        assert_eq!(months, ["2026-10", "2026-09", "2026-08"]);
+        assert!(!history[0].paid);
+        assert_eq!((history[0].amount, history[0].reminders_sent), (5000.0, 1));
+        assert!(history[1].paid);
+        assert_eq!((history[1].amount, history[1].note.as_deref()), (4800.0, Some("Less for repairs")));
+        assert_eq!(RentalRepository::rent_history(&conn, t, "2026-10", 2).unwrap().len(), 2);
+
+        // Moved out in September: October is no longer theirs.
+        RentalRepository::set_moved_out(&conn, t, Some("2026-09-30")).unwrap();
+        let months: Vec<String> = RentalRepository::rent_history(&conn, t, "2026-10", 12).unwrap().into_iter().map(|h| h.month).collect();
+        assert_eq!(months, ["2026-09", "2026-08"]);
+        assert_eq!(next_month("2026-12"), "2027-01");
     }
 
     #[test]

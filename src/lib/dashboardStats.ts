@@ -38,31 +38,6 @@ export function ageInDays(date: string, today: string): number {
   return Math.max(0, Math.round((toTime(today) - toTime(date)) / 86_400_000));
 }
 
-export interface AgeBucket {
-  label: string;
-  amount: number;
-  count: number;
-}
-
-const BUCKETS: { label: string; max: number }[] = [
-  { label: "Up to 30 days", max: 30 },
-  { label: "31 to 60 days", max: 60 },
-  { label: "61 to 90 days", max: 90 },
-  { label: "Over 90 days", max: Infinity },
-];
-
-/** Unpaid amounts grouped by how long ago the invoice or bill was dated. */
-export function ageBuckets(items: Money[], today: string): AgeBucket[] {
-  const buckets: AgeBucket[] = BUCKETS.map((b) => ({ label: b.label, amount: 0, count: 0 }));
-  for (const item of items) {
-    const days = ageInDays(item.date, today);
-    const index = BUCKETS.findIndex((b) => days <= b.max);
-    buckets[index].amount += item.amount;
-    buckets[index].count += 1;
-  }
-  return buckets.map((b) => ({ ...b, amount: Math.round(b.amount * 100) / 100 }));
-}
-
 export interface Ranked {
   name: string;
   amount: number;

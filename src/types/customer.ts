@@ -23,6 +23,8 @@ export interface Customer {
   created_at: string;
   updated_at: string;
   party_type: PartyType;
+  /** `+` and digits when WhatsApp is on another number; null means WhatsApp the phone number. */
+  whatsapp_number: string | null;
 }
 
 /** Same shape for creating and editing a customer. */
@@ -38,6 +40,8 @@ export interface CustomerCreateInput {
   postal_code: string | null;
   is_favorite: boolean;
   party_type: PartyType;
+  /** Only when WhatsApp is on a number other than the phone; null means WhatsApp the phone. */
+  whatsapp_number: string | null;
 }
 
 export interface DuplicateCheckResult {

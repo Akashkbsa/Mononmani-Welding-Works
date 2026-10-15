@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileCheck2, Plus, Search } from "lucide-react";
 import { listQuotations } from "../services/api";
 import { errorMessage, formatDate } from "../lib/format";
@@ -18,6 +18,8 @@ import {
 } from "../components/ui";
 import QuotationFormModal from "../components/quotations/QuotationFormModal";
 import QuotationDetailsModal from "../components/quotations/QuotationDetailsModal";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
+import MonthFilter, { inMonth } from "../components/MonthFilter";
 
 interface Props {
   /** A quotation to open as soon as the page shows (set by another screen). */
@@ -40,16 +42,7 @@ export default function QuotationsPage({ openQuotationId = null, onOpenHandled, 
     onOpenHandled?.();
   }, [openQuotationId, onOpenHandled]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.key !== "/" || e.ctrlKey || e.metaKey || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  usePageShortcuts({ searchRef, onNew: () => setCreating(true) });
 
   const load = useCallback(async () => {
     try {
@@ -67,13 +60,16 @@ export default function QuotationsPage({ openQuotationId = null, onOpenHandled, 
 
   const nothingYet = quotations !== null && quotations.length === 0 && !query;
 
+  const [month, setMonth] = useState("");
+  const shown = useMemo(() => (quotations ?? []).filter((q) => inMonth(q.quotation_date, month)), [quotations, month]);
+
   return (
     <>
       <PageHeader
         title="Quotations"
         description="Quotations sent to companies and the purchase orders that follow."
         actions={
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)}>
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)} title="New quotation (Ctrl+N)">
             New quotation
           </Button>
         }
@@ -91,6 +87,7 @@ export default function QuotationsPage({ openQuotationId = null, onOpenHandled, 
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <MonthFilter dates={(quotations ?? []).map((r) => r.quotation_date)} value={month} onChange={setMonth} />
       </div>
 
       {error && (
@@ -102,14 +99,14 @@ export default function QuotationsPage({ openQuotationId = null, onOpenHandled, 
       <Card>
         {quotations === null ? (
           <ListSkeleton label="Loading quotations" />
-        ) : quotations.length === 0 ? (
+        ) : shown.length === 0 ? (
           <EmptyState
             icon={FileCheck2}
             title={nothingYet ? "No quotations yet" : "No quotations here"}
             description={
               nothingYet
                 ? "Add the first quotation to keep what you sent to companies, and the purchase orders that follow, together."
-                : "Try another word, or clear the search box."
+                : "Try another word or month, or clear the search box."
             }
             action={
               nothingYet ? (
@@ -133,7 +130,7 @@ export default function QuotationsPage({ openQuotationId = null, onOpenHandled, 
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {quotations.map((q) => (
+                {shown.map((q) => (
                   <tr key={q.id} {...rowProps(() => setViewingId(q.id))} className={rowClass}>
                     <td className="py-3 px-4 font-medium text-slate-900 whitespace-nowrap">{q.quotation_number}</td>
                     <td className="max-w-[18rem] truncate py-3 pr-4" title={q.customer_name}>
@@ -148,7 +145,7 @@ export default function QuotationsPage({ openQuotationId = null, onOpenHandled, 
               </tbody>
             </table>
             <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg text-sm text-slate-600">
-              {quotations.length} quotation{quotations.length === 1 ? "" : "s"}
+              {shown.length} quotation{shown.length === 1 ? "" : "s"}
             </div>
           </>
         )}

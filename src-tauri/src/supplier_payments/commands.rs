@@ -1,8 +1,9 @@
 use super::models::{
-    SupplierPaymentFilter, SupplierPaymentInput, SupplierPaymentListItem, SupplierPaymentWithAllocations,
+    SupplierPaymentFilter, SupplierPaymentInput, SupplierPaymentListItem, SupplierPaymentMessage, SupplierPaymentWithAllocations,
     SupplierPaymentsSummary, UnpaidBill,
 };
 use super::repository::SupplierPaymentRepository;
+use crate::util::today;
 use crate::AppState;
 use tauri::State;
 
@@ -67,4 +68,29 @@ pub fn get_unpaid_bills_for_supplier(
 pub fn get_supplier_payments_summary(state: State<'_, AppState>) -> Result<SupplierPaymentsSummary, String> {
     let conn = state.db.get_connection()?;
     SupplierPaymentRepository::summary(&conn)
+}
+
+/// The WhatsApp message for a payment, for showing or copying. Nothing is opened or marked.
+#[tauri::command]
+pub fn get_supplier_payment_message(id: i64, state: State<'_, AppState>) -> Result<SupplierPaymentMessage, String> {
+    let conn = state.db.get_connection()?;
+    SupplierPaymentRepository::whatsapp_message(&conn, id)
+}
+
+/// Opens the supplier's WhatsApp chat with the payment message typed in and marks it sent today.
+/// The owner presses Send in WhatsApp; nothing is sent from here.
+#[tauri::command]
+pub fn open_supplier_payment_whatsapp(id: i64, state: State<'_, AppState>) -> Result<SupplierPaymentMessage, String> {
+    let conn = state.db.get_connection()?;
+    let mut msg = SupplierPaymentRepository::whatsapp_message(&conn, id)?;
+    // Only a WhatsApp chat link is ever opened.
+    if !msg.link.starts_with("https://wa.me/") {
+        return Err("The message link is not a WhatsApp link.".to_string());
+    }
+    tauri_plugin_opener::open_url(&msg.link, None::<&str>)
+        .map_err(|e| format!("Could not open WhatsApp: {}. Use Copy message instead.", e))?;
+    let date = today().format("%Y-%m-%d").to_string();
+    SupplierPaymentRepository::stamp_whatsapp_sent(&conn, id, &date)?;
+    msg.whatsapp_sent_on = Some(date);
+    Ok(msg)
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Search, Star, Users } from "lucide-react";
 import { Customer } from "../types/customer";
 import PartyTypeBadge from "../components/customers/PartyTypeBadge";
@@ -7,6 +7,7 @@ import { errorMessage, formatMoney } from "../lib/format";
 import { Alert, Button, Card, EmptyState, inputClass, ListSkeleton, PageHeader, RowChevron, rowClass, rowProps, Skeleton, theadClass, useToast } from "../components/ui";
 import CustomerFormModal from "../components/customers/CustomerFormModal";
 import CustomerDetailsModal from "../components/customers/CustomerDetailsModal";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
 
 type TypeFilter = "ALL" | "CUSTOMERS" | "SUPPLIERS" | "BOTH";
 
@@ -77,13 +78,16 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
     }
   };
 
+  const searchRef = useRef<HTMLInputElement>(null);
+  usePageShortcuts({ searchRef, onNew: () => setEditing("new") });
+
   return (
     <>
       <PageHeader
         title="Customers & suppliers"
         description="Companies you invoice or buy from."
         actions={
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setEditing("new")}>
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setEditing("new")} title="New company (Ctrl+N)">
             New company
           </Button>
         }
@@ -93,9 +97,10 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
         <div className="relative w-full max-w-sm">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
+            ref={searchRef}
             aria-label="Search companies"
             className={`${inputClass} pl-9`}
-            placeholder="Search name, phone or GSTIN"
+            placeholder="Search name, phone or GSTIN   ( / )"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -230,6 +235,7 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
             toast("Company deleted");
             load();
           }}
+          onChanged={load}
         />
       )}
 

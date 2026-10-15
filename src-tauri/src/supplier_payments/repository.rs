@@ -1,10 +1,13 @@
 use super::models::{
     SupplierAllocationDetail, SupplierPayment, SupplierPaymentFilter, SupplierPaymentInput, SupplierPaymentListItem,
-    SupplierPaymentWithAllocations, SupplierPaymentsSummary, UnpaidBill,
+    SupplierPaymentMessage, SupplierPaymentWithAllocations, SupplierPaymentsSummary, UnpaidBill,
 };
+use crate::rentals::reminder::{normalize_whatsapp_number, whatsapp_link};
 use crate::customers::models::PartyRole;
 use crate::customers::repository::CustomerRepository;
-use crate::util::{doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today, MONEY_EPS};
+use crate::util::{
+    display_date, doc_number, doc_sequence, financial_year_label, normalize_date, parse_date, round2, rupees, today, MONEY_EPS,
+};
 use chrono::{Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
@@ -266,7 +269,7 @@ impl SupplierPaymentRepository {
                 r#"
                 SELECT p.id, p.payment_number, p.supplier_id, c.name, p.payment_date, p.payment_method,
                        p.reference_number, p.bank_name, p.amount_paid, p.writeoff_amount, p.total_settled,
-                       p.excess_amount, p.excess_action, p.remarks, p.created_at, p.updated_at
+                       p.excess_amount, p.excess_action, p.remarks, p.created_at, p.updated_at, p.whatsapp_sent_on
                 FROM supplier_payments p JOIN customers c ON c.id = p.supplier_id WHERE p.id = ?1
                 "#,
                 params![id],
@@ -288,6 +291,7 @@ impl SupplierPaymentRepository {
                         remarks: r.get(13)?,
                         created_at: r.get(14)?,
                         updated_at: r.get(15)?,
+                        whatsapp_sent_on: r.get(16)?,
                     })
                 },
             )
@@ -326,7 +330,8 @@ impl SupplierPaymentRepository {
             SELECT p.id, p.payment_number, p.supplier_id, c.name, p.payment_date, p.payment_method, p.reference_number,
                    p.amount_paid, p.writeoff_amount, p.total_settled, p.excess_amount, p.excess_action,
                    (SELECT GROUP_CONCAT(b.bill_number, ', ') FROM supplier_payment_allocations a
-                    JOIN supplier_bills b ON b.id = a.bill_id WHERE a.payment_id = p.id)
+                    JOIN supplier_bills b ON b.id = a.bill_id WHERE a.payment_id = p.id),
+                   p.whatsapp_sent_on
             FROM supplier_payments p JOIN customers c ON c.id = p.supplier_id
             WHERE 1=1
             "#,
@@ -380,10 +385,50 @@ impl SupplierPaymentRepository {
                     excess_amount: r.get(10)?,
                     excess_action: r.get(11)?,
                     bills_covered: covered.map(|s| s.split(", ").map(str::to_string).collect()).unwrap_or_default(),
+                    whatsapp_sent_on: r.get(13)?,
                 })
             })
             .map_err(|e| format!("Failed to load payments: {}", e))?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| format!("Failed to load payments: {}", e))
+    }
+
+    /// The message telling the supplier which of their invoices this payment covers, and the WhatsApp
+    /// link to their chat. Each bill shows its full amount; the last line is what was actually paid.
+    /// The number is the company's WhatsApp number, or its phone when none is set.
+    pub fn whatsapp_message(conn: &Connection, id: i64) -> Result<SupplierPaymentMessage, String> {
+        let found = Self::get(conn, id)?.ok_or_else(|| "Payment not found.".to_string())?;
+        let message = payment_message_text(&found);
+
+        let (phone, whatsapp): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT phone, whatsapp_number FROM customers WHERE id = ?1",
+                params![found.payment.supplier_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| format!("Failed to load the supplier: {}", e))?;
+        let clean = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let number = match (clean(whatsapp), clean(phone)) {
+            (Some(w), _) => normalize_whatsapp_number(&w).map_err(|e| format!("The supplier's WhatsApp number: {}", e))?,
+            (None, Some(p)) => normalize_whatsapp_number(&p).map_err(|_| {
+                "The supplier's phone number is not a mobile number WhatsApp can use. Edit the company and add its WhatsApp number."
+                    .to_string()
+            })?,
+            (None, None) => return Err("Add a phone or WhatsApp number for this supplier.".to_string()),
+        };
+
+        let link = whatsapp_link(&number, &message);
+        Ok(SupplierPaymentMessage { message, number, link, whatsapp_sent_on: found.payment.whatsapp_sent_on })
+    }
+
+    /// Records that the WhatsApp message for this payment was opened on `date` (YYYY-MM-DD).
+    pub fn stamp_whatsapp_sent(conn: &Connection, id: i64, date: &str) -> Result<(), String> {
+        let n = conn
+            .execute("UPDATE supplier_payments SET whatsapp_sent_on = ?1 WHERE id = ?2", params![date, id])
+            .map_err(|e| format!("Failed to mark the message as sent: {}", e))?;
+        if n == 0 {
+            return Err("Payment not found.".to_string());
+        }
+        Ok(())
     }
 
     /// Bills a payment to this supplier can be applied to, oldest first. When editing, pass the payment
@@ -450,6 +495,21 @@ impl SupplierPaymentRepository {
     }
 }
 
+/// Invoice No & Date and Amount for each bill the payment covers, then the bills' total and the
+/// amount sent.
+pub fn payment_message_text(found: &SupplierPaymentWithAllocations) -> String {
+    let mut lines = Vec::new();
+    let mut total = 0.0;
+    for a in &found.allocations {
+        lines.push(format!("Invoice No & Date : {} / {}", a.bill_number, display_date(&a.bill_date)));
+        lines.push(format!("Amount : {}", rupees(a.bill_total_amount)));
+        total += a.bill_total_amount;
+    }
+    lines.push(format!("Total amount : {}", rupees(round2(total))));
+    lines.push(format!("Amount sent : {}", rupees(found.payment.amount_paid)));
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,6 +543,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: Some(party.to_string()),
             },
         )
@@ -540,6 +601,65 @@ mod tests {
 
     fn status(conn: &Connection, bill: i64) -> String {
         SupplierBillRepository::get(conn, bill).unwrap().unwrap().status
+    }
+
+    fn set_numbers(conn: &Connection, id: i64, phone: Option<&str>, whatsapp: Option<&str>) {
+        conn.execute("UPDATE customers SET phone = ?1, whatsapp_number = ?2 WHERE id = ?3", params![phone, whatsapp, id]).unwrap();
+    }
+
+    #[test]
+    fn whatsapp_message_lists_each_invoice_at_its_full_amount() {
+        let (_d, conn) = setup();
+        let s = supplier(&conn, "Steel Co");
+        set_numbers(&conn, s, Some("98765 43210"), None);
+        let a = bill_on(&conn, s, "INV-123", "2026-10-05", 12500.0);
+        let b = bill_on(&conn, s, "INV-130", "2026-10-09", 8000.0);
+        // INV-123 is only part paid by this payment; the message still shows its full amount.
+        let p = SupplierPaymentRepository::create(&conn, pay(s, 13000.0, &[(a, 5000.0), (b, 8000.0)])).unwrap().payment;
+
+        let msg = SupplierPaymentRepository::whatsapp_message(&conn, p.id).unwrap();
+        assert_eq!(
+            msg.message,
+            "Invoice No & Date : INV-123 / 05-10-2026\nAmount : ₹12,500.00\nInvoice No & Date : INV-130 / 09-10-2026\nAmount : ₹8,000.00\nTotal amount : ₹20,500.00\nAmount sent : ₹13,000.00"
+        );
+        assert_eq!(msg.number, "+919876543210");
+        assert!(msg.link.starts_with("https://wa.me/919876543210?text=Invoice%20No%20%26%20Date"), "{}", msg.link);
+        assert_eq!(msg.whatsapp_sent_on, None);
+    }
+
+    #[test]
+    fn whatsapp_message_uses_the_whatsapp_number_before_the_phone() {
+        let (_d, conn) = setup();
+        let s = supplier(&conn, "Steel Co");
+        let a = bill(&conn, s, "B-1", 1000.0);
+        let p = SupplierPaymentRepository::create(&conn, pay(s, 1000.0, &[(a, 1000.0)])).unwrap().payment;
+        let number = |conn: &Connection| SupplierPaymentRepository::whatsapp_message(conn, p.id).map(|m| m.number);
+
+        assert_eq!(number(&conn).unwrap_err(), "Add a phone or WhatsApp number for this supplier.");
+        set_numbers(&conn, s, Some("0413 2234567"), None);
+        assert!(number(&conn).unwrap_err().contains("add its WhatsApp number"), "a landline cannot be used");
+        set_numbers(&conn, s, Some("0413 2234567"), Some("+919123456780"));
+        assert_eq!(number(&conn).unwrap(), "+919123456780");
+        set_numbers(&conn, s, Some("9876543210"), Some("+919123456780"));
+        assert_eq!(number(&conn).unwrap(), "+919123456780");
+        set_numbers(&conn, s, Some("9876543210"), None);
+        assert_eq!(number(&conn).unwrap(), "+919876543210");
+    }
+
+    #[test]
+    fn stamping_the_message_shows_on_the_payment_and_in_the_list() {
+        let (_d, conn) = setup();
+        let s = supplier(&conn, "Steel Co");
+        let a = bill(&conn, s, "B-1", 1000.0);
+        let p = SupplierPaymentRepository::create(&conn, pay(s, 1000.0, &[(a, 1000.0)])).unwrap().payment;
+        assert_eq!(p.whatsapp_sent_on, None);
+
+        SupplierPaymentRepository::stamp_whatsapp_sent(&conn, p.id, "2026-10-15").unwrap();
+        let got = SupplierPaymentRepository::get(&conn, p.id).unwrap().unwrap().payment;
+        assert_eq!(got.whatsapp_sent_on.as_deref(), Some("2026-10-15"));
+        let listed = SupplierPaymentRepository::list(&conn, SupplierPaymentFilter::default()).unwrap();
+        assert_eq!(listed[0].whatsapp_sent_on.as_deref(), Some("2026-10-15"));
+        assert!(SupplierPaymentRepository::stamp_whatsapp_sent(&conn, 9999, "2026-10-15").is_err());
     }
 
     #[test]

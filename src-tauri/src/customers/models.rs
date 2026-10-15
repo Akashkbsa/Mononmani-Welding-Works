@@ -28,6 +28,8 @@ pub struct Customer {
     pub updated_at: String,
     /// "CUSTOMER", "SUPPLIER" or "BOTH".
     pub party_type: String,
+    /// `+` and digits when WhatsApp is on another number; None means WhatsApp the phone number.
+    pub whatsapp_number: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +44,9 @@ pub struct CustomerCreateInput {
     pub state: Option<String>,
     pub postal_code: Option<String>,
     pub is_favorite: Option<bool>,
+    /// Only when WhatsApp is on a number other than the phone; empty or None means the phone.
+    #[serde(default)]
+    pub whatsapp_number: Option<String>,
     /// None on create means CUSTOMER; None on update leaves the type as it is.
     #[serde(default)]
     pub party_type: Option<String>,
@@ -59,6 +64,9 @@ pub struct CustomerUpdateInput {
     pub state: Option<String>,
     pub postal_code: Option<String>,
     pub is_favorite: Option<bool>,
+    /// Only when WhatsApp is on a number other than the phone; empty or None means the phone.
+    #[serde(default)]
+    pub whatsapp_number: Option<String>,
     /// None on create means CUSTOMER; None on update leaves the type as it is.
     #[serde(default)]
     pub party_type: Option<String>,

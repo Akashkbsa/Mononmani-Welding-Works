@@ -6,6 +6,7 @@ import { remindText, repeatText, STATE_STYLE, whenText } from "../lib/reminders"
 import { LINK_KIND_LABEL, Reminder, ReminderLinkKind, ReminderTab } from "../types/reminder";
 import { Alert, Button, Card, ConfirmDialog, EmptyState, ListSkeleton, PageHeader, theadClass, useToast } from "../components/ui";
 import ReminderFormModal from "../components/reminders/ReminderFormModal";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
 
 const TABS: { id: ReminderTab; label: string; empty: string }[] = [
   { id: "DUE", label: "Due now", empty: "Nothing is due. Reminders show here from their \"remind me\" day." },
@@ -72,13 +73,15 @@ export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: P
 
   const empty = TABS.find((t) => t.id === tab)!.empty;
 
+  usePageShortcuts({ onNew: () => setEditing("new") });
+
   return (
     <>
       <PageHeader
         title="Reminders"
         description="Things to do on a date, shown at the top of the app when they are due."
         actions={
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setEditing("new")}>
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setEditing("new")} title="New reminder (Ctrl+N)">
             New reminder
           </Button>
         }

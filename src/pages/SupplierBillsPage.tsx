@@ -21,6 +21,8 @@ import {
 import SupplierBillFormModal from "../components/supplierBills/SupplierBillFormModal";
 import SupplierBillDetailsModal from "../components/supplierBills/SupplierBillDetailsModal";
 import SupplierBillStatusBadge from "../components/supplierBills/SupplierBillStatusBadge";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
+import MonthFilter, { inMonth } from "../components/MonthFilter";
 
 type Tab = "all" | "notPaid" | "partial" | "paid";
 
@@ -59,16 +61,7 @@ export default function SupplierBillsPage({
   const [sliderReady, setSliderReady] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.key !== "/" || e.ctrlKey || e.metaKey || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  usePageShortcuts({ searchRef, onNew: () => setCreating(true) });
 
   const load = useCallback(async () => {
     try {
@@ -89,11 +82,14 @@ export default function SupplierBillsPage({
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  // Opens on all months so nothing still open is hidden.
+  const [month, setMonth] = useState("");
+  const monthItems = useMemo(() => (bills ?? []).filter((r) => inMonth(r.bill_date, month)), [bills, month]);
   const counts = useMemo(
-    () => Object.fromEntries(TABS.map((t) => [t.id, (bills ?? []).filter(t.match).length])) as Record<Tab, number>,
-    [bills]
+    () => Object.fromEntries(TABS.map((t) => [t.id, monthItems.filter(t.match).length])) as Record<Tab, number>,
+    [monthItems]
   );
-  const visible = useMemo(() => (bills ?? []).filter(TABS.find((t) => t.id === tab)!.match), [bills, tab]);
+  const visible = useMemo(() => monthItems.filter(TABS.find((t) => t.id === tab)!.match), [monthItems, tab]);
 
   useLayoutEffect(() => {
     const el = tabRefs.current[tab];
@@ -115,7 +111,7 @@ export default function SupplierBillsPage({
         title="Supplier bills"
         description="Bills you receive from suppliers and what you still owe."
         actions={
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)}>
+          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)} title="New supplier bill (Ctrl+N)">
             New supplier bill
           </Button>
         }
@@ -168,6 +164,7 @@ export default function SupplierBillsPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <MonthFilter dates={(bills ?? []).map((r) => r.bill_date)} value={month} onChange={setMonth} />
       </div>
 
       {error && (
@@ -186,7 +183,7 @@ export default function SupplierBillsPage({
             description={
               nothingYet
                 ? "Add a bill when a supplier sends one, then record what you pay against it."
-                : "Try another tab, or clear the search box."
+                : "Try another tab or month, or clear the search box."
             }
             action={
               nothingYet ? (

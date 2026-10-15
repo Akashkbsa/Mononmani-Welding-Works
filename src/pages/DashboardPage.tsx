@@ -27,6 +27,7 @@ import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 import { useReminders } from "../components/reminders/RemindersContext";
+import { usePageShortcuts } from "../lib/usePageShortcuts";
 
 // The first dashboard load of a session gets one gentle reveal. Coming back to the dashboard, or
 // reloading its data after a save, never replays it: people see this screen all day.
@@ -220,20 +221,8 @@ export default function DashboardPage({
     if (data) dashboardRevealed = true;
   }, [data]);
 
-  // Ctrl+N starts a new invoice, unless the user is typing or a dialog is already open.
-  const modalOpen = creating !== null || viewingInvoiceId !== null;
-  useEffect(() => {
-    if (modalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "n") return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      e.preventDefault();
-      setCreating("invoice");
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [modalOpen]);
+  // Ctrl+N starts a new invoice, unless the user is typing or a window is already open.
+  usePageShortcuts({ onNew: () => setCreating("invoice") });
 
   const view = useMemo(() => {
     if (!data) return null;

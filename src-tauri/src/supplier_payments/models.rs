@@ -22,6 +22,8 @@ pub struct SupplierPayment {
     pub remarks: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// YYYY-MM-DD the WhatsApp message was last opened for the supplier; None if never.
+    pub whatsapp_sent_on: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +80,17 @@ pub struct SupplierPaymentListItem {
     pub excess_amount: f64,
     pub excess_action: String,
     pub bills_covered: Vec<String>,
+    pub whatsapp_sent_on: Option<String>,
+}
+
+/// The WhatsApp message for one payment and the link that opens the supplier's chat with it typed in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplierPaymentMessage {
+    pub message: String,
+    /// `+` and digits, e.g. +919876543210.
+    pub number: String,
+    pub link: String,
+    pub whatsapp_sent_on: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -1,13 +1,13 @@
 # Mononmani Welding Works
 
-Desktop invoicing and payment management for Mononmani Welding Works, built with React, TypeScript, Vite, and Tauri.
+Windows desktop app for Mononmani Welding Works: GST tax invoices, quotations, purchase orders, payments received, supplier bills and payments, rentals and reminders. It runs offline on one computer and can back up to Google Drive.
 
-## Development
+Built with Tauri 2 (Rust + SQLite) and React + TypeScript + Tailwind CSS.
 
-Install dependencies and start the Vite development server with the package manager used by the project. The desktop shell and Rust commands are managed through Tauri.
+## Running
 
-Recommended tools:
+- `app.bat dev` runs the app in development mode.
+- `app.bat build` builds the release app, and `app.bat open` starts it.
+- `tools\test-harness\test.bat` runs the Rust tests.
 
-- [VS Code](https://code.visualstudio.com/)
-- [Tauri VS Code extension](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode)
-- [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+Screens, business rules and code layout are described in [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md).

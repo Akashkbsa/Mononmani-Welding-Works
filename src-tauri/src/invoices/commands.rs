@@ -7,7 +7,7 @@ use crate::pdf::{CopyType, PdfRenderer};
 use crate::util::parse_date;
 use crate::AppState;
 use chrono::Datelike;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::State;
 
 #[tauri::command]
@@ -67,27 +67,6 @@ pub fn set_invoice_cancelled(
     let conn = state.db.get_connection()?;
     InvoiceRepository::set_cancelled(&conn, id, cancelled)?;
     InvoiceRepository::find_by_id(&conn, id)?.ok_or_else(|| format!("Invoice {} was not found.", id))
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InvoiceDeletionSafetyResult {
-    pub can_delete: bool,
-    pub allocated_amount: f64,
-    pub payments_count: i64,
-}
-
-#[tauri::command]
-pub fn check_invoice_deletion_safety(
-    id: i64,
-    state: State<'_, AppState>,
-) -> Result<InvoiceDeletionSafetyResult, String> {
-    let conn = state.db.get_connection()?;
-    let (can_delete, allocated_amount, payments_count) = InvoiceRepository::check_deletion_safety(&conn, id)?;
-    Ok(InvoiceDeletionSafetyResult {
-        can_delete,
-        allocated_amount,
-        payments_count,
-    })
 }
 
 #[tauri::command]

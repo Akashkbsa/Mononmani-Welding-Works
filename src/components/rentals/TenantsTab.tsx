@@ -5,6 +5,8 @@ import { errorMessage, formatDate, formatMoney, formatPhone } from "../../lib/fo
 import { TenantListItem } from "../../types/rental";
 import { Alert, Badge, Button, Card, Checkbox, EmptyState, ListSkeleton, RowChevron, rowClass, rowProps, theadClass } from "../ui";
 import TenantFormModal from "./TenantFormModal";
+import TenantDetailsModal from "./TenantDetailsModal";
+import { usePageShortcuts } from "../../lib/usePageShortcuts";
 
 /** The people who rent from you. Tap a row to see or change their details and files. */
 export default function TenantsTab({ openId = null, onOpenHandled }: { openId?: number | null; onOpenHandled?: () => void }) {
@@ -14,11 +16,11 @@ export default function TenantsTab({ openId = null, onOpenHandled }: { openId?: 
   // Bumped after a change so the list loads again.
   const [version, setVersion] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [viewingId, setViewingId] = useState<number | null>(null);
 
   useEffect(() => {
     if (openId === null) return;
-    setEditingId(openId);
+    setViewingId(openId);
     onOpenHandled?.();
   }, [openId, onOpenHandled]);
 
@@ -37,12 +39,13 @@ export default function TenantsTab({ openId = null, onOpenHandled }: { openId?: 
   }, [showMovedOut, version]);
 
   const reload = () => setVersion((v) => v + 1);
+  usePageShortcuts({ onNew: () => setCreating(true) });
 
   return (
     <>
       <div className="flex items-center justify-between gap-4 mb-4">
         <Checkbox checked={showMovedOut} onChange={setShowMovedOut} label="Show moved out" />
-        <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)}>
+        <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setCreating(true)} title="New tenant (Ctrl+N)">
           New tenant
         </Button>
       </div>
@@ -82,7 +85,7 @@ export default function TenantsTab({ openId = null, onOpenHandled }: { openId?: 
             </thead>
             <tbody className="divide-y divide-slate-100">
               {tenants.map((t) => (
-                <tr key={t.id} {...rowProps(() => setEditingId(t.id))} className={rowClass}>
+                <tr key={t.id} {...rowProps(() => setViewingId(t.id))} className={rowClass}>
                   <td className="max-w-[20rem] py-3 px-4 font-medium text-slate-900">
                     <div className="flex items-center gap-2">
                       <span className="truncate" title={t.name}>
@@ -116,15 +119,8 @@ export default function TenantsTab({ openId = null, onOpenHandled }: { openId?: 
         />
       )}
 
-      {editingId !== null && (
-        <TenantFormModal
-          tenantId={editingId}
-          onClose={() => setEditingId(null)}
-          onSaved={() => {
-            setEditingId(null);
-            reload();
-          }}
-        />
+      {viewingId !== null && (
+        <TenantDetailsModal tenantId={viewingId} onClose={() => setViewingId(null)} onChanged={reload} />
       )}
     </>
   );

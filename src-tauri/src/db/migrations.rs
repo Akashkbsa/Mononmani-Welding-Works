@@ -476,7 +476,20 @@ const MIGRATIONS: &[Migration] = &[
         name: "020_reminders",
         sql: REMINDERS_SQL,
     },
+    Migration {
+        version: 21,
+        name: "021_whatsapp_number_and_payment_message",
+        sql: WHATSAPP_NUMBER_AND_PAYMENT_MESSAGE_SQL,
+    },
 ];
+
+/// A company's WhatsApp number when it is not the phone number (empty means WhatsApp the phone),
+/// and the day a supplier payment's WhatsApp message was opened. Both tables are already tracked in
+/// `change_log`, so the backup picks up the new columns.
+pub const WHATSAPP_NUMBER_AND_PAYMENT_MESSAGE_SQL: &str = r#"
+    ALTER TABLE customers ADD COLUMN whatsapp_number TEXT NULL;
+    ALTER TABLE supplier_payments ADD COLUMN whatsapp_sent_on TEXT NULL;
+"#;
 
 /// Supplier payments no longer keep advances. A payment that kept its extra as an advance now counts
 /// it as a round-off (paid, nothing owed back), and the advance tables go. Bills are settled by their
@@ -1517,13 +1530,28 @@ mod tests {
     fn migration_20_adds_reminders_and_leaves_data_alone() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_15(dir.path()));
-        assert_eq!(latest_version(), 20);
+        assert!(latest_version() >= 20);
         for table in ["customers", "invoices", "supplier_bills"] {
             let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
             assert_eq!(n, 1, "{}", table);
         }
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM reminders", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn migration_21_adds_whatsapp_columns_and_leaves_data_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        assert_eq!(latest_version(), 21);
+        let (name, number): (String, Option<String>) =
+            conn.query_row("SELECT name, whatsapp_number FROM customers", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert!(!name.is_empty());
+        assert_eq!(number, None);
+        let sent: i64 = conn
+            .query_row("SELECT COUNT(*) FROM supplier_payments WHERE whatsapp_sent_on IS NOT NULL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sent, 0);
     }
 
     #[test]

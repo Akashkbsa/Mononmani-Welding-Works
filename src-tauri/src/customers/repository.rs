@@ -23,6 +23,7 @@ impl CustomerRepository {
             created_at: row.get(12)?,
             updated_at: row.get(13)?,
             party_type: row.get(14)?,
+            whatsapp_number: row.get(15)?,
         })
     }
 
@@ -180,6 +181,16 @@ impl CustomerRepository {
         ))
     }
 
+    /// A separate WhatsApp number stored as `+` and digits; empty means WhatsApp the phone number.
+    fn clean_whatsapp_number(raw: Option<&str>) -> Result<Option<String>, String> {
+        match raw.map(str::trim).filter(|s| !s.is_empty()) {
+            None => Ok(None),
+            Some(n) => crate::rentals::reminder::normalize_whatsapp_number(n)
+                .map(Some)
+                .map_err(|e| format!("WhatsApp number: {}", e)),
+        }
+    }
+
     /// Clean the company type text: trimmed, upper case, one of the three known values.
     fn clean_party_type(raw: &str) -> Result<String, String> {
         let t = raw.trim().to_uppercase();
@@ -207,7 +218,7 @@ impl CustomerRepository {
             r#"
             SELECT
                 id, name, gstin, phone, email, address_line1, address_line2,
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type, whatsapp_number
             FROM customers
             WHERE 1 = 1{}
             ORDER BY
@@ -248,7 +259,7 @@ impl CustomerRepository {
             r#"
             SELECT
                 id, name, gstin, phone, email, address_line1, address_line2,
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type, whatsapp_number
             FROM customers
             WHERE
                 (name LIKE ?1 OR
@@ -332,7 +343,7 @@ impl CustomerRepository {
         let sql = r#"
             SELECT 
                 id, name, gstin, phone, email, address_line1, address_line2, 
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type, whatsapp_number
             FROM customers
             WHERE id = ?1
         "#;
@@ -372,7 +383,7 @@ impl CustomerRepository {
                 let sql = r#"
                 SELECT 
                     id, name, gstin, phone, email, address_line1, address_line2, 
-                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
+                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type, whatsapp_number
                 FROM customers
                 WHERE LOWER(TRIM(name)) = LOWER(TRIM(?1)) AND id != ?2
                 LIMIT 1
@@ -388,7 +399,7 @@ impl CustomerRepository {
                 let sql = r#"
                 SELECT 
                     id, name, gstin, phone, email, address_line1, address_line2, 
-                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
+                    city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type, whatsapp_number
                 FROM customers
                 WHERE LOWER(TRIM(name)) = LOWER(TRIM(?1))
                 LIMIT 1
@@ -436,6 +447,7 @@ impl CustomerRepository {
             Some(p) => Self::clean_party_type(p)?,
             None => "CUSTOMER".to_string(),
         };
+        let whatsapp_number = Self::clean_whatsapp_number(input.whatsapp_number.as_deref())?;
         let now = Utc::now().to_rfc3339();
         let is_favorite_int = if input.is_favorite.unwrap_or(false) {
             1
@@ -446,8 +458,8 @@ impl CustomerRepository {
         let sql = r#"
             INSERT INTO customers (
                 name, gstin, phone, email, address_line1, address_line2, 
-                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?11, ?12)
+                city, state, postal_code, is_favorite, last_used_at, created_at, updated_at, party_type, whatsapp_number
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?11, ?12, ?13)
         "#;
 
         conn.execute(
@@ -464,7 +476,8 @@ impl CustomerRepository {
                 postal_code,
                 is_favorite_int,
                 now,
-                party_type
+                party_type,
+                whatsapp_number
             ],
         )
         .map_err(|e| format!("Failed to insert customer: {}", e))?;
@@ -532,6 +545,7 @@ impl CustomerRepository {
             }
         }
 
+        let whatsapp_number = Self::clean_whatsapp_number(input.whatsapp_number.as_deref())?;
         let now = Utc::now().to_rfc3339();
 
         let is_favorite_int = match input.is_favorite {
@@ -610,6 +624,12 @@ impl CustomerRepository {
             )
             .map_err(|e| format!("Failed to update customer: {}", e))?;
         }
+
+        conn.execute(
+            "UPDATE customers SET whatsapp_number = ?1 WHERE id = ?2",
+            params![whatsapp_number, id],
+        )
+        .map_err(|e| format!("Failed to update customer: {}", e))?;
 
         if new_type != current.party_type {
             conn.execute(
@@ -748,6 +768,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            whatsapp_number: None,
             party_type: None,
         };
 
@@ -777,6 +798,7 @@ mod tests {
             state: Some("Tamil Nadu".to_string()),
             postal_code: Some("600058".to_string()),
             is_favorite: Some(true),
+            whatsapp_number: None,
             party_type: None,
         };
 
@@ -806,6 +828,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            whatsapp_number: None,
             party_type: None,
         };
 
@@ -831,6 +854,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            whatsapp_number: None,
             party_type: None,
         };
         CustomerRepository::create(&conn, input).expect("Failed to create customer");
@@ -864,6 +888,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            whatsapp_number: None,
             party_type: None,
         };
 
@@ -888,6 +913,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            whatsapp_number: None,
             party_type: None,
         };
 
@@ -913,6 +939,7 @@ mod tests {
             state: None,
             postal_code: None,
             is_favorite: None,
+            whatsapp_number: None,
             party_type: None,
         };
 
@@ -940,6 +967,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -977,6 +1005,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: Some(false),
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -1012,6 +1041,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -1030,6 +1060,7 @@ mod tests {
                 state: Some("Tamil Nadu".to_string()),
                 postal_code: Some("620001".to_string()),
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -1064,6 +1095,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -1094,6 +1126,7 @@ mod tests {
                     state: None,
                     postal_code: None,
                     is_favorite: Some(true),
+                    whatsapp_number: None,
                     party_type: None,
                 },
             ).unwrap();
@@ -1111,6 +1144,7 @@ mod tests {
                     state: None,
                     postal_code: None,
                     is_favorite: Some(false),
+                    whatsapp_number: None,
                     party_type: None,
                 },
             ).unwrap();
@@ -1143,6 +1177,7 @@ mod tests {
                 gstin: None, phone: None, email: None, address_line1: None,
                 address_line2: None, city: None, state: None, postal_code: None,
                 is_favorite: Some(false),
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -1155,6 +1190,7 @@ mod tests {
                 gstin: None, phone: None, email: None, address_line1: None,
                 address_line2: None, city: None, state: None, postal_code: None,
                 is_favorite: Some(false),
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -1167,6 +1203,7 @@ mod tests {
                 gstin: None, phone: None, email: None, address_line1: None,
                 address_line2: None, city: None, state: None, postal_code: None,
                 is_favorite: Some(true),
+                whatsapp_number: None,
                 party_type: None,
             },
         ).unwrap();
@@ -1220,6 +1257,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         )
@@ -1251,6 +1289,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: None,
             },
         )
@@ -1267,6 +1306,50 @@ mod tests {
 
     // ---- company type ----
 
+    #[test]
+    fn whatsapp_number_is_optional_cleaned_and_cleared_on_edit() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let conn = setup_test_db(&temp_dir.path().join("wa.db"));
+        let mut input = CustomerCreateInput {
+            name: "Steel Co".to_string(),
+            gstin: None,
+            phone: Some("0413 2234567".to_string()),
+            email: None,
+            address_line1: None,
+            address_line2: None,
+            city: None,
+            state: None,
+            postal_code: None,
+            is_favorite: None,
+            whatsapp_number: Some(" 98765 43210 ".to_string()),
+            party_type: Some("SUPPLIER".to_string()),
+        };
+        let c = CustomerRepository::create(&conn, input.clone()).unwrap();
+        assert_eq!(c.whatsapp_number.as_deref(), Some("+919876543210"));
+
+        input.name = "Bad Co".to_string();
+        input.whatsapp_number = Some("12345".to_string());
+        assert!(CustomerRepository::create(&conn, input).unwrap_err().starts_with("WhatsApp number:"));
+
+        let edit = CustomerUpdateInput {
+            name: "Steel Co".to_string(),
+            gstin: None,
+            phone: Some("9876543210".to_string()),
+            email: None,
+            address_line1: None,
+            address_line2: None,
+            city: None,
+            state: None,
+            postal_code: None,
+            is_favorite: None,
+            whatsapp_number: Some("   ".to_string()),
+            party_type: None,
+        };
+        let c = CustomerRepository::update(&conn, c.id, edit).unwrap();
+        assert_eq!(c.whatsapp_number, None, "an empty box means WhatsApp the phone");
+        assert_eq!(c.phone.as_deref(), Some("9876543210"));
+    }
+
     fn company(conn: &Connection, name: &str, party: Option<&str>) -> Customer {
         CustomerRepository::create(
             conn,
@@ -1281,6 +1364,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: party.map(str::to_string),
             },
         )
@@ -1302,6 +1386,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: party.map(str::to_string),
             },
         )
@@ -1333,6 +1418,7 @@ mod tests {
                 state: None,
                 postal_code: None,
                 is_favorite: None,
+                whatsapp_number: None,
                 party_type: Some("VENDOR".to_string()),
             },
         );
