@@ -20,6 +20,9 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("reminders", "reminder", "reminders"),
     ("purchase_orders", "purchase order", "purchase orders"),
     ("customer_credits", "advance", "advances"),
+    ("employees", "employee", "employees"),
+    ("pay_months", "pay month", "pay months"),
+    ("employee_payments", "wage payment", "wage payments"),
 ];
 
 fn plural(n: i64, one: &str, many: &str) -> String {
@@ -296,6 +299,20 @@ mod tests {
         conn.execute("INSERT INTO rent_months (tenant_id, month, created_at, updated_at) VALUES (?1, '2026-10', 'x', 'x')", params![tenant]).unwrap();
         let p = BackupRepository::pending_changes(&conn, before).unwrap();
         assert_eq!(p.lines, vec!["1 rental place added", "1 tenant added", "1 rent month added"]);
+    }
+
+    #[test]
+    fn pending_summary_counts_payroll() {
+        let (_d, conn) = setup();
+        let before = BackupRepository::max_seq(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO employees (name, joined_on, daily_wage, created_at, updated_at) VALUES ('Murugan', '2026-01-01', 600, 'x', 'x');
+             INSERT INTO pay_months (employee_id, month, days_worked, daily_wage, created_at, updated_at) VALUES (1, '2026-10', 26, 600, 'x', 'x');
+             INSERT INTO employee_payments (employee_id, month, kind, entry_date, amount, created_at, updated_at) VALUES (1, '2026-10', 'ADVANCE', '2026-10-15', 500, 'x', 'x');",
+        )
+        .unwrap();
+        let p = BackupRepository::pending_changes(&conn, before).unwrap();
+        assert_eq!(p.lines, vec!["1 employee added", "1 pay month added", "1 wage payment added"]);
     }
 
     #[test]

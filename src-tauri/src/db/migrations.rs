@@ -481,7 +481,133 @@ const MIGRATIONS: &[Migration] = &[
         name: "021_whatsapp_number_and_payment_message",
         sql: WHATSAPP_NUMBER_AND_PAYMENT_MESSAGE_SQL,
     },
+    Migration {
+        version: 22,
+        name: "022_payroll",
+        sql: PAYROLL_SQL,
+    },
 ];
+
+
+/// Employees and payroll: employees, one pay row per employee per month (days, OT hours and the
+/// rates copied when first saved), every money movement for a month's pay, and employee files.
+/// Wages, balances and statuses are worked out, never stored. Tracked in `change_log` for the backup.
+pub const PAYROLL_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS employees (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        role TEXT NULL,
+        phone TEXT NULL,
+        address TEXT NULL,
+        joined_on TEXT NOT NULL CHECK (joined_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+        left_on TEXT NULL CHECK (left_on IS NULL OR left_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+        daily_wage REAL NOT NULL CHECK (daily_wage > 0),
+        ot_rate REAL NOT NULL DEFAULT 0 CHECK (ot_rate >= 0),
+        notes TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pay_months (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL REFERENCES employees(id),
+        month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+        days_worked REAL NOT NULL CHECK (days_worked >= 0 AND days_worked <= 31),
+        daily_wage REAL NOT NULL CHECK (daily_wage > 0),
+        ot_hours REAL NOT NULL DEFAULT 0 CHECK (ot_hours >= 0),
+        ot_rate REAL NOT NULL DEFAULT 0 CHECK (ot_rate >= 0),
+        bonus_amount REAL NOT NULL DEFAULT 0 CHECK (bonus_amount >= 0),
+        bonus_note TEXT NULL,
+        note TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (employee_id, month)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pay_months_month ON pay_months(month);
+
+    CREATE TABLE IF NOT EXISTS employee_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL REFERENCES employees(id),
+        month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+        kind TEXT NOT NULL CHECK (kind IN ('ADVANCE', 'SALARY', 'RETURNED', 'WRITE_OFF', 'CARRIED')),
+        entry_date TEXT NOT NULL CHECK (entry_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+        amount REAL NOT NULL CHECK (amount > 0),
+        round_off REAL NOT NULL DEFAULT 0,
+        carried_to TEXT NULL CHECK (carried_to IS NULL OR carried_to GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+        payment_method TEXT NULL,
+        note TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK ((kind = 'CARRIED') = (carried_to IS NOT NULL)),
+        CHECK (kind = 'SALARY' OR round_off = 0)
+    );
+    CREATE INDEX IF NOT EXISTS idx_employee_payments_month ON employee_payments(employee_id, month);
+    CREATE INDEX IF NOT EXISTS idx_employee_payments_carried ON employee_payments(carried_to);
+    CREATE INDEX IF NOT EXISTS idx_employee_payments_date ON employee_payments(entry_date);
+
+    CREATE TABLE IF NOT EXISTS employee_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_employee_files_employee ON employee_files(employee_id);
+
+    CREATE TRIGGER IF NOT EXISTS trg_employees_insert_log AFTER INSERT ON employees
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employees', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_employees_update_log AFTER UPDATE ON employees
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employees', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_employees_delete_log AFTER DELETE ON employees
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employees', OLD.id, 'DELETE', datetime('now'));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_pay_months_insert_log AFTER INSERT ON pay_months
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('pay_months', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_pay_months_update_log AFTER UPDATE ON pay_months
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('pay_months', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_pay_months_delete_log AFTER DELETE ON pay_months
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('pay_months', OLD.id, 'DELETE', datetime('now'));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_employee_payments_insert_log AFTER INSERT ON employee_payments
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employee_payments', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_employee_payments_update_log AFTER UPDATE ON employee_payments
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employee_payments', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_employee_payments_delete_log AFTER DELETE ON employee_payments
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employee_payments', OLD.id, 'DELETE', datetime('now'));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_employee_files_insert_log AFTER INSERT ON employee_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employee_files', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_employee_files_update_log AFTER UPDATE ON employee_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employee_files', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_employee_files_delete_log AFTER DELETE ON employee_files
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('employee_files', OLD.id, 'DELETE', datetime('now'));
+    END;
+"#;
 
 /// A company's WhatsApp number when it is not the phone number (empty means WhatsApp the phone),
 /// and the day a supplier payment's WhatsApp message was opened. Both tables are already tracked in
@@ -1543,7 +1669,7 @@ mod tests {
     fn migration_21_adds_whatsapp_columns_and_leaves_data_alone() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&database_at_version_15(dir.path()));
-        assert_eq!(latest_version(), 21);
+        assert!(latest_version() >= 21);
         let (name, number): (String, Option<String>) =
             conn.query_row("SELECT name, whatsapp_number FROM customers", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert!(!name.is_empty());
@@ -1552,6 +1678,73 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM supplier_payments WHERE whatsapp_sent_on IS NOT NULL", [], |r| r.get(0))
             .unwrap();
         assert_eq!(sent, 0);
+    }
+
+    #[test]
+    fn migration_22_adds_payroll_tables_and_leaves_data_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        assert_eq!(latest_version(), 22);
+        for table in ["employees", "pay_months", "employee_payments", "employee_files"] {
+            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 0, "{}", table);
+        }
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM customers", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn payroll_rules_in_the_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        conn.execute("INSERT INTO employees (name, joined_on, daily_wage, ot_rate, created_at, updated_at) VALUES ('Murugan', '2026-01-01', 600, 80, 'x', 'x')", []).unwrap();
+        let pm = "INSERT INTO pay_months (employee_id, month, days_worked, daily_wage, created_at, updated_at) VALUES (1, '2026-10', 26, 600, 'x', 'x')";
+        conn.execute(pm, []).unwrap();
+        assert!(conn.execute(pm, []).is_err(), "one row per employee per month");
+        let pay = |kind: &str, round_off: f64, carried_to: Option<&str>, amount: f64| {
+            conn.execute(
+                "INSERT INTO employee_payments (employee_id, month, kind, entry_date, amount, round_off, carried_to, created_at, updated_at)
+                 VALUES (1, '2026-10', ?1, '2026-10-15', ?2, ?3, ?4, 'x', 'x')",
+                params![kind, amount, round_off, carried_to],
+            )
+        };
+        assert!(pay("LOAN", 0.0, None, 100.0).is_err());
+        assert!(pay("CARRIED", 0.0, None, 100.0).is_err());
+        assert!(pay("ADVANCE", 0.0, Some("2026-11"), 100.0).is_err());
+        assert!(pay("ADVANCE", 5.0, None, 100.0).is_err());
+        assert!(pay("ADVANCE", 0.0, None, 0.0).is_err());
+        assert!(pay("SALARY", -40.0, None, 100.0).is_ok());
+        assert!(pay("CARRIED", 0.0, Some("2026-11"), 100.0).is_ok());
+        conn.execute("INSERT INTO employee_files (employee_id, file_name, mime_type, size_bytes, data, created_at) VALUES (1, 'a.pdf', 'application/pdf', 1, x'00', 'x')", []).unwrap();
+        assert!(conn.execute("DELETE FROM employees WHERE id = 1", []).is_err(), "pay records keep the employee");
+        conn.execute_batch("DELETE FROM employee_payments; DELETE FROM pay_months; DELETE FROM employees;").unwrap();
+        let files: i64 = conn.query_row("SELECT COUNT(*) FROM employee_files", [], |r| r.get(0)).unwrap();
+        assert_eq!(files, 0, "files go with the employee");
+    }
+
+    #[test]
+    fn payroll_tables_log_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        conn.execute_batch(
+            "INSERT INTO employees (name, joined_on, daily_wage, created_at, updated_at) VALUES ('Murugan', '2026-01-01', 600, 'x', 'x');
+             INSERT INTO pay_months (employee_id, month, days_worked, daily_wage, created_at, updated_at) VALUES (1, '2026-10', 26, 600, 'x', 'x');
+             INSERT INTO employee_payments (employee_id, month, kind, entry_date, amount, created_at, updated_at) VALUES (1, '2026-10', 'ADVANCE', '2026-10-15', 500, 'x', 'x');
+             INSERT INTO employee_files (employee_id, file_name, mime_type, size_bytes, data, created_at) VALUES (1, 'a.pdf', 'application/pdf', 1, x'00', 'x');
+             UPDATE employees SET notes = 'n'; UPDATE pay_months SET note = 'n'; UPDATE employee_payments SET note = 'n'; UPDATE employee_files SET file_name = 'b.pdf';
+             DELETE FROM employee_files; DELETE FROM employee_payments; DELETE FROM pay_months; DELETE FROM employees;",
+        )
+        .unwrap();
+        for table in ["employees", "pay_months", "employee_payments", "employee_files"] {
+            let ops: Vec<String> = conn
+                .prepare("SELECT op FROM change_log WHERE table_name = ?1 ORDER BY seq")
+                .unwrap()
+                .query_map(params![table], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            assert_eq!(ops, vec!["INSERT", "UPDATE", "DELETE"], "{}", table);
+        }
     }
 
     #[test]
