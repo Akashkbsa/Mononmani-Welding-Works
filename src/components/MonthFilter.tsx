@@ -32,7 +32,7 @@ export default function MonthFilter({
   }, [dates, value]);
 
   return (
-    <select aria-label="Month" className={`${inputClass} w-48`} value={value} onChange={(e) => onChange(e.target.value)}>
+    <select aria-label="Month" className={`${inputClass.replace("w-full", "")} w-48 shrink-0`} value={value} onChange={(e) => onChange(e.target.value)}>
       {allowAll && <option value="">All months</option>}
       {months.map((k) => (
         <option key={k} value={k}>

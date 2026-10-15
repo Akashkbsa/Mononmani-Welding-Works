@@ -127,7 +127,7 @@ export default function SupplierBillsPage({
       )}
 
       <div className="flex items-end justify-between gap-4 mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Supplier bill status" className="relative flex gap-1">
+        <div role="tablist" aria-label="Supplier bill status" className="relative flex shrink-0 gap-1">
           <span
             aria-hidden="true"
             className={`${sliderReady ? "mww-slider" : ""} pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600`}
@@ -142,7 +142,7 @@ export default function SupplierBillsPage({
               role="tab"
               aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
-              className={`px-3 h-9 text-sm transition-colors ${
+              className={`px-3 h-9 text-sm whitespace-nowrap transition-colors ${
                 tab === t.id ? "text-brand-700 font-medium" : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -153,18 +153,20 @@ export default function SupplierBillsPage({
             </button>
           ))}
         </div>
-        <div className="relative w-72 mb-2">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            ref={searchRef}
-            aria-label="Search supplier bills"
-            className={`${inputClass} pl-9`}
-            placeholder="Search bill number or supplier   ( / )"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+        <div className="mb-2 flex items-center gap-3">
+          <div className="relative w-72">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              ref={searchRef}
+              aria-label="Search supplier bills"
+              className={`${inputClass} pl-9`}
+              placeholder="Search bill number or supplier   ( / )"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <MonthFilter dates={(bills ?? []).map((r) => r.bill_date)} value={month} onChange={setMonth} />
         </div>
-        <MonthFilter dates={(bills ?? []).map((r) => r.bill_date)} value={month} onChange={setMonth} />
       </div>
 
       {error && (
