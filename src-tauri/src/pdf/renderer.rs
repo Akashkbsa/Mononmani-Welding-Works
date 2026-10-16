@@ -52,20 +52,23 @@ impl CopyType {
 pub struct PdfRenderer;
 
 impl PdfRenderer {
-    /// Edge ships with Windows; Chrome is used if Edge is missing.
-    fn find_chromium_binary() -> Result<PathBuf, String> {
+    /// Every installed Edge and Chrome, Edge first (it ships with Windows). Later ones are tried when one fails.
+    fn find_chromium_binaries() -> Result<Vec<PathBuf>, String> {
         let mut candidates: Vec<PathBuf> = Vec::new();
-        for var in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
-            if let Ok(base) = std::env::var(var) {
-                let base = PathBuf::from(base);
-                candidates.push(base.join(r"Microsoft\Edge\Application\msedge.exe"));
-                candidates.push(base.join(r"Google\Chrome\Application\chrome.exe"));
+        for exe in [r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe"] {
+            for var in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
+                if let Ok(base) = std::env::var(var) {
+                    let path = PathBuf::from(base).join(exe);
+                    if path.exists() && !candidates.contains(&path) {
+                        candidates.push(path);
+                    }
+                }
             }
         }
-        candidates
-            .into_iter()
-            .find(|p| p.exists())
-            .ok_or_else(|| "Microsoft Edge or Google Chrome is needed to create PDFs, but neither was found.".to_string())
+        if candidates.is_empty() {
+            return Err("Microsoft Edge or Google Chrome is needed to create PDFs, but neither was found.".to_string());
+        }
+        Ok(candidates)
     }
 
     /// The values the invoice template fills one page with.
@@ -232,49 +235,123 @@ impl PdfRenderer {
         Self::print_html_to_pdf(Self::render_html_for_pages(&pages), output_path)
     }
 
+    /// Where the browser's own messages from the last failed PDF are kept, for finding out why.
+    pub fn error_log_path() -> PathBuf {
+        std::env::temp_dir().join("mww_pdf_error.log")
+    }
+
     fn print_html_to_pdf(html: String, output_path: &Path) -> Result<PathBuf, String> {
-        let browser = Self::find_chromium_binary()?;
+        let browsers = Self::find_chromium_binaries()?;
 
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or_default();
-        let temp_html = std::env::temp_dir().join(format!("mww_invoice_{}_{}.html", std::process::id(), stamp));
-        fs::write(&temp_html, html).map_err(|e| format!("Failed to prepare the invoice for printing: {}", e))?;
+        let work = std::env::temp_dir().join(format!("mww_pdf_{}_{}", std::process::id(), stamp));
+        fs::create_dir_all(&work).map_err(|e| format!("Failed to prepare the invoice for printing: {}", e))?;
+        let temp_html = work.join("invoice.html");
+        if let Err(e) = fs::write(&temp_html, html) {
+            let _ = fs::remove_dir_all(&work);
+            return Err(format!("Failed to prepare the invoice for printing: {}", e));
+        }
 
-        let url = format!("file:///{}", temp_html.to_string_lossy().replace('\\', "/"));
-        let status = Command::new(&browser)
-            .args([
-                "--headless",
-                "--disable-gpu",
-                "--no-pdf-header-footer",
-                "--run-all-compositor-stages-before-draw",
-                &format!("--print-to-pdf={}", output_path.to_string_lossy()),
-                &url,
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        let _ = fs::remove_file(&temp_html);
+        // An old file must not be mistaken for a new one, and a file held open by a PDF viewer shows up here.
+        if output_path.exists() && fs::remove_file(output_path).is_err() {
+            let _ = fs::remove_dir_all(&work);
+            return Err("The PDF could not be replaced. If it is open in a PDF viewer, close it and try again.".to_string());
+        }
 
-        let status = status.map_err(|e| format!("Could not start the browser to create the PDF: {}", e))?;
-        if !status.success() {
-            return Err(format!(
-                "Creating the PDF failed (browser exit code {:?}). If the file is open in a PDF viewer, close it and try again.",
-                status.code()
+        let url = file_url(&temp_html);
+        let mut log = String::new();
+        let mut result = Err(String::new());
+        for (i, browser) in browsers.iter().enumerate() {
+            // Its own profile each time, so a running Edge (or Startup boost) can't take the job over and drop it.
+            let profile = work.join(format!("profile{}", i));
+            let output = Command::new(browser)
+                .args([
+                    "--headless",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-extensions",
+                    "--no-pdf-header-footer",
+                    "--run-all-compositor-stages-before-draw",
+                    &format!("--user-data-dir={}", profile.to_string_lossy()),
+                    &format!("--print-to-pdf={}", output_path.to_string_lossy()),
+                    &url,
+                ])
+                .stdin(Stdio::null())
+                .output();
+            match output {
+                Ok(_) if fs::metadata(output_path).map(|m| m.len() > 0).unwrap_or(false) => {
+                    result = Ok(output_path.to_path_buf());
+                    break;
+                }
+                Ok(out) => {
+                    log.push_str(&format!(
+                        "{} exit {:?}\n{}\n{}\n",
+                        browser.display(),
+                        out.status.code(),
+                        String::from_utf8_lossy(&out.stdout),
+                        String::from_utf8_lossy(&out.stderr)
+                    ));
+                }
+                Err(e) => log.push_str(&format!("{} could not start: {}\n", browser.display(), e)),
+            }
+        }
+        let _ = fs::remove_dir_all(&work);
+
+        if result.is_err() {
+            let _ = fs::write(Self::error_log_path(), format!("Output: {}\n{}", output_path.display(), log));
+            result = Err(format!(
+                "The PDF was not created. Try again; if it keeps failing, send the file {} to support.",
+                Self::error_log_path().display()
             ));
         }
+        result
+    }
+}
 
-        match fs::metadata(output_path) {
-            Ok(meta) if meta.len() > 0 => Ok(output_path.to_path_buf()),
-            _ => Err("The PDF was not created. If the file is open in a PDF viewer, close it and try again.".to_string()),
+/// A `file:///` address for the path, safe when the Windows user name has spaces, `#`, `%` or Tamil letters.
+fn file_url(path: &Path) -> String {
+    let mut url = String::from("file:///");
+    for byte in path.to_string_lossy().replace('\\', "/").bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'.' | b'-' | b'_' | b'~' => url.push(byte as char),
+            _ => url.push_str(&format!("%{:02X}", byte)),
         }
     }
+    url
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_url_escapes_awkward_user_names() {
+        assert_eq!(file_url(Path::new(r"C:\Users\Asus\a.html")), "file:///C:/Users/Asus/a.html");
+        assert_eq!(file_url(Path::new(r"C:\Users\Mani #1\a b%.html")), "file:///C:/Users/Mani%20%231/a%20b%25.html");
+        assert_eq!(file_url(Path::new(r"C:\Users\மணி\a.html")), "file:///C:/Users/%E0%AE%AE%E0%AE%A3%E0%AE%BF/a.html");
+    }
+
+    /// Prints through the real Edge or Chrome on this PC; skipped when neither is installed.
+    #[test]
+    fn prints_a_pdf_and_replaces_the_old_one() {
+        if PdfRenderer::find_chromium_binaries().is_err() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("mww pdf #test மணி {}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("INV 1_original.pdf");
+        fs::write(&out, b"old").unwrap();
+        let html = "<html><body><h1>Invoice # 1 &amp; மணி</h1></body></html>".to_string();
+        assert_eq!(PdfRenderer::print_html_to_pdf(html.clone(), &out).unwrap(), out);
+        assert!(fs::read(&out).unwrap().starts_with(b"%PDF"));
+        PdfRenderer::print_html_to_pdf(html, &out).unwrap();
+        assert!(fs::read(&out).unwrap().starts_with(b"%PDF"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn copy_type_parsing() {
