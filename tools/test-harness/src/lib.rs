@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #[path = "../../../src-tauri/src/util.rs"] pub mod util;
 #[path = "../../../src-tauri/src/attachments.rs"] pub mod attachments;
+#[path = "../../../src-tauri/src/startup.rs"] pub mod startup;
 pub mod db { #[path = "../../../../src-tauri/src/db/migrations.rs"] pub mod migrations; pub use migrations::{latest_version, DatabaseManager, DbStatusInfo}; }
 pub mod customers { #[path = "../../../../src-tauri/src/customers/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/customers/repository.rs"] pub mod repository; }
 pub mod invoices { #[path = "../../../../src-tauri/src/invoices/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/invoices/repository.rs"] pub mod repository; }

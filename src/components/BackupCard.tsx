@@ -11,6 +11,7 @@ import {
   runBackup,
 } from "../services/api";
 import { errorMessage } from "../lib/format";
+import { plainError } from "../lib/errors";
 import { Alert, Badge, Button, Card, ConfirmDialog, Field, inputClass, Loading, useToast } from "./ui";
 
 function formatSize(bytes: number | null | undefined): string {
@@ -225,7 +226,7 @@ export default function BackupCard() {
           {notice && <Alert tone={notice.tone}>{notice.text}</Alert>}
           {!notice && stale && status.last_run?.error && (
             <Alert>
-              The last attempt ({formatLocal(status.last_run.finished_at)}) failed: {status.last_run.error}
+              The last attempt ({formatLocal(status.last_run.finished_at)}) failed: {plainError(status.last_run.error)}
             </Alert>
           )}
 

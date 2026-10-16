@@ -1,6 +1,6 @@
 [package]
 name = "manonmani_welding_works"
-version = "0.9.3"
+version = "0.9.4"
 description = "Mononmani Welding Works invoicing and payments"
 authors = ["Mononmani Welding Works"]
 edition = "2021"
@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -31,6 +32,9 @@ flate2 = "1"
 base64 = "0.22"
 rand = "0.8"
 keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
 [dev-dependencies]
 tempfile = "3"
 

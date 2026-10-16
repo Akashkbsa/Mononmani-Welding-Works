@@ -5,7 +5,7 @@ use crate::util::{display_date, indian_number};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Text shown as it is when put into HTML: `<`, `>`, `&` and quotes are escaped.
 fn escape_html(text: &str) -> String {
@@ -267,36 +267,29 @@ impl PdfRenderer {
         for (i, browser) in browsers.iter().enumerate() {
             // Its own profile each time, so a running Edge (or Startup boost) can't take the job over and drop it.
             let profile = work.join(format!("profile{}", i));
-            let output = Command::new(browser)
-                .args([
-                    "--headless",
-                    "--disable-gpu",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-extensions",
-                    "--no-pdf-header-footer",
-                    "--run-all-compositor-stages-before-draw",
-                    &format!("--user-data-dir={}", profile.to_string_lossy()),
-                    &format!("--print-to-pdf={}", output_path.to_string_lossy()),
-                    &url,
-                ])
-                .stdin(Stdio::null())
-                .output();
-            match output {
-                Ok(_) if fs::metadata(output_path).map(|m| m.len() > 0).unwrap_or(false) => {
-                    result = Ok(output_path.to_path_buf());
-                    break;
-                }
-                Ok(out) => {
-                    log.push_str(&format!(
-                        "{} exit {:?}\n{}\n{}\n",
-                        browser.display(),
-                        out.status.code(),
-                        String::from_utf8_lossy(&out.stdout),
-                        String::from_utf8_lossy(&out.stderr)
-                    ));
-                }
-                Err(e) => log.push_str(&format!("{} could not start: {}\n", browser.display(), e)),
+            let browser_log = work.join(format!("browser{}.log", i));
+            let mut command = Command::new(browser);
+            command.args([
+                "--headless",
+                "--disable-gpu",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-extensions",
+                "--no-pdf-header-footer",
+                "--run-all-compositor-stages-before-draw",
+                &format!("--user-data-dir={}", profile.to_string_lossy()),
+                &format!("--print-to-pdf={}", output_path.to_string_lossy()),
+                &url,
+            ]);
+            let outcome = run_with_time_limit(command, &browser_log, BROWSER_TIME_LIMIT);
+            if outcome.is_ok() && fs::metadata(output_path).map(|m| m.len() > 0).unwrap_or(false) {
+                result = Ok(output_path.to_path_buf());
+                break;
+            }
+            let said = fs::read_to_string(&browser_log).unwrap_or_default();
+            match outcome {
+                Ok(code) => log.push_str(&format!("{} exit {:?}\n{}\n", browser.display(), code, said)),
+                Err(e) => log.push_str(&format!("{} {}\n{}\n", browser.display(), e, said)),
             }
         }
         let _ = fs::remove_dir_all(&work);
@@ -310,6 +303,58 @@ impl PdfRenderer {
         }
         result
     }
+}
+
+/// How long one browser may take to print before it is stopped and the next one is tried.
+const BROWSER_TIME_LIMIT: Duration = Duration::from_secs(60);
+
+/// Run `command` with its output written to `log_file` (a pipe could fill up and stall it), and stop
+/// it, with every window it opened, if it is still running after `limit`. Returns the exit code.
+fn run_with_time_limit(mut command: Command, log_file: &Path, limit: Duration) -> Result<Option<i32>, String> {
+    let out = fs::File::create(log_file).map_err(|e| format!("could not start: {}", e))?;
+    let err = out.try_clone().map_err(|e| format!("could not start: {}", e))?;
+    command.stdin(Stdio::null()).stdout(out).stderr(err);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command.spawn().map_err(|e| format!("could not start: {}", e))?;
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status.code()),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            Ok(None) => {
+                stop_process_tree(&mut child);
+                return Err(format!("did not finish within {} seconds and was stopped", limit.as_secs()));
+            }
+            Err(e) => {
+                stop_process_tree(&mut child);
+                return Err(format!("stopped responding: {}", e));
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Stop the process and the processes it started (Edge prints in child processes).
+fn stop_process_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// A `file:///` address for the path, safe when the Windows user name has spaces, `#`, `%` or Tamil letters.
@@ -333,6 +378,25 @@ mod tests {
         assert_eq!(file_url(Path::new(r"C:\Users\Asus\a.html")), "file:///C:/Users/Asus/a.html");
         assert_eq!(file_url(Path::new(r"C:\Users\Mani #1\a b%.html")), "file:///C:/Users/Mani%20%231/a%20b%25.html");
         assert_eq!(file_url(Path::new(r"C:\Users\மணி\a.html")), "file:///C:/Users/%E0%AE%AE%E0%AE%A3%E0%AE%BF/a.html");
+    }
+
+    #[test]
+    fn a_browser_that_hangs_is_stopped() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hang = Command::new("cmd");
+        hang.args(["/c", "echo printing& ping -n 30 127.0.0.1 >nul"]);
+        let started = Instant::now();
+        let err = run_with_time_limit(hang, &dir.path().join("b.log"), Duration::from_secs(1)).unwrap_err();
+        assert!(err.contains("was stopped"), "{}", err);
+        assert!(started.elapsed() < Duration::from_secs(10), "it did not wait for the hung program");
+        assert!(fs::read_to_string(dir.path().join("b.log")).unwrap().contains("printing"));
+
+        let mut quick = Command::new("cmd");
+        quick.args(["/c", "exit 3"]);
+        assert_eq!(run_with_time_limit(quick, &dir.path().join("q.log"), Duration::from_secs(20)).unwrap(), Some(3));
+
+        let missing = Command::new(dir.path().join("no-such-browser.exe"));
+        assert!(run_with_time_limit(missing, &dir.path().join("m.log"), Duration::from_secs(1)).unwrap_err().contains("could not start"));
     }
 
     /// Prints through the real Edge or Chrome on this PC; skipped when neither is installed.

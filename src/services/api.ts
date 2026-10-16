@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { plainError } from "../lib/errors";
 import { Customer, CustomerCreateInput, DuplicateCheckResult } from "../types/customer";
 import { DbStatusInfo } from "../types/db";
 import {
@@ -93,7 +94,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   try {
     return await invoke<T>(command, args);
   } catch (err) {
-    throw new Error(String(err).replace(/^Error:\s*/, ""));
+    throw new Error(plainError(String(err).replace(/^Error:\s*/, "")));
   }
 }
 

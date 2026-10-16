@@ -14,6 +14,7 @@ pub mod reminders;
 pub mod supplier_bills;
 pub mod supplier_payments;
 mod settings;
+mod startup;
 mod storage;
 mod util;
 
@@ -68,14 +69,54 @@ fn open_data_folder(state: State<'_, AppState>) -> Result<(), String> {
         .map_err(|e| format!("Could not open the folder: {}", e))
 }
 
+/// Tell the owner why the app cannot start (message box and log file), then close it.
+fn fail_to_start(error: &str, data_dir: Option<&std::path::Path>) -> ! {
+    let text = startup::message(error, data_dir);
+    startup::write_log(&text);
+    show_error_box(&text);
+    std::process::exit(1);
+}
+
+#[cfg(windows)]
+fn show_error_box(text: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (text, title) = (wide(text), wide("Mononmani Welding Works"));
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
+    }
+}
+
+#[cfg(not(windows))]
+fn show_error_box(text: &str) {
+    eprintln!("{}", text);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // Release builds stop at once on a panic; say why first rather than vanish.
+    std::panic::set_hook(Box::new(|info| {
+        let text = startup::message(&info.to_string(), None).replace("could not start", "had to close");
+        startup::write_log(&text);
+        show_error_box(&text);
+    }));
+
+    let result = tauri::Builder::default()
+        // First, so a second start only brings the open window forward: two copies would share one database.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let storage = StorageManager::new(app.handle())?;
+            let storage = StorageManager::new(app.handle())
+                .unwrap_or_else(|e| fail_to_start(&e, app.path().app_data_dir().ok().as_deref()));
             storage.clear_temp_dir();
-            let db = DatabaseManager::new(storage.get_db_path())?;
+            let db = DatabaseManager::new(storage.get_db_path())
+                .unwrap_or_else(|e| fail_to_start(&e, Some(&storage.get_app_data_dir())));
             backup::start_auto_backup(
                 app.handle().clone(),
                 storage.get_db_path(),
@@ -237,6 +278,9 @@ pub fn run() {
             settings::get_settings,
             settings::save_settings
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+    // For example WebView2 missing or broken: the window could not be made.
+    if let Err(e) = result {
+        fail_to_start(&e.to_string(), None);
+    }
 }

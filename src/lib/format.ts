@@ -1,3 +1,5 @@
+import { plainError } from "./errors";
+
 const inr = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
@@ -144,7 +146,7 @@ export function joinRefDate(number: string, dateISO: string): string {
 /** Turns errors from the backend into a readable sentence. */
 export function errorMessage(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err);
-  return text.replace(/^Error:\s*/, "");
+  return plainError(text.replace(/^Error:\s*/, ""));
 }
 
 /** "1.2 MB" or "34.5 KB" for a file size in bytes. */
