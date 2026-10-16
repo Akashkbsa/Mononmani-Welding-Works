@@ -93,8 +93,8 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
         }
       />
 
-      <div className="mb-4 flex items-center gap-3">
-        <div className="relative w-full max-w-sm">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[14rem] flex-1 max-w-sm">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             ref={searchRef}
@@ -124,7 +124,7 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
           type="button"
           aria-pressed={owingOnly}
           onClick={() => setOwingOnly((v) => !v)}
-          className={`mww-btn h-9 rounded-md border px-3 text-sm font-medium ${
+          className={`mww-btn h-9 whitespace-nowrap rounded-md border px-3 text-sm font-medium ${
             owingOnly
               ? "border-arc-200 bg-arc-50 text-arc-700"
               : "border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50"

@@ -356,7 +356,12 @@ export function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div style={style} className={`bg-white border border-slate-200 rounded-lg shadow-card ${className}`}>
+    // A list table inside scrolls sideways when the window is narrow (half the screen) instead of being cut off,
+    // and keeps a sensible width so dates and amounts stay on one line.
+    <div
+      style={style}
+      className={`bg-white border border-slate-200 rounded-lg shadow-card [&:has(>table)]:overflow-x-auto [&>table]:min-w-[46rem] @max-[44rem]:[&>table_:is(td,th)]:whitespace-nowrap ${className}`}
+    >
       {children}
     </div>
   );
@@ -365,7 +370,14 @@ export function Card({
 /** A row of key figures in one card, divided by hairlines. */
 export function StatStrip({ children, cols }: { children: React.ReactNode; cols: 2 | 3 | 4 }) {
   return (
-    <Card className={`grid ${cols === 4 ? "grid-cols-4" : cols === 2 ? "grid-cols-2" : "grid-cols-3"} divide-x divide-slate-200 overflow-hidden`}>
+    <Card
+      className={`grid overflow-hidden ${
+        cols === 4
+          ? // Two by two on a narrow page, one row of four when there is room; hairlines either way.
+            "grid-cols-2 @min-[44rem]:grid-cols-4 [&>*]:border-slate-200 [&>*:nth-child(2n)]:border-l [&>*:nth-child(n+3)]:border-t @min-[44rem]:[&>*:nth-child(n+3)]:border-t-0 @min-[44rem]:[&>*:not(:first-child)]:border-l"
+          : `${cols === 2 ? "grid-cols-2" : "grid-cols-3"} divide-x divide-slate-200`
+      }`}
+    >
       {children}
     </Card>
   );
@@ -668,7 +680,7 @@ export function Modal({ title, subtitle, onClose, size = "md", footer, headerAct
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="@container flex-1 overflow-y-auto px-6 py-5">{children}</div>
         {footer && (
           <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
             {footer}

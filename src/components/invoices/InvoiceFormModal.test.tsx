@@ -352,6 +352,50 @@ describe("a new invoice", () => {
     });
   });
 
+  describe("date of supply", () => {
+    const supply = () => screen.getByRole("textbox", { name: "Date of supply" });
+
+    it("starts empty and shows the format to use", async () => {
+      await open();
+      await userEvent.click(screen.getByRole("button", { name: "Delivery details" }));
+      expect(supply()).toHaveValue("");
+      expect(supply()).toHaveAttribute("placeholder", "DD-MM-YYYY");
+      expect(screen.getByRole("button", { name: "Choose the date of supply" })).toBeInTheDocument();
+    });
+
+    it("puts the dashes in while typing and saves the date as printed", async () => {
+      await open();
+      await pickCustomer("Anand Steels — Puducherry");
+      describeLine(1, "Gate");
+      await userEvent.click(screen.getByRole("button", { name: "Delivery details" }));
+      await userEvent.type(supply(), "14102026");
+      expect(supply()).toHaveValue("14-10-2026");
+      await userEvent.click(saveButton());
+      await waitFor(() => expect(api.createInvoice).toHaveBeenCalledOnce());
+      expect(api.createInvoice.mock.calls[0][0].date_of_supply).toBe("14-10-2026");
+    });
+
+    it("takes the day chosen in the calendar", async () => {
+      await open();
+      await userEvent.click(screen.getByRole("button", { name: "Delivery details" }));
+      const calendar = screen.getByRole("button", { name: "Choose the date of supply" }).querySelector("input[type=date]")!;
+      fireEvent.change(calendar, { target: { value: "2026-10-12" } });
+      expect(supply()).toHaveValue("12-10-2026");
+    });
+
+    it("refuses a day that does not exist", async () => {
+      await open();
+      await pickCustomer("Anand Steels — Puducherry");
+      describeLine(1, "Gate");
+      await userEvent.click(screen.getByRole("button", { name: "Delivery details" }));
+      await userEvent.type(supply(), "31042026");
+      expect(screen.getByText("Enter the date as DD-MM-YYYY, or choose it from the calendar.", { selector: "p" })).toBeInTheDocument();
+      await userEvent.click(saveButton());
+      expect(screen.getByRole("alert")).toHaveTextContent("Date of supply:");
+      expect(api.createInvoice).not.toHaveBeenCalled();
+    });
+  });
+
   it("writes a vehicle number in the standard form when leaving the box", async () => {
     await open();
     await userEvent.click(screen.getByRole("button", { name: "Delivery details" }));
@@ -390,6 +434,7 @@ describe("a new invoice", () => {
       our_dc_number_and_date: "DC-5 & 14-10-2026",
       notes: null,
       vehicle_number: null,
+      date_of_supply: null,
       status: "ISSUED",
     });
     expect(input.items).toEqual([{ description: "<b>Gate</b> welding", hsn_sac: "7308", qum: "NOS", quantity: 2, rate: 1500 }]);
@@ -515,6 +560,16 @@ describe("editing an invoice", () => {
     expect(input.due_date).toBeUndefined();
     // Bank details stay as saved on the invoice.
     expect(input.bank_name).toBe("Indian Bank");
+    expect(input.date_of_supply).toBe("10-10-2026");
+  });
+
+  it("keeps an older date of supply written as text until it is changed", async () => {
+    await open(savedInvoice({ date_of_supply: "As per DC" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delivery details" }));
+    expect(screen.getByRole("textbox", { name: "Date of supply" })).toHaveValue("As per DC");
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(api.updateInvoice).toHaveBeenCalledOnce());
+    expect(api.updateInvoice.mock.calls[0][1].date_of_supply).toBe("As per DC");
   });
 
   it("checks the number against other invoices only", async () => {

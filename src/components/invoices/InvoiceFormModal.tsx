@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Customer, formatCustomerAddress } from "../../types/customer";
 import { InvoiceInput, InvoiceItemInput, InvoiceStatus, InvoiceWithItems, TaxType } from "../../types/invoice";
 import { PO_STATUS_LABEL, PurchaseOrderListItem } from "../../types/purchaseOrder";
@@ -20,8 +20,10 @@ import {
   formatMoney,
   formatVehicleNumber,
   joinRefDate,
+  parseDisplayDate,
   splitRefDate,
   todayISO,
+  typedDate,
 } from "../../lib/format";
 import { Alert, Button, Field, inputClass, Modal, SearchSelect, textareaClass, useDiscardGuard } from "../ui";
 import RichTextBox, { isRichEmpty } from "../RichTextBox";
@@ -71,7 +73,8 @@ function initialForm(invoice?: InvoiceWithItems | null): InvoiceInput {
     po_number_and_date: null,
     purchase_order_id: null,
     vehicle_number: null,
-    date_of_supply: formatDate(today),
+    // Left for the owner to choose; empty prints as a dash.
+    date_of_supply: null,
     place_of_supply: HOME_STATE.name,
     our_dc_number_and_date: null,
     your_dc_number_and_date: null,
@@ -263,6 +266,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     if (!form.invoice_number.trim()) return setError("Enter an invoice number.");
     if (!form.invoice_date) return setError("Enter the invoice date.");
     if (vehicleError) return setError(vehicleError);
+    if (supplyDateError) return setError(`Date of supply: ${supplyDateError}`);
     const blank = form.items.findIndex((i) => isRichEmpty(i.description));
     if (blank >= 0) return setError(`Line ${blank + 1} needs a description.`);
     if (form.items.some((i) => !(Number(i.quantity) > 0))) return setError("Every line needs a quantity above zero.");
@@ -303,6 +307,13 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
     }
   };
 
+  // Text saved before the date box existed (for example "As per DC") can stay until it is changed.
+  const supplyValue = (form.date_of_supply ?? "").trim();
+  const supplyDateError =
+    supplyValue && !parseDisplayDate(supplyValue) && supplyValue !== (invoice?.invoice.date_of_supply ?? "").trim()
+      ? "Enter the date as DD-MM-YYYY, or choose it from the calendar."
+      : null;
+
   // A vehicle number saved before this check existed can stay as it is until it is changed.
   const vehicleValue = form.vehicle_number ?? "";
   const vehicleError =
@@ -334,8 +345,8 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
           {error && <Alert>{error}</Alert>}
 
           {/* Customer and invoice details */}
-          <div className="grid grid-cols-5 gap-6">
-            <div className="col-span-3 space-y-3">
+          <div className="grid grid-cols-1 gap-6 @min-[38rem]:grid-cols-5">
+            <div className="space-y-3 @min-[38rem]:col-span-3">
               <Field label="Bill to" required>
                 <div className="flex gap-2">
                   <CustomerPicker
@@ -405,7 +416,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
               )}
             </div>
 
-            <div className="col-span-2 space-y-3">
+            <div className="space-y-3 @min-[38rem]:col-span-2">
               <Field label="Invoice number" required error={numberTaken ? "This number is already used." : null}>
                 <input
                   className={`${inputClass} font-mono`}
@@ -439,13 +450,13 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          {/* Line items */}
-          <div>
-            <table className="w-full text-sm">
+          {/* Line items; on a narrow window they keep a usable width and scroll sideways. */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[48rem] text-sm">
               <thead>
                 <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
                   <th className="py-2 w-8 font-medium">#</th>
-                  <th className="py-2 pr-2 font-medium">Description</th>
+                  <th className="py-2 pr-2 min-w-[12rem] font-medium">Description</th>
                   <th className="py-2 pr-2 w-28 font-medium">HSN/SAC</th>
                   <th className="py-2 pr-2 w-24 font-medium">Unit</th>
                   <th className="py-2 pr-2 w-24 font-medium text-right">Qty</th>
@@ -637,7 +648,11 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                 value={form.your_dc_number_and_date}
                 onChange={(v) => update("your_dc_number_and_date", v)}
               />
-              <TextField label="Date of supply" value={form.date_of_supply} onChange={(v) => update("date_of_supply", v)} />
+              <SupplyDateField
+                value={form.date_of_supply}
+                error={supplyDateError}
+                onChange={(v) => update("date_of_supply", v)}
+              />
               <TextField label="Place of supply" value={form.place_of_supply} onChange={(v) => update("place_of_supply", v)} />
             </div>
           </Collapsible>
@@ -732,6 +747,69 @@ function RefDateField({
           value={dateISO}
           onChange={(e) => onChange(joinRefDate(number, e.target.value))}
         />
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Date of supply: empty until the owner picks it. Typed as DD-MM-YYYY (the dashes go in by
+ * themselves) or chosen from the calendar button, so the format shown never depends on the
+ * Windows language. Stored as the DD-MM-YYYY text that is printed.
+ */
+function SupplyDateField({
+  value,
+  error,
+  onChange,
+}: {
+  value: string | null;
+  error: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const picker = useRef<HTMLInputElement>(null);
+  const openCalendar = () => {
+    const input = picker.current;
+    if (!input) return;
+    try {
+      input.showPicker();
+    } catch {
+      input.focus();
+    }
+  };
+  return (
+    <Field label="Date of supply" error={error}>
+      <div
+        className={`flex h-9 items-stretch overflow-hidden rounded-md border bg-white focus-within:ring-2 ${
+          error ? "border-red-400 focus-within:ring-red-100" : "border-slate-300 focus-within:border-brand-500 focus-within:ring-brand-100"
+        }`}
+      >
+        <input
+          className="tabular h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+          value={value ?? ""}
+          placeholder="DD-MM-YYYY"
+          inputMode="numeric"
+          aria-label="Date of supply"
+          aria-invalid={error ? true : undefined}
+          onChange={(e) => onChange(typedDate(e.target.value) || null)}
+        />
+        <button
+          type="button"
+          onClick={openCalendar}
+          aria-label="Choose the date of supply"
+          title="Choose from the calendar"
+          className="relative grid w-9 shrink-0 place-items-center border-l border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        >
+          <CalendarDays className="h-4 w-4" aria-hidden="true" />
+          <input
+            ref={picker}
+            type="date"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-0"
+            value={parseDisplayDate(value) ?? ""}
+            onChange={(e) => onChange(e.target.value ? formatDate(e.target.value) : null)}
+          />
+        </button>
       </div>
     </Field>
   );

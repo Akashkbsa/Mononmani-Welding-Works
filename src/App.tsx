@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, ReceiptText, Settings, Users, Vault } from "lucide-react";
+import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Users, Vault } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -9,6 +9,7 @@ import { ReminderLinkKind } from "./types/reminder";
 import ReminderBanner from "./components/reminders/ReminderBanner";
 import BackupBanner from "./components/BackupBanner";
 import { todayISO } from "./lib/format";
+import { useSidebar } from "./lib/useSidebar";
 import { RemindersContext } from "./components/reminders/RemindersContext";
 
 // The dashboard opens first and is part of the main file. Every other screen is its own file,
@@ -71,29 +72,43 @@ function NavButton({
   icon: Icon,
   label,
   badge,
+  compact,
 }: {
   active: boolean;
   onClick: () => void;
   icon: typeof FileText;
   label: string;
   badge?: boolean;
+  /** Only the icon, for the closed sidebar; the name shows on hover and is read out. */
+  compact?: boolean;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`w-full flex items-center gap-3 px-3 h-9 rounded-md text-sm transition-[background-color,color,box-shadow] duration-200 ${
+      aria-label={compact ? label : undefined}
+      title={compact ? label : undefined}
+      className={`relative w-full flex items-center gap-3 h-9 rounded-md text-sm transition-[background-color,color,box-shadow] duration-200 ${
+        compact ? "justify-center px-0" : "px-3"
+      } ${
         active
           ? "bg-white/10 text-white font-medium shadow-[inset_3px_0_0_var(--color-arc-500)]"
           : "text-slate-300 hover:bg-white/5 hover:text-white"
       }`}
     >
-      <Icon className={`w-4 h-4 ${active ? "text-white" : "text-slate-400"}`} />
-      {label}
-      {badge && <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" title="Backups need attention" />}
+      <Icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : "text-slate-400"}`} aria-hidden="true" />
+      {!compact && <span className="truncate">{label}</span>}
+      {badge && (
+        <span
+          className={`h-2 w-2 rounded-full bg-amber-500 ${compact ? "absolute right-2 top-1.5" : "ml-auto"}`}
+          title="Backups need attention"
+        />
+      )}
     </button>
   );
 }
+
 
 /** Indian financial year (April to March), the same one used in invoice numbers, e.g. "26-27". */
 function financialYear(now = new Date()): string {
@@ -177,6 +192,19 @@ function App() {
       .catch(() => setBackupDue(false));
   }, [page, backupVersion]);
 
+  const sidebar = useSidebar();
+  // Ctrl+B opens or closes the sidebar from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        sidebar.toggle();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sidebar.toggle]);
+
   // Fetch the other screens' files while the owner looks at the dashboard.
   useEffect(() => {
     const timer = window.setTimeout(() => Object.values(pageLoaders).forEach((load) => void load().catch(() => {})), 1500);
@@ -187,15 +215,36 @@ function App() {
     <ToastProvider>
       <RemindersContext.Provider value={{ changed: remindersChanged, openRecord }}>
       <div className="h-full flex">
-        <aside className="w-60 shrink-0 bg-ink-900 flex flex-col">
-          <div className="px-4 py-5 mb-3 border-b border-white/10 flex items-center gap-3">
-            <BrandMark className="h-9 w-9 shrink-0" />
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-white leading-tight">Mononmani</div>
-              <div className="text-xs text-slate-400">Welding Works</div>
-            </div>
+        <aside
+          aria-label="Main menu"
+          className={`${
+            sidebar.closed ? "w-14" : "w-60"
+          } shrink-0 bg-ink-900 flex flex-col overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none`}
+        >
+          <div
+            className={`mb-3 border-b border-white/10 flex items-center ${
+              sidebar.closed ? "flex-col gap-2 px-2 py-3" : "gap-3 py-5 pl-4 pr-2"
+            }`}
+          >
+            <BrandMark className={`${sidebar.closed ? "h-8 w-8" : "h-9 w-9"} shrink-0`} />
+            {!sidebar.closed && (
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-white leading-tight">Mononmani</div>
+                <div className="text-xs text-slate-400">Welding Works</div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={sidebar.toggle}
+              aria-expanded={!sidebar.closed}
+              aria-label={sidebar.closed ? "Open the menu" : "Close the menu"}
+              title={`${sidebar.closed ? "Open" : "Close"} the menu (Ctrl+B)`}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-brand-200"
+            >
+              {sidebar.closed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
+            </button>
           </div>
-          <nav className="flex-1 overflow-y-auto px-3">
+          <nav className={`flex-1 overflow-y-auto overflow-x-hidden ${sidebar.closed ? "px-2" : "px-3"}`}>
             {NAV_GROUPS.map((group, i) => (
               <div key={i} className={`space-y-0.5 ${i > 0 ? "mt-2 border-t border-white/10 pt-2" : ""}`}>
                 {group.map((item) => (
@@ -205,28 +254,36 @@ function App() {
                     onClick={() => setPage(item.id)}
                     icon={item.icon}
                     label={item.label}
+                    compact={sidebar.closed}
                   />
                 ))}
               </div>
             ))}
           </nav>
-          <div className="px-3 pb-3">
+          <div className={`pb-3 ${sidebar.closed ? "px-2" : "px-3"}`}>
             <NavButton
               active={page === "settings"}
               onClick={() => setPage("settings")}
               icon={Settings}
               label="Settings"
               badge={backupDue}
+              compact={sidebar.closed}
             />
           </div>
-          <div className="px-5 py-3 border-t border-white/10 text-xs text-slate-400 flex justify-between">
-            <span>Financial year</span>
-            <span className="tabular text-slate-200">{financialYear()}</span>
-          </div>
+          {sidebar.closed ? (
+            <div className="py-3 border-t border-white/10 text-center text-[11px] tabular text-slate-400" title="Financial year">
+              {financialYear()}
+            </div>
+          ) : (
+            <div className="px-5 py-3 border-t border-white/10 text-xs text-slate-400 flex justify-between">
+              <span>Financial year</span>
+              <span className="tabular text-slate-200">{financialYear()}</span>
+            </div>
+          )}
         </aside>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[120rem] px-10 py-7">
+        <main className="flex-1 min-w-0 overflow-y-auto">
+          <div className="@container mx-auto max-w-[120rem] px-4 py-5 sm:px-6 lg:px-10 lg:py-7">
             <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />
             <BackupBanner refreshKey={`${page}-${backupVersion}`} onChanged={backupChanged} />
             <div key={page} className="mww-page">

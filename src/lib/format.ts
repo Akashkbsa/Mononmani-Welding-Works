@@ -57,6 +57,25 @@ export function formatDate(value: string | null | undefined): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : value;
 }
 
+/** "16-10-2026" -> "2026-10-16"; null unless it is a real day written DD-MM-YYYY. */
+export function parseDisplayDate(value: string | null | undefined): string | null {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec((value ?? "").trim());
+  if (!m) return null;
+  const [day, month, year] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(Date.UTC(year, month - 1, day));
+  const real = d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+  return real && year >= 1900 ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
+
+/** Digits typed into a DD-MM-YYYY box, with the dashes put in: "16102026" -> "16-10-2026". Other text is kept as typed. */
+export function typedDate(raw: string): string {
+  if (/[^\d\-/. ]/.test(raw)) return raw;
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`;
+}
+
 /** "+919876543210" -> "+91 98765 43210". Numbers from other countries are shown as stored. */
 export function formatPhone(value: string): string {
   const m = /^\+91(\d{5})(\d{5})$/.exec(value);

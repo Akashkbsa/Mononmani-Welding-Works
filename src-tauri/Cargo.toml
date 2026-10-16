@@ -1,6 +1,6 @@
 [package]
 name = "manonmani_welding_works"
-version = "0.9.4"
+version = "0.9.5"
 description = "Mononmani Welding Works invoicing and payments"
 authors = ["Mononmani Welding Works"]
 edition = "2021"

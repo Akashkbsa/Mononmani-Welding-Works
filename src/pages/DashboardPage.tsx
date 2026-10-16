@@ -142,7 +142,7 @@ function Kpi({
 function DashboardSkeleton() {
   return (
     <div role="status" aria-label="Loading the dashboard" className="space-y-6">
-      <div className="grid grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 gap-6 @min-[34rem]:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Card key={i} className="space-y-3 p-5">
             <Skeleton className="h-4 w-32" />
@@ -151,8 +151,8 @@ function DashboardSkeleton() {
           </Card>
         ))}
       </div>
-      <div className="grid grid-cols-3 gap-6">
-        <Card className="col-span-2 space-y-4 p-5">
+      <div className="grid grid-cols-1 gap-6 @min-[34rem]:grid-cols-3">
+        <Card className="space-y-4 p-5 @min-[34rem]:col-span-2">
           <Skeleton className="h-4 w-56" />
           <Skeleton className="h-60 w-full" />
         </Card>
@@ -327,7 +327,7 @@ export default function DashboardPage({
       ) : (
         <div className="space-y-6">
           {/* 1. The money position, each figure with a small picture of what is behind it. */}
-          <div className={`grid grid-cols-4 gap-6 ${reveals(0).className}`} style={reveals(0).style}>
+          <div className={`grid grid-cols-2 gap-6 @min-[34rem]:grid-cols-4 ${reveals(0).className}`} style={reveals(0).style}>
             <Kpi
               icon={Wallet}
               owed
@@ -374,8 +374,8 @@ export default function DashboardPage({
           </div>
 
           {/* 2. The trend, and what to act on. */}
-          <div className={`grid grid-cols-5 items-stretch gap-6 2xl:grid-cols-3 ${reveals(1).className}`} style={reveals(1).style}>
-            <Card className="col-span-3 flex flex-col p-5 2xl:col-span-2">
+          <div className={`grid grid-cols-1 items-stretch gap-6 @min-[34rem]:grid-cols-5 @min-[65rem]:grid-cols-3 ${reveals(1).className}`} style={reveals(1).style}>
+            <Card className="flex flex-col p-5 @min-[34rem]:col-span-3 @min-[65rem]:col-span-2">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-slate-900">Last {MONTHS} months</h3>
                 <div role="tablist" aria-label="Chart" className="flex rounded-md bg-slate-100 p-0.5 text-xs">
@@ -434,7 +434,7 @@ export default function DashboardPage({
               </div>
             </Card>
 
-            <Card className="col-span-2 flex flex-col p-5 2xl:col-span-1">
+            <Card className="flex flex-col p-5 @min-[34rem]:col-span-2 @min-[65rem]:col-span-1">
               <SectionTitle>Needs attention</SectionTitle>
               {view.attention.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center text-sm text-slate-600">
@@ -469,7 +469,7 @@ export default function DashboardPage({
           </div>
 
           {/* 3. Who the money comes from and goes to this financial year. */}
-          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(2).className}`} style={reveals(2).style}>
+          <div className={`grid grid-cols-1 items-stretch gap-6 @min-[34rem]:grid-cols-2 ${reveals(2).className}`} style={reveals(2).style}>
             <Card className="p-5">
               <SectionTitle
                 action={
@@ -497,7 +497,7 @@ export default function DashboardPage({
           </div>
 
           {/* 4. The oldest things to settle. */}
-          <div className={`grid grid-cols-2 items-stretch gap-6 ${reveals(3).className}`} style={reveals(3).style}>
+          <div className={`grid grid-cols-1 items-stretch gap-6 @min-[34rem]:grid-cols-2 ${reveals(3).className}`} style={reveals(3).style}>
             <ListCard
               title="Invoices to chase, oldest first"
               actionLabel="All invoices"

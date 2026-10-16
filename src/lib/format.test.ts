@@ -11,11 +11,13 @@ import {
   formatVehicleNumber,
   joinRefDate,
   monthTitle,
+  parseDisplayDate,
   round2,
   shiftMonth,
   shortDate,
   splitRefDate,
   todayISO,
+  typedDate,
 } from "./format";
 
 describe("formatMoney", () => {
@@ -319,5 +321,31 @@ describe("formatFileSize", () => {
   it("uses MB from a megabyte", () => {
     expect(formatFileSize(1024 * 1024)).toBe("1.0 MB");
     expect(formatFileSize(10 * 1024 * 1024)).toBe("10.0 MB");
+  });
+});
+
+describe("typing a DD-MM-YYYY date", () => {
+  it("puts the dashes in as digits are typed", () => {
+    expect(typedDate("1")).toBe("1");
+    expect(typedDate("161")).toBe("16-1");
+    expect(typedDate("16102")).toBe("16-10-2");
+    expect(typedDate("16102026")).toBe("16-10-2026");
+    expect(typedDate("16/10/2026")).toBe("16-10-2026");
+    expect(typedDate("16-10-20269")).toBe("16-10-2026");
+    expect(typedDate("")).toBe("");
+  });
+
+  it("keeps other text as typed (older invoices)", () => {
+    expect(typedDate("As per DC")).toBe("As per DC");
+  });
+
+  it("reads only real days", () => {
+    expect(parseDisplayDate("16-10-2026")).toBe("2026-10-16");
+    expect(parseDisplayDate(" 29-02-2028 ")).toBe("2028-02-29");
+    expect(parseDisplayDate("29-02-2026")).toBeNull();
+    expect(parseDisplayDate("31-04-2026")).toBeNull();
+    expect(parseDisplayDate("16-10-26")).toBeNull();
+    expect(parseDisplayDate("2026-10-16")).toBeNull();
+    expect(parseDisplayDate(null)).toBeNull();
   });
 });
