@@ -15,3 +15,4 @@ pub mod reminders { #[path = "../../../../src-tauri/src/reminders/models.rs"] pu
 pub mod payroll { #[path = "../../../../src-tauri/src/payroll/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/payroll/calc.rs"] pub mod calc; #[path = "../../../../src-tauri/src/payroll/repository.rs"] pub mod repository; }
 pub mod settings { #[path = "../../../../src-tauri/src/settings/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/settings/repository.rs"] pub mod repository; }
 pub mod pdf { #[path = "../../../../src-tauri/src/pdf/renderer.rs"] pub mod renderer; }
+pub mod documents { #[path = "../../../../src-tauri/src/documents/models.rs"] pub mod models; #[path = "../../../../src-tauri/src/documents/files.rs"] pub mod files; #[path = "../../../../src-tauri/src/documents/repository.rs"] pub mod repository; #[path = "../../../../src-tauri/src/documents/sync.rs"] pub mod sync; }

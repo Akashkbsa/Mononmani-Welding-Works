@@ -37,6 +37,7 @@ impl StorageManager {
             self.get_backups_dir(),
             self.get_settings_dir(),
             self.get_temp_dir(),
+            self.get_documents_dir(),
         ];
 
         for dir in &dirs {
@@ -71,6 +72,11 @@ impl StorageManager {
 
     pub fn get_backups_dir(&self) -> PathBuf {
         self.app_data_dir.join("Backups")
+    }
+
+    /// Document Vault files, each named by its SHA-256.
+    pub fn get_documents_dir(&self) -> PathBuf {
+        self.app_data_dir.join("Documents")
     }
 
     pub fn get_settings_dir(&self) -> PathBuf {

@@ -3,6 +3,8 @@
 //! `drive.file` scope is used, so the app can see just the files it created.
 
 use super::models::DriveBackup;
+use crate::documents::models::Document;
+use crate::documents::sync::{DocumentStore, StoredCopy};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use rand::distributions::Alphanumeric;
@@ -25,6 +27,8 @@ const DRIVE_URL: &str = "https://www.googleapis.com/drive/v3";
 const UPLOAD_URL: &str = "https://www.googleapis.com/upload/drive/v3/files";
 const SCOPES: &str = "https://www.googleapis.com/auth/drive.file openid email";
 const FOLDER_NAME: &str = "Mononmani Backups";
+/// Document Vault copies. Nothing in this folder is ever deleted by the app.
+pub const DOCUMENTS_FOLDER_NAME: &str = "Mononmani Documents";
 const KEYRING_SERVICE: &str = "com.manonmani.app";
 const KEYRING_USER: &str = "google-drive";
 
@@ -299,9 +303,13 @@ impl Drive {
 
     /// The backup folder, created on first use. Only folders this app made are visible to it.
     pub fn ensure_folder(&self) -> Result<String, String> {
+        self.ensure_named_folder(FOLDER_NAME)
+    }
+
+    fn ensure_named_folder(&self, name: &str) -> Result<String, String> {
         let q = format!(
             "name = '{}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-            FOLDER_NAME
+            name
         );
         let resp = self
             .http
@@ -319,7 +327,7 @@ impl Drive {
             .post(format!("{}/files", DRIVE_URL))
             .bearer_auth(&self.token)
             .query(&[("fields", "id")])
-            .json(&serde_json::json!({ "name": FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder" }))
+            .json(&serde_json::json!({ "name": name, "mimeType": "application/vnd.google-apps.folder" }))
             .send()
             .map_err(net_err)?;
         let v = self.json(resp)?;
@@ -370,13 +378,21 @@ impl Drive {
 
     /// Upload under a temporary name; `rename` makes it final once verified.
     pub fn upload(&self, folder: &str, local: &Path, temp_name: &str, props: serde_json::Value) -> Result<DriveFile, String> {
+        let mut bytes = Vec::new();
+        File::open(local)
+            .and_then(|mut f| f.read_to_end(&mut bytes))
+            .map_err(|e| format!("Could not read the backup file: {}", e))?;
+        self.upload_bytes(folder, bytes, temp_name, "application/gzip", props)
+    }
+
+    fn upload_bytes(&self, folder: &str, bytes: Vec<u8>, name: &str, mime: &str, props: serde_json::Value) -> Result<DriveFile, String> {
         let start = self
             .http
             .post(UPLOAD_URL)
             .bearer_auth(&self.token)
             .query(&[("uploadType", "resumable"), ("fields", "id,size,md5Checksum")])
-            .header("X-Upload-Content-Type", "application/gzip")
-            .json(&serde_json::json!({ "name": temp_name, "parents": [folder], "appProperties": props }))
+            .header("X-Upload-Content-Type", mime)
+            .json(&serde_json::json!({ "name": name, "parents": [folder], "appProperties": props }))
             .send()
             .map_err(net_err)?;
         if !start.status().is_success() {
@@ -389,14 +405,10 @@ impl Drive {
             .ok_or("Google Drive did not give an upload address.")?
             .to_string();
 
-        let mut bytes = Vec::new();
-        File::open(local)
-            .and_then(|mut f| f.read_to_end(&mut bytes))
-            .map_err(|e| format!("Could not read the backup file: {}", e))?;
         let resp = self
             .http
             .put(location)
-            .header("Content-Type", "application/gzip")
+            .header("Content-Type", mime)
             .body(bytes)
             .send()
             .map_err(net_err)?;
@@ -471,5 +483,69 @@ impl Drive {
         let v = self.json(resp)?;
         let get = |k: &str| v["storageQuota"][k].as_str().and_then(|s| s.parse::<i64>().ok());
         Ok((get("usage"), get("limit")))
+    }
+}
+
+/// The Document Vault's copies on Google Drive, in their own folder. It implements only upload,
+/// find and download, so the app has no way to delete a document's backup.
+pub struct DriveDocuments {
+    drive: Drive,
+    folder: String,
+}
+
+impl DriveDocuments {
+    pub fn connect(creds: &Credentials) -> Result<DriveDocuments, String> {
+        let drive = Drive::connect(creds)?;
+        let folder = drive.ensure_named_folder(DOCUMENTS_FOLDER_NAME)?;
+        Ok(DriveDocuments { drive, folder })
+    }
+
+    /// (used, limit) bytes of the Google account's storage.
+    pub fn quota(&self) -> Result<(Option<i64>, Option<i64>), String> {
+        self.drive.quota()
+    }
+}
+
+impl DocumentStore for DriveDocuments {
+    fn find(&self, sha256: &str) -> Result<Option<String>, String> {
+        if !crate::documents::files::is_sha256(sha256) {
+            return Ok(None);
+        }
+        let q = format!(
+            "'{}' in parents and trashed = false and appProperties has {{ key='sha256' and value='{}' }}",
+            self.folder, sha256
+        );
+        let resp = self
+            .drive
+            .http
+            .get(format!("{}/files", DRIVE_URL))
+            .bearer_auth(&self.drive.token)
+            .query(&[("q", q.as_str()), ("fields", "files(id)"), ("pageSize", "1")])
+            .send()
+            .map_err(net_err)?;
+        let v = self.drive.json(resp)?;
+        Ok(v["files"][0]["id"].as_str().map(str::to_string))
+    }
+
+    fn upload(&self, doc: &Document, bytes: &[u8]) -> Result<StoredCopy, String> {
+        let group = crate::documents::repository::category_label(&doc.category);
+        let props = serde_json::json!({ "sha256": doc.sha256, "group": group });
+        let file = self.drive.upload_bytes(&self.folder, bytes.to_vec(), &doc.file_name, &doc.mime_type, props)?;
+        Ok(StoredCopy { id: file.id, size: file.size, md5: file.md5 })
+    }
+
+    fn download(&self, id: &str) -> Result<Vec<u8>, String> {
+        let resp = self
+            .drive
+            .http
+            .get(format!("{}/files/{}", DRIVE_URL, id))
+            .bearer_auth(&self.drive.token)
+            .query(&[("alt", "media")])
+            .send()
+            .map_err(net_err)?;
+        if !resp.status().is_success() {
+            return Err(api_err(resp));
+        }
+        resp.bytes().map(|b| b.to_vec()).map_err(net_err)
     }
 }

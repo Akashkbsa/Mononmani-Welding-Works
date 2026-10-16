@@ -569,7 +569,9 @@ fn an_employee_with_any_pay_record_cannot_be_deleted() {
 // ---------------------------------------------------------------- backup sees every module
 
 /// Tables that hold app bookkeeping, not the owner's records.
-const NOT_RECORDS: &[&str] = &["change_log", "backup_runs", "_migrations", "app_metadata", "sqlite_sequence"];
+/// `document_drive_copies` notes what the backup itself uploaded; logging it would start another backup.
+const NOT_RECORDS: &[&str] =
+    &["change_log", "backup_runs", "_migrations", "app_metadata", "sqlite_sequence", "document_drive_copies"];
 
 #[test]
 fn every_record_table_is_watched_by_the_backup_change_log() {
@@ -782,4 +784,96 @@ fn an_invoice_saved_without_bank_terms_or_rates_takes_them_from_settings() {
     let mut own = invoice_input(c, "MWW/26-27/082", 1_000.0);
     own.bank_name = Some("Indian Bank".into());
     assert_eq!(InvoiceRepository::create(&conn, own).unwrap().invoice.bank_name, "Indian Bank");
+}
+
+// ---------------------------------------------------------------- document vault and its backup
+
+use harness::documents::models::{DocumentFilter, DocumentInput};
+use harness::documents::repository::DocumentRepository;
+use harness::documents::sync::{self as doc_sync, DocumentStore, FolderStore};
+
+fn doc_input(category: &str, title: &str) -> DocumentInput {
+    DocumentInput { category: category.to_string(), title: title.to_string(), note: None }
+}
+
+#[test]
+fn vault_documents_come_back_on_a_new_computer_from_a_backup() {
+    let (dir, conn) = setup();
+    let vault = dir.path().join("Documents");
+    let drive = FolderStore { dir: dir.path().join("Drive") };
+    let deed = DocumentRepository::add(&conn, &vault, &doc_input("IMPORTANT", "Land deed"), "deed.pdf", b"%PDF-1.4 deed").unwrap();
+    let photo = DocumentRepository::add(&conn, &vault, &doc_input("FUTURE", "Machine bill"), "bill.jpg", &[0xFF, 0xD8, 0xFF, 1]).unwrap();
+
+    // The backup run: documents first, then the database copy, which then knows where they are.
+    assert_eq!(doc_sync::upload_waiting(&conn, &vault, &drive, &mut |_, _, _| {}).unwrap(), 2);
+    let snap = snapshot::create_snapshot(&conn, &dir.path().join("work"), "manonmani-2026-10-16_100000-seq1.db.gz").unwrap();
+
+    // A new computer: the restored database and an empty Documents folder.
+    let new_pc = dir.path().join("new-pc");
+    std::fs::create_dir_all(&new_pc).unwrap();
+    snapshot::gunzip(&snap.gz_path, &new_pc.join("restored.db")).unwrap();
+    let back = DatabaseManager::new(new_pc.join("restored.db")).unwrap().get_connection().unwrap();
+    let new_vault = new_pc.join("Documents");
+    assert_eq!(DocumentRepository::missing_files(&back, &new_vault).unwrap().len(), 2);
+
+    let report = doc_sync::restore_missing(&back, &new_vault, &drive).unwrap();
+    assert_eq!(report.restored, 2, "{:?}", report);
+    let (_, bytes) = DocumentRepository::read(&back, &new_vault, deed.id).unwrap();
+    assert_eq!(bytes.unwrap(), b"%PDF-1.4 deed");
+    let (_, bytes) = DocumentRepository::read(&back, &new_vault, photo.id).unwrap();
+    assert_eq!(bytes.unwrap(), vec![0xFF, 0xD8, 0xFF, 1]);
+    let listed = DocumentRepository::list(&back, &DocumentFilter::default()).unwrap();
+    assert!(listed.iter().all(|d| d.backed_up));
+}
+
+#[test]
+fn adding_documents_calls_for_a_backup_but_noting_their_upload_does_not() {
+    let (dir, conn) = setup();
+    let vault = dir.path().join("Documents");
+    let start = BackupRepository::max_seq(&conn).unwrap();
+    DocumentRepository::add(&conn, &vault, &doc_input("IMPORTANT", "Deed"), "deed.pdf", b"deed").unwrap();
+    DocumentRepository::add(&conn, &vault, &doc_input("FUTURE", "Lease"), "lease.pdf", b"lease").unwrap();
+    let pending = BackupRepository::pending_changes(&conn, start).unwrap();
+    assert!(pending.lines.contains(&"2 vault documents added".to_string()), "{:?}", pending.lines);
+
+    let before = BackupRepository::max_seq(&conn).unwrap();
+    let drive = FolderStore { dir: dir.path().join("Drive") };
+    doc_sync::upload_waiting(&conn, &vault, &drive, &mut |_, _, _| {}).unwrap();
+    assert_eq!(BackupRepository::max_seq(&conn).unwrap(), before, "an upload is not a change to back up again");
+}
+
+#[test]
+fn a_deleted_document_stays_on_drive_and_returns_without_a_second_upload() {
+    let (dir, conn) = setup();
+    let vault = dir.path().join("Documents");
+    let drive = FolderStore { dir: dir.path().join("Drive") };
+    let deed = DocumentRepository::add(&conn, &vault, &doc_input("IMPORTANT", "Deed"), "deed.pdf", b"deed").unwrap();
+    doc_sync::upload_waiting(&conn, &vault, &drive, &mut |_, _, _| {}).unwrap();
+
+    DocumentRepository::delete(&conn, &vault, deed.id).unwrap();
+    let on_drive = drive.find(&deed.sha256).unwrap().expect("the Drive copy is kept");
+    assert_eq!(drive.download(&on_drive).unwrap(), b"deed");
+
+    let again = DocumentRepository::add(&conn, &vault, &doc_input("FUTURE", "Deed again"), "deed.pdf", b"deed").unwrap();
+    assert!(again.backed_up, "known to be on Drive already");
+    assert_eq!(DocumentRepository::summary(&conn).unwrap().waiting_for_backup, 0);
+}
+
+#[test]
+fn thinning_old_backups_never_picks_a_vault_document() {
+    use harness::backup::schedule::files_to_thin;
+    let files: Vec<(String, String)> = [
+        "deed.pdf",
+        "manonmani-2020-01-01_090000-seq1.db.gz.pdf",
+        "manonmani-2020-01-05.jpg",
+        "lease.docx",
+        "manonmani-2020-01-02_090000-seq2.db.gz",
+        "manonmani-2020-01-03_090000-seq3.db.gz",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, n)| (format!("id{}", i), n.to_string()))
+    .collect();
+    let thin = files_to_thin(&files, NaiveDate::from_ymd_opt(2026, 10, 16).unwrap());
+    assert_eq!(thin, vec!["id4"], "only the older database backup of that month");
 }

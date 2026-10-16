@@ -2,6 +2,7 @@ mod attachments;
 mod backup;
 mod customers;
 mod db;
+pub mod documents;
 pub mod invoices;
 pub mod payments;
 pub mod payroll;
@@ -75,7 +76,12 @@ pub fn run() {
             let storage = StorageManager::new(app.handle())?;
             storage.clear_temp_dir();
             let db = DatabaseManager::new(storage.get_db_path())?;
-            backup::start_auto_backup(app.handle().clone(), storage.get_db_path(), storage.get_backups_dir());
+            backup::start_auto_backup(
+                app.handle().clone(),
+                storage.get_db_path(),
+                storage.get_backups_dir(),
+                storage.get_documents_dir(),
+            );
             app.manage(AppState { storage, db });
             Ok(())
         })
@@ -221,6 +227,13 @@ pub fn run() {
             reminders::snooze_reminder,
             reminders::get_snooze_choices,
             reminders::save_snooze_choices,
+            documents::list_documents,
+            documents::get_document_summary,
+            documents::add_document,
+            documents::update_document,
+            documents::delete_document,
+            documents::get_document_preview,
+            documents::open_document,
             settings::get_settings,
             settings::save_settings
         ])

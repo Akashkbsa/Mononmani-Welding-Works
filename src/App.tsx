@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, ReceiptText, Settings, Users } from "lucide-react";
+import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, ReceiptText, Settings, Users, Vault } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -25,6 +25,7 @@ const pageLoaders = {
   employees: () => import("./pages/EmployeesPage"),
   reminders: () => import("./pages/RemindersPage"),
   customers: () => import("./pages/CustomersPage"),
+  documents: () => import("./pages/DocumentVaultPage"),
   settings: () => import("./pages/SettingsPage"),
 };
 const InvoicesPage = lazy(pageLoaders.invoices);
@@ -37,9 +38,10 @@ const RentalsPage = lazy(pageLoaders.rentals);
 const EmployeesPage = lazy(pageLoaders.employees);
 const RemindersPage = lazy(pageLoaders.reminders);
 const CustomersPage = lazy(pageLoaders.customers);
+const DocumentVaultPage = lazy(pageLoaders.documents);
 const SettingsPage = lazy(pageLoaders.settings);
 
-export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "employees" | "reminders" | "customers" | "settings";
+export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "employees" | "reminders" | "customers" | "documents" | "settings";
 
 /** The menu in groups, in the order the work flows; a thin line separates the groups. */
 const NAV_GROUPS: { id: Page; label: string; icon: typeof FileText }[][] = [
@@ -60,6 +62,7 @@ const NAV_GROUPS: { id: Page; label: string; icon: typeof FileText }[][] = [
   [{ id: "customers", label: "Customers & suppliers", icon: Users }],
   [{ id: "employees", label: "Employees", icon: HardHat }],
   [{ id: "rentals", label: "Rentals", icon: House }],
+  [{ id: "documents", label: "Document Vault", icon: Vault }],
 ];
 
 function NavButton({
@@ -279,6 +282,7 @@ function App() {
                 {page === "rentals" && <RentalsPage openTenantId={otherId("TENANT")} openPlaceId={otherId("PLACE")} onOpenHandled={clearOther} />}
                 {page === "reminders" && <RemindersPage onOpenRecord={openRecord} onChanged={remindersChanged} refreshKey={remindersVersion} />}
                 {page === "customers" && <CustomersPage openId={otherId("COMPANY")} onOpenHandled={clearOther} />}
+                {page === "documents" && <DocumentVaultPage />}
                 {page === "settings" && <SettingsPage />}
                 </Suspense>
               </ErrorBoundary>

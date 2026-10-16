@@ -16,6 +16,7 @@ Built with [Tauri 2](https://tauri.app) (Rust + SQLite) and React 19 + TypeScrip
 | Rentals | Places, tenants, rent paid or not each month, WhatsApp rent reminders |
 | Employees | Daily wage and hourly overtime, a monthly pay sheet, advances, salary with round-off |
 | Reminders | Dated and repeating reminders with a banner, Done, Dismiss and Snooze |
+| Document Vault | Important papers in two groups (Important, Keep for Future), any file type up to 25 MB, each copied once to Google Drive and never deleted there |
 | Settings | Business, bank and tax details printed on invoices; Google Drive backup |
 
 Every list has search (`/`), a new-record shortcut (`Ctrl+N`) and a date filter (month, financial year April to March, or a custom range).

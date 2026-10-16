@@ -16,7 +16,7 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 ## Layout
 
 - `src/` React UI: `App.tsx` (sidebar), `pages/`, `components/` (`ui.tsx` is the shared kit), `services/api.ts` (all Tauri commands), `types/`, `lib/` (format, gst, period, payroll, reminders, ...).
-- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/`, `rentals/`, `reminders/`, `payroll/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`. The invoice PDF HTML/CSS is in `src-tauri/templates/`.
+- `src-tauri/src/` Rust: `customers/`, `invoices/`, `payments/`, `purchase_orders/`, `quotations/`, `supplier_bills/`, `supplier_payments/`, `rentals/`, `reminders/`, `payroll/`, `documents/` (models, repository with business rules, commands), `db/migrations.rs`, `pdf/renderer.rs`, `util.rs`. The invoice PDF HTML/CSS is in `src-tauri/templates/`.
 - Full description and business rules: `docs/PROJECT_STRUCTURE.md`.
 
 ## Rules that must hold
@@ -29,6 +29,7 @@ This folder is a **Tauri 2 desktop app** (Rust + SQLite backend, React 19 + Type
 - Reminders (the Reminders page and the top banner) live only inside the app: no Windows notifications and no calendar sync. Done on a repeating reminder moves it one step; Dismiss only hides it from the banner; Snooze hides it until a later day (lengths set in Settings, Tomorrow by default).
 - Payroll: pay = days × daily wage + OT hours × OT rate + bonus, with the rates copied onto each month. Each month stands alone: paid exactly, or rounded off and finished; an overpaid month is finished by taking it from next month, cash returned or a write-off. No loans, PF/ESI or pay slips. Rules in `payroll/repository.rs`, maths in `payroll/calc.rs`.
 - Google Drive backup runs by itself once a day while the app is open and online (`backup/schedule.rs`). Backups from the last two years are never deleted; older ones keep the newest of each month. When Drive is full the app only warns; the owner deletes the oldest backups himself.
+- Document Vault (`documents/`, migration 26): the owner's own files in two groups, Important and Keep for Future; any type up to 25 MB except programs and scripts. Files live in the `Documents` folder named by SHA-256, never in the database; the same file is kept once. Each backup uploads new ones first, once each, to the **Mononmani Documents** Drive folder. The app must never delete anything there: `DocumentStore` (`documents/sync.rs`) has no delete on purpose, and `document_drive_copies` is never emptied (not in `change_log`, so noting an upload does not start another backup). Deleting a document removes it from this computer only. Restore, or opening a document missing here, fetches it from Drive and checks its SHA-256.
 - Puducherry (state code 34) → CGST + SGST; other states → IGST.
 - Business name is **Mononmani Welding Works**. Keep the Tauri identifier `com.manonmani.app` (it locates the user's data folder).
 - Schema changes go in a new numbered migration in `db/migrations.rs`; never edit an applied one.

@@ -23,6 +23,7 @@ const RECORD_TABLES: &[(&str, &str, &str)] = &[
     ("employees", "employee", "employees"),
     ("pay_months", "pay month", "pay months"),
     ("employee_payments", "wage payment", "wage payments"),
+    ("documents", "vault document", "vault documents"),
 ];
 
 fn plural(n: i64, one: &str, many: &str) -> String {

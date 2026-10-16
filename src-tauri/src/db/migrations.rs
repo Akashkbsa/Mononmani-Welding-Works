@@ -503,7 +503,53 @@ const MIGRATIONS: &[Migration] = &[
         name: "025_list_order_indexes",
         sql: LIST_ORDER_INDEXES_SQL,
     },
+    Migration {
+        version: 26,
+        name: "026_document_vault",
+        sql: DOCUMENT_VAULT_SQL,
+    },
 ];
+
+/// Document Vault: the owner's own documents in two groups, Important and Keep for Future. The file
+/// itself lives in the Documents folder under its SHA-256, never in the database, so the daily
+/// backup stays small. `document_drive_copies` remembers which files are already on Google Drive,
+/// by content, and is never emptied: a document deleted here keeps its copy on Drive, and the same
+/// file added again is not uploaded twice. It is not in `change_log`, so noting an upload does not
+/// start another backup.
+pub const DOCUMENT_VAULT_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL CHECK (category IN ('IMPORTANT', 'FUTURE')),
+        title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+        note TEXT NULL,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+        sha256 TEXT NOT NULL UNIQUE CHECK (length(sha256) = 64),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(category, created_at);
+
+    CREATE TABLE IF NOT EXISTS document_drive_copies (
+        sha256 TEXT PRIMARY KEY,
+        drive_file_id TEXT NOT NULL,
+        uploaded_at TEXT NOT NULL
+    );
+
+    CREATE TRIGGER IF NOT EXISTS trg_documents_insert_log AFTER INSERT ON documents
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('documents', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_documents_update_log AFTER UPDATE ON documents
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('documents', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_documents_delete_log AFTER DELETE ON documents
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('documents', OLD.id, 'DELETE', datetime('now'));
+    END;
+"#;
 
 /// Lists show the newest first and then by id. An ascending date index read backwards gives exactly
 /// that order, so the list needs no extra sort; the older descending date indexes could not.
@@ -1794,6 +1840,67 @@ mod tests {
         }
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM customers", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn migration_26_adds_the_document_vault_and_leaves_data_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        assert!(latest_version() >= 26);
+        for table in ["documents", "document_drive_copies"] {
+            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0)).unwrap();
+            assert_eq!(n, 0, "{}", table);
+        }
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM customers", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn document_rules_in_the_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let sha = "a".repeat(64);
+        let add = |category: &str, title: &str, size: i64, sha: &str| {
+            conn.execute(
+                "INSERT INTO documents (category, title, file_name, mime_type, size_bytes, sha256, created_at, updated_at)
+                 VALUES (?1, ?2, 'a.pdf', 'application/pdf', ?3, ?4, 'x', 'x')",
+                params![category, title, size, sha],
+            )
+        };
+        assert!(add("IMPORTANT", "Deed", 10, &sha).is_ok());
+        assert!(add("FUTURE", "Same file again", 10, &sha).is_err(), "one row per file");
+        assert!(add("OTHER", "Deed", 10, &"b".repeat(64)).is_err(), "only the two groups");
+        assert!(add("FUTURE", "   ", 10, &"c".repeat(64)).is_err(), "a title is needed");
+        assert!(add("FUTURE", "Empty", 0, &"d".repeat(64)).is_err(), "no empty files");
+        assert!(add("FUTURE", "Short hash", 10, "abc").is_err());
+    }
+
+    #[test]
+    fn documents_are_logged_for_backup_but_drive_copies_are_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        let sha = "e".repeat(64);
+        conn.execute(
+            "INSERT INTO documents (category, title, file_name, mime_type, size_bytes, sha256, created_at, updated_at)
+             VALUES ('IMPORTANT', 'Deed', 'a.pdf', 'application/pdf', 5, ?1, 'x', 'x')",
+            params![sha],
+        )
+        .unwrap();
+        conn.execute_batch("UPDATE documents SET note = 'n'; DELETE FROM documents;").unwrap();
+        conn.execute("INSERT INTO document_drive_copies (sha256, drive_file_id, uploaded_at) VALUES (?1, 'd1', 'x')", params![sha])
+            .unwrap();
+        let ops: Vec<String> = conn
+            .prepare("SELECT op FROM change_log WHERE table_name = 'documents' ORDER BY seq")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(ops, vec!["INSERT", "UPDATE", "DELETE"]);
+        let copies: i64 = conn
+            .query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'document_drive_copies'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(copies, 0);
     }
 
     #[test]

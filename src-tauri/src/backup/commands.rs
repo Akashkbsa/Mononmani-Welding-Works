@@ -1,8 +1,11 @@
-use super::drive::{self, Credentials, Drive, DRIVE_FULL_MESSAGE, OFFLINE_MESSAGE};
+use super::drive::{self, Credentials, Drive, DriveDocuments, DRIVE_FULL_MESSAGE, OFFLINE_MESSAGE};
 use super::models::{AutoBackupEvent, BackupProgress, BackupResult, BackupStatus, DriveBackupList, PendingChanges};
 use super::repository::BackupRepository;
 use super::schedule::{self, SpaceState};
 use super::snapshot;
+use crate::documents::models::DocumentRestoreReport;
+use crate::documents::repository::DocumentRepository;
+use crate::documents::sync;
 use crate::AppState;
 use chrono::Local;
 use rusqlite::Connection;
@@ -68,6 +71,11 @@ fn connected_credentials() -> Result<Credentials, String> {
         .ok_or_else(|| "Connect Google Drive first (Settings).".to_string())
 }
 
+/// The Document Vault's folder on Google Drive, for fetching a document missing from this computer.
+pub fn document_store() -> Result<DriveDocuments, String> {
+    DriveDocuments::connect(&connected_credentials()?)
+}
+
 #[tauri::command(async)]
 pub fn backup_status(state: State<'_, AppState>) -> Result<BackupStatus, String> {
     let creds = drive::load_credentials().ok().flatten();
@@ -102,17 +110,17 @@ pub fn open_google_drive() -> Result<(), String> {
 
 /// Start the automatic daily backup: while the app is open it checks every 15 minutes and backs up
 /// once a day when something changed and Google Drive can be reached. Offline is simply tried again.
-pub fn start_auto_backup(app: AppHandle, db_path: PathBuf, dir: PathBuf) {
+pub fn start_auto_backup(app: AppHandle, db_path: PathBuf, dir: PathBuf, vault: PathBuf) {
     std::thread::spawn(move || {
         std::thread::sleep(AUTO_FIRST_CHECK);
         loop {
-            auto_backup_tick(&app, &db_path, &dir);
+            auto_backup_tick(&app, &db_path, &dir, &vault);
             std::thread::sleep(AUTO_CHECK_EVERY);
         }
     });
 }
 
-fn auto_backup_tick(app: &AppHandle, db_path: &Path, dir: &Path) {
+fn auto_backup_tick(app: &AppHandle, db_path: &Path, dir: &Path, vault: &Path) {
     if BUSY.load(Ordering::SeqCst) || connected_credentials().is_err() {
         return;
     }
@@ -122,13 +130,13 @@ fn auto_backup_tick(app: &AppHandle, db_path: &Path, dir: &Path) {
         let has_changes = match BackupRepository::last_success_seq(&conn)? {
             Some(last_seq) => BackupRepository::max_seq(&conn)? > last_seq,
             None => true,
-        };
+        } || DocumentRepository::summary(&conn)?.waiting_for_backup > 0;
         Ok(schedule::backup_due(last.as_deref(), &Local::now().format("%Y-%m-%d").to_string(), has_changes))
     })();
     if !matches!(due, Ok(true)) {
         return;
     }
-    match backup_blocking(app, db_path, dir, true) {
+    match backup_blocking(app, db_path, dir, vault, true) {
         Ok(result) if result.outcome == "SUCCESS" => {
             let _ = app.emit("backup-auto", AutoBackupEvent { ok: true, message: "Backed up to Google Drive.".to_string() });
         }
@@ -177,18 +185,19 @@ pub fn disconnect_drive() -> Result<(), String> {
 pub async fn run_backup(app: AppHandle, state: State<'_, AppState>) -> Result<BackupResult, String> {
     let db_path = state.storage.get_db_path();
     let dir = state.storage.get_backups_dir();
-    tauri::async_runtime::spawn_blocking(move || backup_blocking(&app, &db_path, &dir, false))
+    let vault = state.storage.get_documents_dir();
+    tauri::async_runtime::spawn_blocking(move || backup_blocking(&app, &db_path, &dir, &vault, false))
         .await
         .map_err(|e| e.to_string())?
 }
 
 /// `auto`: started by the daily check. Being offline is then not recorded (it is tried again soon), and
 /// the same failure is recorded only once a day so the history does not fill up.
-fn backup_blocking(app: &AppHandle, db_path: &Path, dir: &Path, auto: bool) -> Result<BackupResult, String> {
+fn backup_blocking(app: &AppHandle, db_path: &Path, dir: &Path, vault: &Path, auto: bool) -> Result<BackupResult, String> {
     let _guard = BusyGuard::acquire()?;
     let started = now();
     let conn = open(db_path)?;
-    match do_backup(app, &conn, dir, &started) {
+    match do_backup(app, &conn, dir, vault, &started) {
         Ok(result) => Ok(result),
         Err(err) => {
             if err == DRIVE_FULL_MESSAGE {
@@ -208,15 +217,16 @@ fn backup_blocking(app: &AppHandle, db_path: &Path, dir: &Path, auto: bool) -> R
     }
 }
 
-fn do_backup(app: &AppHandle, conn: &Connection, dir: &Path, started: &str) -> Result<BackupResult, String> {
+fn do_backup(app: &AppHandle, conn: &Connection, dir: &Path, vault: &Path, started: &str) -> Result<BackupResult, String> {
     let creds = connected_credentials()?;
 
     // Read the change number first. Anything written while the copy is made is
     // simply included again next time, so no change can be skipped.
     let last_seq = BackupRepository::last_success_seq(conn)?;
     let seq = BackupRepository::max_seq(conn)?;
+    let documents = DocumentRepository::summary(conn)?;
     if let Some(last) = last_seq {
-        if seq <= last {
+        if seq <= last && documents.waiting_for_backup == 0 {
             let when = BackupRepository::last_run(conn, true)?.map(|r| r.finished_at).unwrap_or_default();
             progress(app, "done", "Nothing to back up.");
             return Ok(BackupResult {
@@ -226,7 +236,7 @@ fn do_backup(app: &AppHandle, conn: &Connection, dir: &Path, started: &str) -> R
             });
         }
     }
-    let summary = match last_seq {
+    let mut summary = match last_seq {
         Some(last) => BackupRepository::pending_changes(conn, last)?.lines,
         None => vec!["First backup: all records".to_string()],
     };
@@ -235,6 +245,25 @@ fn do_backup(app: &AppHandle, conn: &Connection, dir: &Path, started: &str) -> R
     let drive = Drive::connect(&creds)?;
     let folder = drive.ensure_folder()?;
     drive.delete_partials(&folder)?;
+
+    // New vault documents go first, each once, into their own folder where nothing is ever deleted.
+    // Their Drive ids are then part of the database copy below.
+    if documents.waiting_for_backup > 0 {
+        let store = DriveDocuments::connect(&creds)?;
+        let (used, limit) = store.quota().unwrap_or((None, None));
+        if schedule::space_state(used, limit, documents.waiting_bytes) == SpaceState::Full {
+            BackupRepository::save_drive_space(conn, SpaceState::Full.as_str(), schedule::free_bytes(used, limit))?;
+            return Err(DRIVE_FULL_MESSAGE.to_string());
+        }
+        let copied = sync::upload_waiting(conn, vault, &store, &mut |done, total, title| {
+            if done < total {
+                progress(app, "documents", &format!("Backing up document {} of {}: {}", done + 1, total, title));
+            }
+        })?;
+        if copied > 0 {
+            summary.push(format!("{} document{} copied to Google Drive", copied, if copied == 1 { "" } else { "s" }));
+        }
+    }
 
     progress(app, "snapshot", "Copying and checking the database...");
     let name = format!("manonmani-{}-seq{}.db.gz", Local::now().format("%Y-%m-%d_%H%M%S"), seq);
@@ -318,6 +347,7 @@ pub async fn list_drive_backups() -> Result<DriveBackupList, String> {
 pub async fn restore_drive_backup(file_id: String, app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let db_path = state.storage.get_db_path();
     let dir = state.storage.get_backups_dir();
+    let vault = state.storage.get_documents_dir();
     let message = tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         restore_blocking(&state.db, &db_path, &dir, &file_id)
@@ -326,7 +356,40 @@ pub async fn restore_drive_backup(file_id: String, app: AppHandle, state: State<
         .map_err(|e| e.to_string())??;
     // Bring an older backup up to the current schema.
     state.db.initialize_and_migrate()?;
-    Ok(message)
+
+    // Bring back the vault documents the restored data lists but this computer does not have.
+    let db_path = state.storage.get_db_path();
+    let report = tauri::async_runtime::spawn_blocking(move || -> Result<DocumentRestoreReport, String> {
+        let conn = open(&db_path)?;
+        if DocumentRepository::missing_files(&conn, &vault)?.is_empty() {
+            return Ok(DocumentRestoreReport::default());
+        }
+        sync::restore_missing(&conn, &vault, &document_store()?)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(format!("{}{}", message, documents_restored_note(&report)))
+}
+
+/// One sentence on the vault documents after a restore; empty when there was nothing to bring back.
+fn documents_restored_note(report: &Result<DocumentRestoreReport, String>) -> String {
+    match report {
+        Err(e) => format!(" Vault documents could not be fetched from Google Drive yet ({}); each one is fetched when you open it.", e),
+        Ok(r) => {
+            let mut note = String::new();
+            if r.restored > 0 {
+                let s = if r.restored == 1 { "" } else { "s" };
+                note.push_str(&format!(" {} vault document{} brought back from Google Drive.", r.restored, s));
+            }
+            if !r.not_on_drive.is_empty() {
+                note.push_str(&format!(" Never backed up, so not available: {}.", r.not_on_drive.join(", ")));
+            }
+            if !r.failed.is_empty() {
+                note.push_str(&format!(" Could not fetch: {}.", r.failed.join("; ")));
+            }
+            note
+        }
+    }
 }
 
 fn restore_blocking(db: &crate::db::DatabaseManager, db_path: &Path, dir: &Path, file_id: &str) -> Result<String, String> {

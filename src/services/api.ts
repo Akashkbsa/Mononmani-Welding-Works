@@ -73,6 +73,7 @@ import { Reminder, ReminderInput, ReminderLinkKind, ReminderTab } from "../types
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
+import { DocumentFilter, DocumentInput, DocumentSummary, VaultDocument } from "../types/document";
 import {
   EmployeeDetail,
   EmployeeFileInfo,
@@ -375,3 +376,14 @@ export const updateEmployeePayment = (id: number, input: EmployeePaymentInput) =
 export const deleteEmployeePayment = (id: number) => call<void>("delete_employee_payment", { id });
 /** Advances and salary handed over between two dates (YYYY-MM-DD). */
 export const listWagePayments = (from: string, to: string) => call<EmployeePayment[]>("list_wage_payments", { from, to });
+
+// Document Vault
+export const listDocuments = (filter: DocumentFilter = {}) => call<VaultDocument[]>("list_documents", { filter });
+export const getDocumentSummary = () => call<DocumentSummary>("get_document_summary");
+export const addDocument = (input: DocumentInput, fileName: string, dataBase64: string) =>
+  call<VaultDocument>("add_document", { input, fileName, dataBase64 });
+export const updateDocument = (id: number, input: DocumentInput) => call<VaultDocument>("update_document", { id, input });
+/** Removes it from this computer; the copy on Google Drive is never deleted. */
+export const deleteDocument = (id: number) => call<void>("delete_document", { id });
+export const getDocumentPreview = (id: number) => call<string>("get_document_preview", { id });
+export const openDocument = (id: number) => call<void>("open_document", { id });

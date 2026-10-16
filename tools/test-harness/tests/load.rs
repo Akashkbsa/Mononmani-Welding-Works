@@ -592,3 +592,206 @@ fn fast_round2_matches_the_reference_exactly() {
         assert_eq!(round2(v).to_bits(), round2_reference(v).to_bits(), "round2({:?})", v);
     }
 }
+
+// ---------------------------------------------------------------- document vault
+
+use harness::documents::files::MAX_DOCUMENT_BYTES;
+use harness::documents::models::{DocumentFilter, DocumentInput};
+use harness::documents::repository::DocumentRepository;
+use harness::documents::sync::{restore_missing, upload_waiting, FolderStore};
+
+fn vault_input(n: usize, title: &str) -> DocumentInput {
+    DocumentInput {
+        category: if n % 3 == 0 { "FUTURE" } else { "IMPORTANT" }.to_string(),
+        title: title.to_string(),
+        note: (n % 4 == 0).then(|| format!("Kept in the steel cupboard, file {}", n)),
+    }
+}
+
+/// Sample file contents, unique per `n`, between 2 KB and about 200 KB.
+fn sample_file(n: usize) -> Vec<u8> {
+    let size = 2_048 + (n * 7_919) % 200_000;
+    let mut bytes = format!("%PDF-1.4 sample document {}\n", n).into_bytes();
+    bytes.resize(size, b'.');
+    bytes
+}
+
+#[test]
+#[ignore]
+fn load_document_vault_with_thousands_of_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = DatabaseManager::new(dir.path().join("vault.db")).unwrap();
+    let conn = manager.get_connection().unwrap();
+    let vault = dir.path().join("Documents");
+    let drive = FolderStore { dir: dir.path().join("Drive") };
+    let count = 2_000 * scale();
+
+    let start = Instant::now();
+    let mut add_times = Vec::with_capacity(count);
+    let mut total_bytes = 0usize;
+    for n in 0..count {
+        let bytes = sample_file(n);
+        total_bytes += bytes.len();
+        let t = Instant::now();
+        DocumentRepository::add(&conn, &vault, &vault_input(n, &format!("Sample document {}", n)), &format!("doc-{}.pdf", n), &bytes)
+            .unwrap();
+        add_times.push(t.elapsed());
+    }
+    add_times.sort();
+    println!(
+        "  {} documents ({:.0} MB) added in {:.1}s (median {:.2} ms, worst {:.2} ms each)",
+        count,
+        total_bytes as f64 / 1_048_576.0,
+        start.elapsed().as_secs_f64(),
+        add_times[count / 2].as_secs_f64() * 1000.0,
+        add_times[count - 1].as_secs_f64() * 1000.0
+    );
+
+    let (all, _) = time("list_documents (all)", 20, || DocumentRepository::list(&conn, &DocumentFilter::default()).unwrap());
+    time("list_documents (Important tab)", 20, || {
+        DocumentRepository::list(&conn, &DocumentFilter { category: Some("IMPORTANT".into()), query: None }).unwrap()
+    });
+    let (search, _) = time("list_documents (search 'cupboard 1999')", 20, || {
+        DocumentRepository::list(&conn, &DocumentFilter { category: None, query: Some("cupboard 1999".into()) }).unwrap()
+    });
+    let (summary, _) = time("get_document_summary", 50, || DocumentRepository::summary(&conn).unwrap());
+    let (missing, _) = time("missing_files (checks every file on disk)", 5, || DocumentRepository::missing_files(&conn, &vault).unwrap());
+    assert!(all < 500.0, "listing every document took {:.0} ms", all);
+    assert!(search < 500.0, "search took {:.0} ms", search);
+    assert!(summary < 100.0, "the counts took {:.0} ms", summary);
+    assert!(missing < 2_000.0, "checking the files took {:.0} ms", missing);
+
+    println!("Big files (25 MB each, the largest allowed):");
+    for n in 0..3 {
+        let mut big = vec![b'x'; MAX_DOCUMENT_BYTES];
+        big[..8].copy_from_slice(&(n as u64).to_le_bytes());
+        let t = Instant::now();
+        DocumentRepository::add(&conn, &vault, &vault_input(n, &format!("Big scan {}", n)), "scan.pdf", &big).unwrap();
+        println!("  add 25 MB file                                 {:>8.0} ms", t.elapsed().as_secs_f64() * 1000.0);
+    }
+    let big_id = DocumentRepository::list(&conn, &DocumentFilter { category: None, query: Some("Big scan 0".into()) }).unwrap()[0].id;
+    time("read a 25 MB file back (checks its SHA-256)", 5, || DocumentRepository::read(&conn, &vault, big_id).unwrap());
+
+    println!("First backup of the whole vault to the Drive stand-in:");
+    let t = Instant::now();
+    let copied = upload_waiting(&conn, &vault, &drive, &mut |_, _, _| {}).unwrap();
+    println!("  {} documents copied in {:.1}s", copied, t.elapsed().as_secs_f64());
+    assert_eq!(copied, count + 3);
+    let t = Instant::now();
+    assert_eq!(upload_waiting(&conn, &vault, &drive, &mut |_, _, _| {}).unwrap(), 0);
+    println!("  next backup with nothing new: {:.1} ms", t.elapsed().as_secs_f64() * 1000.0);
+
+    println!("Restore on a new computer (empty Documents folder):");
+    let new_vault = dir.path().join("NewDocuments");
+    let t = Instant::now();
+    let report = restore_missing(&conn, &new_vault, &drive).unwrap();
+    println!("  {} documents brought back in {:.1}s", report.restored, t.elapsed().as_secs_f64());
+    assert_eq!(report.restored as usize, count + 3);
+    assert!(report.failed.is_empty() && report.not_on_drive.is_empty());
+}
+
+#[test]
+#[ignore]
+fn abuse_and_stress_the_document_vault() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = DatabaseManager::new(dir.path().join("vault-abuse.db")).unwrap();
+    let conn = manager.get_connection().unwrap();
+    let vault = dir.path().join("Documents");
+    let input = |title: &str| DocumentInput { category: "IMPORTANT".into(), title: title.into(), note: None };
+    let report = |label: &str, outcome: Result<String, String>| match outcome {
+        Ok(v) => println!("  {:<46} accepted: {}", label, v),
+        Err(e) => println!("  {:<46} refused:  {}", label, e),
+    };
+
+    println!("Sizes and kinds:");
+    let mut n = 0u32;
+    let mut add = |label: &str, title: &str, name: &str, bytes: &[u8]| {
+        n += 1;
+        let mut unique = bytes.to_vec();
+        unique.extend_from_slice(&n.to_le_bytes());
+        let out = DocumentRepository::add(&conn, &vault, &input(title), name, &unique);
+        report(label, out.as_ref().map(|d| format!("\"{}\" as {}", d.title, d.file_name)).map_err(Clone::clone));
+        out.is_ok()
+    };
+    assert!(!add("25 MB + 1 byte", "Too big", "big.pdf", &vec![b'x'; MAX_DOCUMENT_BYTES - 3]));
+    assert!(add("exactly 25 MB", "Big", "big.pdf", &vec![b'y'; MAX_DOCUMENT_BYTES - 4]));
+    assert!(!add("setup.exe", "Setup", "setup.exe", b"MZ program"));
+    assert!(!add("program renamed to invoice.pdf", "Invoice", "invoice.pdf", b"MZ\x90\x00 program"));
+    assert!(!add("script.ps1", "Script", "script.ps1", b"Remove-Item"));
+    assert!(!add("shortcut.LNK", "Shortcut", "shortcut.LNK", b"L\x00\x00\x00"));
+    assert!(add("photo.heic (any document type)", "Photo", "photo.heic", b"....ftypheic"));
+    assert!(add("archive.zip", "Archive", "archive.zip", b"PK\x03\x04"));
+    assert!(add("no extension", "Plain", "README", b"text"));
+
+    println!("\nHostile names and text:");
+    assert!(add("path climbing out of the folder", "Climb", "..\\..\\Windows\\System32\\x.pdf", b"%PDF climb"));
+    assert!(add("reserved characters", "Chars", "a<b>c:d\"e|f?g*.pdf", b"%PDF chars"));
+    assert!(add("300-character name", "Long name", &format!("{}.pdf", "n".repeat(300)), b"%PDF long"));
+    assert!(add("emoji and Tamil", "\u{0ba4}\u{0bae}\u{0bbf}\u{0bb4}\u{0bcd} \u{1F600}", "\u{0baa}\u{0ba4}\u{0bcd}\u{0ba4}\u{0bbf}\u{0bb0}\u{0bae}\u{0bcd} \u{1F600}.pdf", b"%PDF tamil"));
+    assert!(!add("100,000-character title", &"t".repeat(100_000), "a.pdf", b"%PDF title"));
+    let long_note = DocumentInput { note: Some("n".repeat(100_000)), ..input("Note") };
+    let out = DocumentRepository::add(&conn, &vault, &long_note, "note.pdf", b"%PDF note");
+    report("100,000-character note", out.as_ref().map(|d| d.title.clone()).map_err(Clone::clone));
+    assert!(out.is_err());
+    let odd_group = DocumentInput { category: "IMPORTANT'); DROP TABLE documents; --".into(), ..input("Group") };
+    assert!(DocumentRepository::add(&conn, &vault, &odd_group, "g.pdf", b"%PDF group").is_err());
+
+    // Every stored file is one plain file directly inside the Documents folder.
+    for entry in std::fs::read_dir(&vault).unwrap() {
+        let entry = entry.unwrap();
+        assert!(entry.file_type().unwrap().is_file());
+        let name = entry.file_name().to_string_lossy().to_string();
+        assert!(harness::documents::files::is_sha256(&name), "unexpected file in the vault: {}", name);
+    }
+    for doc in DocumentRepository::list(&conn, &DocumentFilter::default()).unwrap() {
+        assert!(!doc.file_name.contains(['\\', '/', '<', '>', ':', '"', '|', '?', '*']), "{}", doc.file_name);
+        assert!(doc.file_name.chars().count() <= 120);
+    }
+
+    println!("\nSearch text with SQL and LIKE characters:");
+    let long = "x".repeat(100_000);
+    for q in ["' OR 1=1 --", "\"; DROP TABLE documents; --", "%", "_", "\\", "\u{1F600}", long.as_str()] {
+        let out = DocumentRepository::list(&conn, &DocumentFilter { category: None, query: Some(q.to_string()) });
+        report(&format!("search {:?}", q.chars().take(24).collect::<String>()), out.map(|r| format!("{} rows", r.len())));
+    }
+    let category = DocumentFilter { category: Some("' OR 1=1 --".into()), query: None };
+    assert_eq!(DocumentRepository::list(&conn, &category).unwrap().len(), 0);
+    let tables: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = 'documents'", [], |r| r.get(0)).unwrap();
+    assert_eq!(tables, 1, "documents table must survive the search text");
+
+    println!("\nEight people adding at once (shared database file, 25 files each, one file added by all):");
+    let db_path = dir.path().join("vault-abuse.db");
+    let started = Instant::now();
+    let results: Vec<(usize, usize)> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..8)
+            .map(|t| {
+                let db_path = db_path.clone();
+                let vault = vault.clone();
+                s.spawn(move || {
+                    let conn = DatabaseManager::new(&db_path).unwrap().get_connection().unwrap();
+                    let (mut ok, mut failed) = (0, 0);
+                    for i in 0..25 {
+                        // Every thread also tries the very same "shared" file once.
+                        let bytes = if i == 0 { b"%PDF the same shared file".to_vec() } else { sample_file(10_000 + t * 100 + i) };
+                        let input = DocumentInput { category: "FUTURE".into(), title: format!("T{} #{}", t, i), note: None };
+                        match DocumentRepository::add(&conn, &vault, &input, "x.pdf", &bytes) {
+                            Ok(_) => ok += 1,
+                            Err(e) => {
+                                assert!(e.contains("already in the vault"), "unexpected failure: {}", e);
+                                failed += 1;
+                            }
+                        }
+                    }
+                    (ok, failed)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let ok: usize = results.iter().map(|r| r.0).sum();
+    let dup: usize = results.iter().map(|r| r.1).sum();
+    println!("  {} saved, {} refused as duplicates, in {:.1}s", ok, dup, started.elapsed().as_secs_f64());
+    assert_eq!(ok, 8 * 24 + 1, "every unique file saved and the shared one exactly once");
+    assert_eq!(dup, 7);
+    assert!(DocumentRepository::missing_files(&conn, &vault).unwrap().is_empty(), "no saved document lost its file");
+}

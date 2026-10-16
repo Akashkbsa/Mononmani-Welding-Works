@@ -146,9 +146,26 @@ export default function BackupCard() {
             <summary className="cursor-pointer text-slate-800 font-medium">One-time setup (new Google account)</summary>
             <ol className="list-decimal pl-5 mt-2 space-y-1">
               <li>Open console.cloud.google.com with the backup Google account and create a project.</li>
-              <li>Enable the Google Drive API for it.</li>
-              <li>Set up the OAuth consent screen and publish it (status: In production), so sign-in does not expire.</li>
-              <li>Create an OAuth client ID of type Desktop app, then paste its Client ID and Client secret below.</li>
+              <li>
+                Go to <strong>APIs &amp; Services → Library</strong>, find <strong>Google Drive API</strong> and press <strong>Enable</strong>.
+              </li>
+              <li>
+                Open <strong>Google Auth Platform</strong> and press <strong>Get started</strong>: type the app name and your email, choose{" "}
+                <strong>External</strong>, add a contact email and finish.
+              </li>
+              <li>
+                In <strong>Audience</strong>, press <strong>Publish app</strong> so the status is <strong>In production</strong>. Without this,
+                Google stops the sign-in after 7 days.
+              </li>
+              <li>
+                In <strong>Clients</strong>, press <strong>Create client</strong>, choose <strong>Desktop app</strong> and press{" "}
+                <strong>Create</strong>. Copy the Client ID and Client secret at once (or download the JSON file): Google shows the
+                secret only this one time. If it is lost, add a new secret on that client's page.
+              </li>
+              <li>
+                Paste both below and press <strong>Connect Google Drive</strong>. On the "Google hasn't verified this app" page,
+                choose <strong>Advanced → Go to (your app name)</strong>; this is your own app, so it is safe.
+              </li>
             </ol>
           </details>
           <div className="grid grid-cols-2 gap-4">
