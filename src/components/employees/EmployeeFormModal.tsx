@@ -10,7 +10,7 @@ import {
   removeEmployeeFile,
   updateEmployee,
 } from "../../services/api";
-import { errorMessage, todayISO } from "../../lib/format";
+import { errorMessage, monthTitle, todayISO } from "../../lib/format";
 import { Alert, Button, ConfirmDialog, Field, inputClass, Loading, Modal, textareaClass, useDiscardGuard, useToast } from "../ui";
 import FileAttachmentsField, { AttachmentErrors } from "../attachments/FileAttachmentsField";
 import { useFileAttachments } from "../attachments/useFileAttachments";
@@ -124,7 +124,8 @@ export default function EmployeeFormModal({ employeeId, onClose, onSaved }: Prop
           "error"
         );
       } else {
-        toast("Employee saved");
+        const moved = saved.rate_updated_months ?? [];
+        toast(moved.length > 0 ? `Employee saved. New rate applied to ${moved.map(monthTitle).join(", ")} (not yet paid)` : "Employee saved");
       }
       onSaved(saved);
     } catch (err) {
@@ -189,7 +190,7 @@ export default function EmployeeFormModal({ employeeId, onClose, onSaved }: Prop
             <Field label="Joined on" required>
               <input aria-label="Joined on" type="date" className={inputClass} value={joinedOn} onChange={(e) => setJoinedOn(e.target.value)} />
             </Field>
-            <Field label="Daily wage (₹)" required>
+            <Field label="Daily wage (₹)" required hint={employeeId !== undefined ? "A new rate also changes months not yet paid" : undefined}>
               <input
                 aria-label="Daily wage"
                 type="number"

@@ -1,5 +1,6 @@
 import RecordReminders from "../reminders/RecordReminders";
 import { ReactNode, useCallback, useEffect, useState } from "react";
+import { BookOpen } from "lucide-react";
 import { Customer, formatCustomerAddress } from "../../types/customer";
 import { InvoiceListItem } from "../../types/invoice";
 import { PaymentListItem } from "../../types/payment";
@@ -16,6 +17,7 @@ import {
 import { errorMessage, formatDate, formatMoney, formatPhone } from "../../lib/format";
 import { Alert, Badge, Button, ConfirmDialog, Loading, Modal, rowClass, rowProps, SectionTitle, StatusBadge } from "../ui";
 import PartyTypeBadge from "./PartyTypeBadge";
+import LedgerModal from "./LedgerModal";
 import SupplierBillStatusBadge from "../supplierBills/SupplierBillStatusBadge";
 import InvoiceDetailsModal from "../invoices/InvoiceDetailsModal";
 import PaymentDetailsModal from "../payments/PaymentDetailsModal";
@@ -51,6 +53,7 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
   const [supplierPayments, setSupplierPayments] = useState<SupplierPaymentListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showLedger, setShowLedger] = useState(false);
   const [opened, setOpened] = useState<Opened | null>(null);
 
   const load = useCallback(() => {
@@ -106,6 +109,9 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
               Delete company
             </Button>
             <Button onClick={onClose}>Close</Button>
+            <Button icon={<BookOpen className="h-4 w-4" />} onClick={() => setShowLedger(true)}>
+              Ledger
+            </Button>
             <Button variant="primary" onClick={onEdit}>
               Edit
             </Button>
@@ -237,6 +243,8 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
       {opened?.kind === "supplierPayment" && (
         <SupplierPaymentDetailsModal paymentId={opened.id} onClose={closeOpened} onChanged={changed} />
       )}
+
+      {showLedger && <LedgerModal companyId={customer.id} companyName={customer.name} onClose={() => setShowLedger(false)} />}
 
       {confirmDelete && (
         <ConfirmDialog

@@ -240,6 +240,11 @@ impl PdfRenderer {
         std::env::temp_dir().join("mww_pdf_error.log")
     }
 
+    /// Print any HTML document to a PDF (pay slips use this; invoices go through their own functions).
+    pub fn print_document(html: String, output_path: &Path) -> Result<PathBuf, String> {
+        Self::print_html_to_pdf(html, output_path)
+    }
+
     fn print_html_to_pdf(html: String, output_path: &Path) -> Result<PathBuf, String> {
         let browsers = Self::find_chromium_binaries()?;
 

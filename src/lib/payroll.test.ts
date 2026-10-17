@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MonthFigures } from "../types/payroll";
 import {
   carriedInLabel,
+  settleNotes,
+  statusTone,
   entryChanged,
   finishStartsTicked,
   parseQuantity,
@@ -16,9 +18,12 @@ const figures = (over: Partial<MonthFigures> = {}): MonthFigures => ({
   wages: 0,
   ot_amount: 0,
   bonus: 0,
+  incentives: 0,
   earned: 0,
   given: 0,
   cleared: 0,
+  written_off: 0,
+  carried: 0,
   rounded_off: 0,
   balance: 0,
   ...over,
@@ -97,13 +102,29 @@ describe("statusText", () => {
 
   it("shows how a paid month was finished", () => {
     expect(statusText("PAID", figures())).toBe("Paid");
-    expect(statusText("PAID", figures({ rounded_off: 10 }))).toBe("Paid · rounded off ₹10.00");
-    expect(statusText("PAID", figures({ rounded_off: -5 }))).toBe("Paid · ₹5.00 extra");
+    expect(statusText("PAID", figures({ rounded_off: 10 }))).toBe("Paid");
+    expect(statusText("PAID", figures({ cleared: 3950, written_off: 3950 }))).toBe("Paid");
+  });
+
+  it("notes briefly how a paid month was settled", () => {
+    expect(settleNotes(figures())).toEqual([]);
+    expect(settleNotes(figures({ cleared: 3600, written_off: 3600 }))).toEqual(["+₹3,600 written off"]);
+    expect(settleNotes(figures({ cleared: 1000.5, carried: 1000.5 }))).toEqual(["+₹1,000.50 to next month"]);
+    expect(settleNotes(figures({ rounded_off: -5 }))).toEqual(["+₹5 rounded off"]);
+    expect(settleNotes(figures({ rounded_off: 10 }))).toEqual(["−₹10 rounded off"]);
+    expect(settleNotes(figures({ cleared: 400 }))).toEqual([]); // cash returned is not extra
+  });
+
+  it("marks a month paid with extra", () => {
+    expect(statusTone("PAID", figures())).toBe("green");
+    expect(statusTone("PAID", figures({ written_off: 1 }))).toBe("blue");
+    expect(statusTone("PAID", figures({ carried: 1 }))).toBe("blue");
+    expect(statusTone("PAID", figures({ rounded_off: 10 }))).toBe("green");
   });
 
   it("mentions money already given in a month with no days entered", () => {
     expect(statusText("NOT_ENTERED", figures())).toBe("Not entered");
-    expect(statusText("NOT_ENTERED", figures({ given: 2000 }))).toBe("Not entered · ₹2,000.00 given");
+    expect(statusText("NOT_ENTERED", figures({ given: 2000 }))).toBe("Not entered · ₹2,000 given");
   });
 });
 

@@ -50,6 +50,8 @@ export interface EmployeeFileInfo {
 export interface EmployeeDetail {
   employee: Employee;
   files: EmployeeFileInfo[];
+  /** After a rate change: the unpaid months (YYYY-MM) that took the new rate. */
+  rate_updated_months?: string[];
 }
 
 /** An entered month with the rates copied when it was first saved. */
@@ -64,6 +66,26 @@ export interface PayRow {
   bonus_amount: number;
   bonus_note: string | null;
   note: string | null;
+  /** Extra amounts on the month, each with its reason. */
+  incentives: Incentive[];
+}
+
+/** The pay message for one month and the link to the employee's WhatsApp chat. */
+export interface EmployeePayMessage {
+  message: string;
+  number: string;
+  link: string;
+}
+
+export interface Incentive {
+  id: number;
+  reason: string;
+  amount: number;
+}
+
+export interface IncentiveInput {
+  reason: string;
+  amount: number;
 }
 
 export interface PayMonthInput {
@@ -75,17 +97,24 @@ export interface PayMonthInput {
   bonus_amount: number;
   bonus_note: string | null;
   note: string | null;
+  /** The month's whole list; leave out to keep what is saved. */
+  incentives?: IncentiveInput[];
 }
 
 export interface MonthFigures {
   wages: number;
   ot_amount: number;
   bonus: number;
+  incentives: number;
   earned: number;
   /** Advances and salary, plus an advance carried in. */
   given: number;
   /** Cash returned, written off, or taken from next month. */
   cleared: number;
+  /** The part of `cleared` written off: paid more and let go. */
+  written_off: number;
+  /** The part of `cleared` taken from next month. */
+  carried: number;
   /** + paid less and accepted, - paid more. */
   rounded_off: number;
   /** + still to pay, - overpaid. */

@@ -130,13 +130,56 @@ impl PayrollRepository {
             }
         }
         Self::check_rows_fit(conn, id, &e.joined_on, current.left_on.as_deref())?;
-        conn.execute(
+        // The employee and the months that follow the new rate change together, or not at all.
+        let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {}", e))?;
+        tx.execute(
             "UPDATE employees SET name = ?1, role = ?2, phone = ?3, address = ?4, joined_on = ?5, daily_wage = ?6,
                  ot_rate = ?7, notes = ?8, updated_at = ?9 WHERE id = ?10",
             params![e.name, e.role, e.phone, e.address, e.joined_on, e.daily_wage, e.ot_rate, e.notes, Utc::now().to_rfc3339(), id],
         )
         .map_err(|e| format!("Failed to save the employee: {}", e))?;
-        Self::get_employee(conn, id)?.ok_or_else(|| EMPLOYEE_NOT_FOUND.to_string())
+        let updated = Self::apply_new_rates(&tx, &current, e.daily_wage, e.ot_rate)?;
+        tx.commit().map_err(|e| format!("Failed to save the employee: {}", e))?;
+        let mut detail = Self::get_employee(conn, id)?.ok_or_else(|| EMPLOYEE_NOT_FOUND.to_string())?;
+        detail.rate_updated_months = updated;
+        Ok(detail)
+    }
+
+    /// A new daily wage or OT rate also goes on every month still to pay (earned more than given),
+    /// where the month still has the old rate. Paid and overpaid months keep theirs, and so does a
+    /// month whose rate was set by hand to something else.
+    fn apply_new_rates(conn: &Connection, old: &Employee, wage: f64, rate: f64) -> Result<Vec<String>, String> {
+        if old.daily_wage == wage && old.ot_rate == rate {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn
+            .prepare("SELECT month FROM pay_months WHERE employee_id = ?1 AND (daily_wage = ?2 OR ot_rate = ?3) ORDER BY month")
+            .map_err(|e| format!("Failed to check pay records: {}", e))?;
+        let months = stmt
+            .query_map(params![old.id, old.daily_wage, old.ot_rate], |r| r.get::<_, String>(0))
+            .map_err(|e| format!("Failed to check pay records: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to check pay records: {}", e))?;
+        let mut updated = Vec::new();
+        for month in months {
+            let (row, figures) = Self::month_figures(conn, old.id, &month, None)?;
+            let Some(row) = row else { continue };
+            if figures.balance <= 0.0 {
+                continue;
+            }
+            let new_wage = if row.daily_wage == old.daily_wage { wage } else { row.daily_wage };
+            let new_rate = if row.ot_rate == old.ot_rate { rate } else { row.ot_rate };
+            if new_wage == row.daily_wage && new_rate == row.ot_rate {
+                continue;
+            }
+            conn.execute(
+                "UPDATE pay_months SET daily_wage = ?1, ot_rate = ?2, updated_at = ?3 WHERE id = ?4",
+                params![new_wage, new_rate, Utc::now().to_rfc3339(), row.id],
+            )
+            .map_err(|e| format!("Failed to update {}: {}", month, e))?;
+            updated.push(month);
+        }
+        Ok(updated)
     }
 
     /// The employee row, or "Employee not found.".
@@ -154,7 +197,7 @@ impl PayrollRepository {
             Err(e) => return Err(e),
         };
         let files = Self::files_of(conn, id)?;
-        Ok(Some(EmployeeDetail { employee, files }))
+        Ok(Some(EmployeeDetail { employee, files, rate_updated_months: Vec::new() }))
     }
 
     pub fn list_employees(conn: &Connection) -> Result<Vec<EmployeeListItem>, String> {
@@ -344,7 +387,85 @@ fn map_row(r: &Row) -> rusqlite::Result<PayRow> {
         bonus_amount: r.get(7)?,
         bonus_note: r.get(8)?,
         note: r.get(9)?,
+        incentives: Vec::new(),
     })
+}
+
+/// 26 or 25.5: days and hours without empty decimals.
+fn quantity(value: f64) -> String {
+    let text = format!("{:.2}", value);
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// The employee pay template filled for one month. `{pay_details}` lists only the lines that apply.
+pub fn pay_message_text(d: &PayMonthDetail, row: &PayRow, month_label: &str, template: &str, business_name: &str) -> String {
+    let f = &d.figures;
+    let rupees = crate::util::rupees;
+    let mut details = vec![format!("Wages : {} days × {} = {}", quantity(row.days_worked), rupees(row.daily_wage), rupees(f.wages))];
+    if row.ot_hours > 0.0 || f.ot_amount > 0.0 {
+        details.push(format!("OT : {} h × {} = {}", quantity(row.ot_hours), rupees(row.ot_rate), rupees(f.ot_amount)));
+    }
+    if f.bonus > 0.0 {
+        details.push(match &row.bonus_note {
+            Some(note) => format!("Bonus ({}) : {}", note, rupees(f.bonus)),
+            None => format!("Bonus : {}", rupees(f.bonus)),
+        });
+    }
+    let incentives: Vec<String> = row.incentives.iter().map(|i| format!("{} : {}", i.reason, rupees(i.amount))).collect();
+    details.extend(incentives.iter().cloned());
+    let status = match d.status.as_str() {
+        "TO_PAY" => format!("To pay {}", rupees(f.balance)),
+        "OVERPAID" => format!("Overpaid {}", rupees(-f.balance)),
+        _ => "Paid".to_string(),
+    };
+    crate::messages::templates::fill(
+        template,
+        &[
+            ("employee_name", d.employee.name.clone()),
+            ("month", month_label.to_string()),
+            ("days", quantity(row.days_worked)),
+            ("daily_wage", rupees(row.daily_wage)),
+            ("wages", rupees(f.wages)),
+            ("ot_hours", quantity(row.ot_hours)),
+            ("ot_rate", rupees(row.ot_rate)),
+            ("ot_amount", rupees(f.ot_amount)),
+            ("bonus", rupees(f.bonus)),
+            ("incentives", if incentives.is_empty() { "None".to_string() } else { incentives.join("\n") }),
+            ("incentives_total", rupees(f.incentives)),
+            ("pay_details", details.join("\n")),
+            ("earned", rupees(f.earned)),
+            ("paid", rupees(f.given)),
+            ("balance", rupees(f.balance.max(0.0))),
+            ("status", status),
+            ("business_name", business_name.to_string()),
+        ],
+    )
+}
+
+/// Most incentives one month can hold.
+const MAX_INCENTIVES: usize = 30;
+
+/// Each incentive needs a reason (up to 80 characters) and an amount more than 0.
+fn clean_incentives(list: &[IncentiveInput]) -> Result<Vec<(String, f64)>, String> {
+    if list.len() > MAX_INCENTIVES {
+        return Err(format!("A month can have at most {} incentives.", MAX_INCENTIVES));
+    }
+    list.iter()
+        .map(|i| {
+            let reason = i.reason.trim().to_string();
+            if reason.is_empty() {
+                return Err("Each incentive needs a reason.".to_string());
+            }
+            if reason.chars().count() > 80 {
+                return Err("An incentive reason can be at most 80 characters.".to_string());
+            }
+            let amount = round2(check_amount(i.amount, "Incentive")?);
+            if !amount.is_finite() || amount <= 0.0 {
+                return Err(format!("The incentive for {} must be more than 0.", reason));
+            }
+            Ok((reason, amount))
+        })
+        .collect()
 }
 
 const PAYMENT_COLUMNS: &str =
@@ -376,30 +497,63 @@ impl PayrollRepository {
     // -------------------------------------------------------------- pay rows
 
     fn pay_row(conn: &Connection, employee_id: i64, month: &str) -> Result<Option<PayRow>, String> {
-        conn.query_row(
-            &format!("SELECT {} FROM pay_months WHERE employee_id = ?1 AND month = ?2", ROW_COLUMNS),
-            params![employee_id, month],
-            map_row,
-        )
-        .optional()
-        .map_err(|e| format!("Failed to load the month: {}", e))
+        let row = conn
+            .query_row(
+                &format!("SELECT {} FROM pay_months WHERE employee_id = ?1 AND month = ?2", ROW_COLUMNS),
+                params![employee_id, month],
+                map_row,
+            )
+            .optional()
+            .map_err(|e| format!("Failed to load the month: {}", e))?;
+        match row {
+            Some(mut r) => {
+                r.incentives = Self::incentives(conn, r.id)?;
+                Ok(Some(r))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn incentives(conn: &Connection, pay_month_id: i64) -> Result<Vec<Incentive>, String> {
+        let mut stmt = conn
+            .prepare("SELECT id, reason, amount FROM pay_incentives WHERE pay_month_id = ?1 ORDER BY id")
+            .map_err(|e| format!("Failed to load the incentives: {}", e))?;
+        let rows = stmt
+            .query_map(params![pay_month_id], |r| Ok(Incentive { id: r.get(0)?, reason: r.get(1)?, amount: r.get(2)? }))
+            .map_err(|e| format!("Failed to load the incentives: {}", e))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| format!("Failed to read the incentives: {}", e))
+    }
+
+    /// Reasons given before, most used first, for the incentive suggestions.
+    pub fn incentive_reasons(conn: &Connection) -> Result<Vec<String>, String> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT MIN(trim(reason)) FROM pay_incentives GROUP BY lower(trim(reason))
+                 ORDER BY COUNT(*) DESC, MAX(id) DESC LIMIT 50",
+            )
+            .map_err(|e| format!("Failed to load the incentive reasons: {}", e))?;
+        let rows = stmt.query_map([], |r| r.get(0)).map_err(|e| format!("Failed to load the incentive reasons: {}", e))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| format!("Failed to read the incentive reasons: {}", e))
     }
 
     /// The month's row and figures, leaving out one entry (an entry being edited).
     fn month_figures(conn: &Connection, employee_id: i64, month: &str, exclude_entry: Option<i64>) -> Result<(Option<PayRow>, MonthFigures), String> {
         let row = Self::pay_row(conn, employee_id, month)?;
-        let (given, cleared, rounded_off): (f64, f64, f64) = conn
+        let (given, cleared, written_off, carried, rounded_off): (f64, f64, f64, f64, f64) = conn
             .query_row(
                 "SELECT
                      COALESCE(SUM(CASE WHEN (month = ?2 AND kind IN ('ADVANCE', 'SALARY')) OR (kind = 'CARRIED' AND carried_to = ?2) THEN amount END), 0),
                      COALESCE(SUM(CASE WHEN month = ?2 AND kind IN ('RETURNED', 'WRITE_OFF', 'CARRIED') THEN amount END), 0),
+                     COALESCE(SUM(CASE WHEN month = ?2 AND kind = 'WRITE_OFF' THEN amount END), 0),
+                     COALESCE(SUM(CASE WHEN month = ?2 AND kind = 'CARRIED' THEN amount END), 0),
                      COALESCE(SUM(CASE WHEN month = ?2 AND kind = 'SALARY' THEN round_off END), 0)
                  FROM employee_payments WHERE employee_id = ?1 AND id != ?3 AND (month = ?2 OR carried_to = ?2)",
                 params![employee_id, month, exclude_entry.unwrap_or(-1)],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .map_err(|e| format!("Failed to load the payments: {}", e))?;
-        let figures = super::calc::figures(row.as_ref(), given, cleared, rounded_off);
+        let mut figures = super::calc::figures(row.as_ref(), given, cleared, written_off, rounded_off);
+        figures.carried = round2(carried);
         Ok((row, figures))
     }
 
@@ -498,7 +652,9 @@ impl PayrollRepository {
             None => existing.as_ref().map_or(e.ot_rate, |r| r.ot_rate),
         };
         let bonus_note = if bonus > 0.0 { clean(&input.bonus_note) } else { None };
+        let incentives = input.incentives.as_deref().map(clean_incentives).transpose()?;
         let now = Utc::now().to_rfc3339();
+        let existing_id = existing.as_ref().map(|r| r.id);
         let result = match existing {
             Some(r) => conn.execute(
                 "UPDATE pay_months SET days_worked = ?1, daily_wage = ?2, ot_hours = ?3, ot_rate = ?4, bonus_amount = ?5,
@@ -512,14 +668,146 @@ impl PayrollRepository {
             ),
         };
         result.map_err(|e| format!("Failed to save the month: {}", e))?;
+        if let Some(list) = incentives {
+            let id = existing_id.unwrap_or_else(|| conn.last_insert_rowid());
+            let saved = Self::incentives(conn, id)?;
+            let same = saved.len() == list.len() && saved.iter().zip(&list).all(|(s, (reason, amount))| s.reason == *reason && s.amount == *amount);
+            // An unchanged list is left alone, so it doesn't count as a change for the backup.
+            if !same {
+                conn.execute("DELETE FROM pay_incentives WHERE pay_month_id = ?1", params![id])
+                    .map_err(|e| format!("Failed to save the incentives: {}", e))?;
+                for (reason, amount) in list {
+                    conn.execute(
+                        "INSERT INTO pay_incentives (pay_month_id, reason, amount, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+                        params![id, reason, amount, now],
+                    )
+                    .map_err(|e| format!("Failed to save the incentives: {}", e))?;
+                }
+            }
+        }
         Ok(())
     }
 
     pub fn save_pay_month(conn: &Connection, employee_id: i64, month: &str, input: PayMonthInput, today: &str) -> Result<PayMonthDetail, String> {
         month_label(month)?;
         let e = Self::employee(conn, employee_id)?;
-        Self::write_pay_row(conn, &e, month, &input, today)?;
+        // The month and its incentives are saved together, or not at all.
+        let tx = conn.unchecked_transaction().map_err(|e| format!("Failed to begin transaction: {}", e))?;
+        Self::write_pay_row(&tx, &e, month, &input, today)?;
+        tx.commit().map_err(|e| format!("Failed to save the month: {}", e))?;
         Self::pay_month(conn, employee_id, month, today)
+    }
+
+    // -------------------------------------------------------------- message
+
+    /// The owner's employee pay template filled for one month, with the link to the employee's
+    /// WhatsApp chat (their phone number). Saves nothing.
+    pub fn pay_message(conn: &Connection, employee_id: i64, month: &str, today: &str) -> Result<EmployeePayMessage, String> {
+        Self::pay_message_of(conn, employee_id, month, today, crate::messages::templates::EMPLOYEE_PAY)
+    }
+
+    /// The message typed in when a pay slip is sent: the Pay slip template.
+    pub fn pay_slip_message(conn: &Connection, employee_id: i64, month: &str, today: &str) -> Result<EmployeePayMessage, String> {
+        Self::pay_message_of(conn, employee_id, month, today, crate::messages::templates::EMPLOYEE_PAY_SLIP)
+    }
+
+    fn pay_message_of(conn: &Connection, employee_id: i64, month: &str, today: &str, kind: &str) -> Result<EmployeePayMessage, String> {
+        let d = Self::pay_month(conn, employee_id, month, today)?;
+        let label = month_label(month)?;
+        let row = d.row.as_ref().ok_or_else(|| format!("Enter the days for {} first.", label))?;
+        let phone = d
+            .employee
+            .phone
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| format!("Add a phone number for {} (Employees, Edit) to send on WhatsApp.", d.employee.name))?;
+        let number = crate::rentals::reminder::normalize_whatsapp_number(phone)
+            .map_err(|_| format!("{}'s phone number is not a mobile number WhatsApp can use. Edit the employee.", d.employee.name))?;
+        let template = crate::messages::templates::template(conn, kind)?;
+        let message = pay_message_text(&d, row, &label, &template, &crate::messages::templates::business_name(conn));
+        let link = crate::rentals::reminder::whatsapp_link(&number, &message);
+        Ok(EmployeePayMessage { message, number, link })
+    }
+
+    /// One employee's month for their pay slip; the days must be entered.
+    pub fn pay_slip_month(conn: &Connection, employee_id: i64, month: &str, today: &str) -> Result<PayMonthDetail, String> {
+        let d = Self::pay_month(conn, employee_id, month, today)?;
+        if d.row.is_none() {
+            return Err(format!("Enter the days for {} first.", month_label(month)?));
+        }
+        Ok(d)
+    }
+
+    /// Everyone on the pay sheet with days entered for the month, by name, for all the pay slips.
+    pub fn pay_slip_months(conn: &Connection, month: &str, today: &str) -> Result<Vec<PayMonthDetail>, String> {
+        let sheet = Self::pay_sheet(conn, month, today)?;
+        let out: Vec<PayMonthDetail> = sheet
+            .rows
+            .iter()
+            .filter(|r| r.row.is_some())
+            .map(|r| Self::pay_month(conn, r.employee_id, month, today))
+            .collect::<Result<_, _>>()?;
+        if out.is_empty() {
+            return Err(format!("No one has days entered for {} yet.", month_label(month)?));
+        }
+        Ok(out)
+    }
+
+    // ------------------------------------------------------------ incentives
+
+    /// The month's row, open for changes, that an incentive goes on.
+    fn incentive_month(conn: &Connection, employee_id: i64, month: &str, today: &str) -> Result<PayRow, String> {
+        let label = month_label(month)?;
+        let e = Self::employee(conn, employee_id)?;
+        Self::check_open(conn, &e, month, today)?;
+        Self::pay_row(conn, employee_id, month)?.ok_or_else(|| format!("Enter the days for {} first.", label))
+    }
+
+    /// Employee and month of a saved incentive.
+    fn incentive_owner(conn: &Connection, id: i64) -> Result<(i64, String), String> {
+        conn.query_row(
+            "SELECT p.employee_id, p.month FROM pay_incentives i JOIN pay_months p ON p.id = i.pay_month_id WHERE i.id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| format!("Failed to load the incentive: {}", e))?
+        .ok_or_else(|| "That incentive is no longer there.".to_string())
+    }
+
+    pub fn add_incentive(conn: &Connection, employee_id: i64, month: &str, input: IncentiveInput, today: &str) -> Result<PayMonthDetail, String> {
+        let row = Self::incentive_month(conn, employee_id, month, today)?;
+        let (reason, amount) = clean_incentives(std::slice::from_ref(&input))?.remove(0);
+        if row.incentives.len() >= MAX_INCENTIVES {
+            return Err(format!("A month can have at most {} incentives.", MAX_INCENTIVES));
+        }
+        conn.execute(
+            "INSERT INTO pay_incentives (pay_month_id, reason, amount, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+            params![row.id, reason, amount, Utc::now().to_rfc3339()],
+        )
+        .map_err(|e| format!("Failed to save the incentive: {}", e))?;
+        Self::pay_month(conn, employee_id, month, today)
+    }
+
+    pub fn update_incentive(conn: &Connection, id: i64, input: IncentiveInput, today: &str) -> Result<PayMonthDetail, String> {
+        let (employee_id, month) = Self::incentive_owner(conn, id)?;
+        Self::incentive_month(conn, employee_id, &month, today)?;
+        let (reason, amount) = clean_incentives(std::slice::from_ref(&input))?.remove(0);
+        conn.execute(
+            "UPDATE pay_incentives SET reason = ?1, amount = ?2, updated_at = ?3 WHERE id = ?4",
+            params![reason, amount, Utc::now().to_rfc3339(), id],
+        )
+        .map_err(|e| format!("Failed to save the incentive: {}", e))?;
+        Self::pay_month(conn, employee_id, &month, today)
+    }
+
+    pub fn delete_incentive(conn: &Connection, id: i64, today: &str) -> Result<PayMonthDetail, String> {
+        let (employee_id, month) = Self::incentive_owner(conn, id)?;
+        Self::incentive_month(conn, employee_id, &month, today)?;
+        conn.execute("DELETE FROM pay_incentives WHERE id = ?1", params![id])
+            .map_err(|e| format!("Failed to delete the incentive: {}", e))?;
+        Self::pay_month(conn, employee_id, &month, today)
     }
 
     pub fn delete_pay_month(conn: &Connection, employee_id: i64, month: &str) -> Result<(), String> {
@@ -614,6 +902,7 @@ impl PayrollRepository {
                 bonus_amount: existing.as_ref().map_or(0.0, |r| r.bonus_amount),
                 bonus_note: existing.as_ref().and_then(|r| r.bonus_note.clone()),
                 note: existing.as_ref().and_then(|r| r.note.clone()),
+                incentives: None,
             };
             Self::write_pay_row(&tx, &e, month, &input, today).map_err(|err| format!("{}: {}", e.name, err))?;
         }
@@ -938,7 +1227,7 @@ mod tests {
     const TODAY: &str = "2026-10-15";
 
     fn days(d: f64) -> PayMonthInput {
-        PayMonthInput { days_worked: d, ot_hours: 0.0, daily_wage: None, ot_rate: None, bonus_amount: 0.0, bonus_note: None, note: None }
+        PayMonthInput { days_worked: d, ot_hours: 0.0, daily_wage: None, ot_rate: None, bonus_amount: 0.0, bonus_note: None, note: None, incentives: None }
     }
 
     fn entry(employee_id: i64, days_worked: f64, ot_hours: f64) -> PaySheetEntry {
@@ -955,11 +1244,12 @@ mod tests {
             (r.daily_wage, r.ot_rate, d.figures.wages, d.figures.ot_amount, d.figures.earned, d.status.as_str()),
             (600.0, 80.0, 15300.0, 960.0, 16260.0, "TO_PAY")
         );
+        create(&conn, pay(a, "2026-09", "SALARY", 16260.0)).unwrap();
         let mut i = input("Murugan", "2026-01-01");
         i.daily_wage = 650.0;
         PayrollRepository::update_employee(&conn, a, i).unwrap();
         let d = PayrollRepository::save_pay_month(&conn, a, "2026-09", days(26.0), TODAY).unwrap();
-        assert_eq!((d.row.unwrap().daily_wage, d.figures.wages), (600.0, 15600.0), "a raise does not touch an entered month");
+        assert_eq!((d.row.unwrap().daily_wage, d.figures.wages), (600.0, 15600.0), "a raise does not touch a paid month");
         let d = PayrollRepository::save_pay_month(&conn, a, "2026-09", PayMonthInput { daily_wage: Some(650.0), ..days(26.0) }, TODAY).unwrap();
         assert_eq!(d.figures.wages, 16900.0, "unless changed on that month");
         assert_eq!(PayrollRepository::save_pay_month(&conn, a, "2026-10", days(10.0), TODAY).unwrap().row.unwrap().daily_wage, 650.0);
@@ -980,6 +1270,175 @@ mod tests {
             PayrollRepository::save_pay_month(&conn, a, "2026-10", PayMonthInput { daily_wage: Some(0.0), ..days(10.0) }, TODAY).unwrap_err(),
             "Daily wage must be more than 0."
         );
+    }
+
+    #[test]
+    fn incentives_are_saved_with_the_month_and_kept_by_the_pay_sheet() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Murugan", "2026-01-01");
+        let inc = |reason: &str, amount: f64| IncentiveInput { reason: reason.into(), amount };
+        let with = |list: Vec<IncentiveInput>| PayMonthInput { incentives: Some(list), ..days(10.0) };
+        let d = PayrollRepository::save_pay_month(&conn, a, "2026-10", with(vec![inc(" Night work ", 250.0), inc("Site visit", 150.0)]), TODAY).unwrap();
+        let r = d.row.unwrap();
+        assert_eq!(r.incentives.iter().map(|i| (i.reason.as_str(), i.amount)).collect::<Vec<_>>(), vec![("Night work", 250.0), ("Site visit", 150.0)]);
+        assert_eq!((d.figures.incentives, d.figures.earned), (400.0, 6400.0));
+
+        let before: i64 = conn.query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'pay_incentives'", [], |r| r.get(0)).unwrap();
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", with(vec![inc("Night work", 250.0), inc("Site visit", 150.0)]), TODAY).unwrap();
+        let after: i64 = conn.query_row("SELECT COUNT(*) FROM change_log WHERE table_name = 'pay_incentives'", [], |r| r.get(0)).unwrap();
+        assert_eq!(before, after, "an unchanged list is not rewritten");
+
+        let s = PayrollRepository::save_pay_sheet(&conn, "2026-10", vec![entry(a, 12.0, 0.0)], TODAY).unwrap();
+        assert_eq!((s.rows[0].figures.incentives, s.rows[0].figures.earned), (400.0, 7600.0), "the pay sheet keeps them");
+        let d = PayrollRepository::save_pay_month(&conn, a, "2026-10", PayMonthInput { incentives: None, ..days(12.0) }, TODAY).unwrap();
+        assert_eq!(d.row.unwrap().incentives.len(), 2, "no list keeps them");
+
+        assert_eq!(PayrollRepository::incentive_reasons(&conn).unwrap(), vec!["Site visit", "Night work"]);
+
+        for (bad, err) in [
+            (inc(" ", 100.0), "Each incentive needs a reason."),
+            (inc("Night work", 0.0), "The incentive for Night work must be more than 0."),
+            (inc("Night work", -5.0), "The incentive for Night work must be more than 0."),
+            (inc(&"x".repeat(81), 10.0), "An incentive reason can be at most 80 characters."),
+        ] {
+            assert_eq!(PayrollRepository::save_pay_month(&conn, a, "2026-10", with(vec![inc("Site visit", 50.0), bad]), TODAY).unwrap_err(), err);
+        }
+        let too_many = (0..31).map(|n| inc(&format!("Job {}", n), 10.0)).collect();
+        assert_eq!(PayrollRepository::save_pay_month(&conn, a, "2026-10", with(too_many), TODAY).unwrap_err(), "A month can have at most 30 incentives.");
+        assert_eq!(PayrollRepository::pay_month(&conn, a, "2026-10", TODAY).unwrap().row.unwrap().incentives.len(), 2, "a refused save changes nothing");
+
+        let d = PayrollRepository::save_pay_month(&conn, a, "2026-10", with(vec![]), TODAY).unwrap();
+        assert_eq!((d.row.unwrap().incentives.len(), d.figures.incentives), (0, 0.0), "an empty list clears them");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", with(vec![inc("Night work", 250.0)]), TODAY).unwrap();
+        PayrollRepository::delete_pay_month(&conn, a, "2026-10").unwrap();
+        let left: i64 = conn.query_row("SELECT COUNT(*) FROM pay_incentives", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0, "incentives go with their month");
+    }
+
+    #[test]
+    fn the_pay_message_follows_the_template() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Murugan", "2026-01-01");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", PayMonthInput { ot_hours: 4.5, bonus_amount: 500.0, bonus_note: Some("Diwali".into()), ..days(25.5) }, TODAY).unwrap();
+        assert_eq!(PayrollRepository::pay_message(&conn, a, "2026-10", TODAY).unwrap_err(), "Add a phone number for Murugan (Employees, Edit) to send on WhatsApp.");
+        let mut i = input("Murugan", "2026-01-01");
+        i.phone = Some("98765 43210".into());
+        PayrollRepository::update_employee(&conn, a, i).unwrap();
+        PayrollRepository::add_incentive(&conn, a, "2026-10", IncentiveInput { reason: "Night work".into(), amount: 300.0 }, TODAY).unwrap();
+        create(&conn, pay(a, "2026-10", "ADVANCE", 5000.0)).unwrap();
+
+        let m = PayrollRepository::pay_message(&conn, a, "2026-10", TODAY).unwrap();
+        assert_eq!(m.number, "+919876543210");
+        assert!(m.link.starts_with("https://wa.me/919876543210?text=Hello%20Murugan"));
+        assert_eq!(
+            m.message,
+            "Hello Murugan,\nYour pay for October 2026:\nWages : 25.5 days × ₹600.00 = ₹15,300.00\nOT : 4.5 h × ₹80.00 = ₹360.00\nBonus (Diwali) : ₹500.00\nNight work : ₹300.00\nEarned : ₹16,460.00\nPaid : ₹5,000.00\nBalance : ₹11,460.00\n\nMONONMANI WELDING WORKS"
+        );
+
+        crate::messages::templates::save(&conn, "EMPLOYEE_PAY", "{employee_name} {days}d {incentives} {status}").unwrap();
+        let m = PayrollRepository::pay_message(&conn, a, "2026-10", TODAY).unwrap();
+        assert_eq!(m.message, "Murugan 25.5d Night work : ₹300.00 To pay ₹11,460.00");
+
+        PayrollRepository::save_pay_month(&conn, a, "2026-09", days(1.0), TODAY).unwrap();
+        crate::messages::templates::save(&conn, "EMPLOYEE_PAY", "{incentives}").unwrap();
+        assert_eq!(PayrollRepository::pay_message(&conn, a, "2026-09", TODAY).unwrap().message, "None");
+        assert_eq!(PayrollRepository::pay_message(&conn, a, "2026-08", TODAY).unwrap_err(), "Enter the days for August 2026 first.");
+    }
+
+    #[test]
+    fn pay_slips_cover_everyone_with_days_entered() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Murugan", "2026-01-01");
+        let b = emp(&conn, "Anbu", "2026-01-01");
+        emp(&conn, "Chandran", "2026-01-01");
+        assert_eq!(PayrollRepository::pay_slip_months(&conn, "2026-10", TODAY).unwrap_err(), "No one has days entered for October 2026 yet.");
+        assert_eq!(PayrollRepository::pay_slip_month(&conn, a, "2026-10", TODAY).unwrap_err(), "Enter the days for October 2026 first.");
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(10.0), TODAY).unwrap();
+        PayrollRepository::save_pay_month(&conn, b, "2026-10", days(12.0), TODAY).unwrap();
+        let slips = PayrollRepository::pay_slip_months(&conn, "2026-10", TODAY).unwrap();
+        assert_eq!(slips.iter().map(|d| d.employee.name.as_str()).collect::<Vec<_>>(), vec!["Anbu", "Murugan"]);
+        assert_eq!(PayrollRepository::pay_slip_month(&conn, a, "2026-10", TODAY).unwrap().figures.earned, 6000.0);
+
+        let mut i = input("Murugan", "2026-01-01");
+        i.phone = Some("98765 43210".into());
+        PayrollRepository::update_employee(&conn, a, i).unwrap();
+        let m = PayrollRepository::pay_slip_message(&conn, a, "2026-10", TODAY).unwrap();
+        assert_eq!(m.message, "Hello Murugan,\nHere is your pay slip for October 2026.\nEarned : ₹6,000.00\nBalance : ₹6,000.00\n\nMONONMANI WELDING WORKS");
+    }
+
+    #[test]
+    fn incentives_are_added_edited_and_deleted_one_at_a_time() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Murugan", "2026-01-01");
+        let inc = |reason: &str, amount: f64| IncentiveInput { reason: reason.into(), amount };
+        assert_eq!(
+            PayrollRepository::add_incentive(&conn, a, "2026-10", inc("Night work", 300.0), TODAY).unwrap_err(),
+            "Enter the days for October 2026 first."
+        );
+        assert_eq!(
+            PayrollRepository::add_incentive(&conn, a, "2026-11", inc("Night work", 300.0), TODAY).unwrap_err(),
+            "November 2026 hasn't started yet."
+        );
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", days(10.0), TODAY).unwrap();
+        let d = PayrollRepository::add_incentive(&conn, a, "2026-10", inc(" Night work ", 300.0), TODAY).unwrap();
+        let d2 = PayrollRepository::add_incentive(&conn, a, "2026-10", inc("Site visit", 200.0), TODAY).unwrap();
+        assert_eq!(d.row.unwrap().incentives[0].reason, "Night work");
+        assert_eq!((d2.figures.incentives, d2.figures.earned), (500.0, 6500.0));
+        let id = d2.row.unwrap().incentives[0].id;
+
+        let d = PayrollRepository::update_incentive(&conn, id, inc("Night shift", 350.0), TODAY).unwrap();
+        assert_eq!((d.row.as_ref().unwrap().incentives[0].reason.as_str(), d.figures.incentives), ("Night shift", 550.0));
+        assert_eq!(PayrollRepository::update_incentive(&conn, id, inc("", 350.0), TODAY).unwrap_err(), "Each incentive needs a reason.");
+        assert_eq!(
+            PayrollRepository::add_incentive(&conn, a, "2026-10", inc("Bonus job", 0.0), TODAY).unwrap_err(),
+            "The incentive for Bonus job must be more than 0."
+        );
+
+        let d = PayrollRepository::delete_incentive(&conn, id, TODAY).unwrap();
+        assert_eq!((d.row.unwrap().incentives.len(), d.figures.incentives), (1, 200.0));
+        assert_eq!(PayrollRepository::delete_incentive(&conn, id, TODAY).unwrap_err(), "That incentive is no longer there.");
+
+        for n in 1..30 {
+            PayrollRepository::add_incentive(&conn, a, "2026-10", inc(&format!("Job {}", n), 10.0), TODAY).unwrap();
+        }
+        assert_eq!(
+            PayrollRepository::add_incentive(&conn, a, "2026-10", inc("One more", 10.0), TODAY).unwrap_err(),
+            "A month can have at most 30 incentives."
+        );
+    }
+
+    #[test]
+    fn a_new_rate_goes_on_the_months_still_to_pay() {
+        let (_d, conn) = setup();
+        let a = emp(&conn, "Murugan", "2026-01-01"); // 600 a day, 80 an hour
+        PayrollRepository::save_pay_month(&conn, a, "2026-07", days(10.0), TODAY).unwrap();
+        create(&conn, pay(a, "2026-07", "SALARY", 6000.0)).unwrap(); // paid
+        PayrollRepository::save_pay_month(&conn, a, "2026-08", days(10.0), TODAY).unwrap();
+        create(&conn, pay(a, "2026-08", "ADVANCE", 7000.0)).unwrap(); // overpaid
+        PayrollRepository::save_pay_month(&conn, a, "2026-09", PayMonthInput { daily_wage: Some(550.0), ..days(10.0) }, TODAY).unwrap(); // own wage
+        PayrollRepository::save_pay_month(&conn, a, "2026-10", PayMonthInput { ot_hours: 5.0, ..days(10.0) }, TODAY).unwrap();
+        create(&conn, pay(a, "2026-10", "ADVANCE", 1000.0)).unwrap(); // part paid, still to pay
+
+        let mut i = input("Murugan", "2026-01-01");
+        i.daily_wage = 700.0;
+        i.ot_rate = 100.0;
+        let d = PayrollRepository::update_employee(&conn, a, i).unwrap();
+        assert_eq!(d.rate_updated_months, vec!["2026-09", "2026-10"]);
+        let month = |m: &str| PayrollRepository::pay_month(&conn, a, m, TODAY).unwrap();
+        let oct = month("2026-10");
+        assert_eq!((oct.figures.wages, oct.figures.ot_amount, oct.figures.balance), (7000.0, 500.0, 6500.0));
+        let sep = month("2026-09").row.unwrap();
+        assert_eq!((sep.daily_wage, sep.ot_rate), (550.0, 100.0), "a wage set on the month by hand stays");
+        assert_eq!(month("2026-07").row.unwrap().daily_wage, 600.0, "a paid month keeps its rate");
+        assert_eq!(month("2026-08").row.unwrap().daily_wage, 600.0, "an overpaid month keeps its rate");
+
+        let d = PayrollRepository::update_employee(&conn, a, EmployeeInput { notes: Some("n".into()), ..input("Murugan", "2026-01-01") }).unwrap();
+        assert_eq!(d.rate_updated_months, vec!["2026-09", "2026-10"], "going back moves each rate that is still the old one");
+        assert_eq!(month("2026-09").row.unwrap().daily_wage, 550.0);
+        assert!(PayrollRepository::update_employee(&conn, a, EmployeeInput { notes: None, ..input("Murugan", "2026-01-01") })
+            .unwrap()
+            .rate_updated_months
+            .is_empty());
     }
 
     #[test]
@@ -1255,13 +1714,14 @@ mod tests {
         assert_eq!(create(&conn, pay(a, "2026-09", "RETURNED", 1200.0)).unwrap_err(), "That is more than the ₹1,000.00 overpaid.");
         create(&conn, pay(a, "2026-09", "RETURNED", 400.0)).unwrap();
         let d = create(&conn, EmployeePaymentInput { payment_method: None, ..pay(a, "2026-09", "WRITE_OFF", 600.0) }).unwrap();
-        assert_eq!(d.status, "PAID");
+        assert_eq!((d.status.as_str(), d.figures.written_off), ("PAID", 600.0), "the extra written off stays on record");
 
         PayrollRepository::save_pay_month(&conn, a, "2026-10", days(10.0), TODAY).unwrap();
         create(&conn, pay(a, "2026-10", "ADVANCE", 5000.0)).unwrap();
         let d = create(&conn, EmployeePaymentInput { payment_method: None, ..pay(a, "2026-10", "CARRIED", 1000.0) }).unwrap();
         let carried = d.entries.iter().find(|e| e.kind == "CARRIED").unwrap().clone();
         assert_eq!((d.status.as_str(), carried.carried_to.as_deref(), carried.payment_method), ("PAID", Some("2026-11"), None));
+        assert_eq!((d.figures.carried, d.figures.written_off), (1000.0, 0.0), "the extra taken from next month stays on record");
         let next = PayrollRepository::pay_month(&conn, a, "2026-11", TODAY).unwrap();
         assert_eq!((next.carried_in.len(), next.figures.given, next.editable), (1, 1000.0, false));
         assert_eq!(PayrollRepository::pay_sheet(&conn, "2026-11", TODAY).unwrap().rows.len(), 1, "a carried-in advance shows next month");

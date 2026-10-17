@@ -31,7 +31,17 @@ export function ListCard({
       >
         {title}
       </SectionTitle>
-      {isEmpty ? <p className="py-6 text-center text-sm text-slate-500">{empty}</p> : <table className="w-full text-sm"><tbody className="divide-y divide-slate-100">{children}</tbody></table>}
+      {isEmpty ? (
+        <p className="py-6 text-center text-sm text-slate-500">{empty}</p>
+      ) : (
+        // Wrapped so the Card's wide-table rule (sideways scroll, 46rem minimum) skips it: names
+        // shorten with "…" and the amounts always fit, so the whole list shows at a glance.
+        <div className="min-w-0">
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-slate-100">{children}</tbody>
+          </table>
+        </div>
+      )}
       {note && (
         <div className="mt-auto pt-3">
           <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">{note}</p>

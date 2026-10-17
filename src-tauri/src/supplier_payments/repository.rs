@@ -397,7 +397,8 @@ impl SupplierPaymentRepository {
     /// The number is the company's WhatsApp number, or its phone when none is set.
     pub fn whatsapp_message(conn: &Connection, id: i64) -> Result<SupplierPaymentMessage, String> {
         let found = Self::get(conn, id)?.ok_or_else(|| "Payment not found.".to_string())?;
-        let message = payment_message_text(&found);
+        let template = crate::messages::templates::template(conn, crate::messages::templates::SUPPLIER_PAYMENT)?;
+        let message = payment_message_text(&found, &template, &crate::messages::templates::business_name(conn));
 
         let (phone, whatsapp): (Option<String>, Option<String>) = conn
             .query_row(
@@ -495,9 +496,9 @@ impl SupplierPaymentRepository {
     }
 }
 
-/// Invoice No & Date and Amount for each bill the payment covers, then the bills' total and the
-/// amount sent.
-pub fn payment_message_text(found: &SupplierPaymentWithAllocations) -> String {
+/// The owner's template filled for this payment. `{bills}` is Invoice No & Date and Amount for
+/// each bill the payment covers; the default then adds the bills' total and the amount sent.
+pub fn payment_message_text(found: &SupplierPaymentWithAllocations, template: &str, business_name: &str) -> String {
     let mut lines = Vec::new();
     let mut total = 0.0;
     for a in &found.allocations {
@@ -505,9 +506,21 @@ pub fn payment_message_text(found: &SupplierPaymentWithAllocations) -> String {
         lines.push(format!("Amount : {}", rupees(a.bill_total_amount)));
         total += a.bill_total_amount;
     }
-    lines.push(format!("Total amount : {}", rupees(round2(total))));
-    lines.push(format!("Amount sent : {}", rupees(found.payment.amount_paid)));
-    lines.join("\n")
+    let p = &found.payment;
+    crate::messages::templates::fill(
+        template,
+        &[
+            ("supplier_name", p.supplier_name.clone()),
+            ("payment_number", p.payment_number.clone()),
+            ("payment_date", display_date(&p.payment_date)),
+            ("amount_sent", rupees(p.amount_paid)),
+            ("payment_method", p.payment_method.clone()),
+            ("reference_number", p.reference_number.clone().unwrap_or_default()),
+            ("bills", lines.join("\n")),
+            ("bills_total", rupees(round2(total))),
+            ("business_name", business_name.to_string()),
+        ],
+    )
 }
 
 #[cfg(test)]

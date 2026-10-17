@@ -1,0 +1,315 @@
+/* Ledger account: A4, as many pages as it needs; the table head repeats on each page. */
+@page {
+  size: A4;
+  margin: 12mm 13mm 14mm;
+}
+
+:root {
+  --ink: #1a2633;
+  --muted: #5b6b7b;
+  --line: #d9e1e8;
+  --soft: #f3f6f9;
+  --steel: #1a374b;
+  --steel-2: #2c5878;
+  --arc: #e8731a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--ink);
+  font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
+  font-size: 9.5pt;
+  line-height: 1.35;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.nw {
+  white-space: nowrap;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------- Header ---------- */
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10mm;
+  padding-bottom: 4mm;
+  border-bottom: 2.5px solid var(--arc);
+}
+
+.brand {
+  display: flex;
+  gap: 3.5mm;
+  align-items: flex-start;
+}
+
+.brand svg {
+  width: 13mm;
+  height: 13mm;
+  flex: none;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 15pt;
+  letter-spacing: 0.02em;
+  color: var(--steel);
+  line-height: 1.15;
+}
+
+.brand .sub {
+  color: var(--steel-2);
+  font-weight: 600;
+  font-size: 8.5pt;
+  letter-spacing: 0.08em;
+}
+
+.brand .contact {
+  margin-top: 1mm;
+  color: var(--muted);
+  font-size: 8pt;
+  max-width: 105mm;
+}
+
+.title {
+  text-align: right;
+  flex: none;
+}
+
+.title .label {
+  font-size: 8.5pt;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--arc);
+}
+
+.title .period {
+  font-size: 12pt;
+  font-weight: 700;
+  color: var(--steel);
+}
+
+.title .ref {
+  color: var(--muted);
+  font-size: 8pt;
+}
+
+/* ---------- Party and balance ---------- */
+
+.party {
+  margin-top: 5mm;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6mm;
+  align-items: stretch;
+}
+
+.party .who {
+  padding: 4mm 5mm;
+  background: var(--soft);
+  border-radius: 2.5mm;
+}
+
+.k {
+  color: var(--muted);
+  font-size: 7.5pt;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.party .name {
+  font-size: 13pt;
+  font-weight: 700;
+  color: var(--steel);
+  margin-top: 0.5mm;
+}
+
+.party .lines {
+  margin-top: 1mm;
+  color: var(--muted);
+  font-size: 8.5pt;
+}
+
+.party .due {
+  min-width: 62mm;
+  padding: 4mm 5mm;
+  border-radius: 2.5mm;
+  background: var(--steel);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.party .due .k {
+  color: #b8cadb;
+}
+
+.party .due .amount {
+  font-size: 17pt;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.party .due .side {
+  font-size: 8.5pt;
+  color: #dbe5ee;
+}
+
+/* ---------- Summary ---------- */
+
+.summary {
+  margin-top: 4mm;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 2.5mm;
+}
+
+.summary > div {
+  padding: 2.5mm 4mm;
+}
+
+.summary > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.summary .v {
+  font-weight: 700;
+  font-size: 10.5pt;
+  font-variant-numeric: tabular-nums;
+  color: var(--steel);
+}
+
+/* ---------- Table ---------- */
+
+table {
+  width: 100%;
+  margin-top: 5mm;
+  border-collapse: collapse;
+}
+
+thead {
+  display: table-header-group;
+}
+
+th {
+  text-align: left;
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--steel);
+  padding: 2mm 2.5mm;
+}
+
+th.num {
+  text-align: right;
+}
+
+td {
+  padding: 1.8mm 2.5mm;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+tr {
+  break-inside: avoid;
+}
+
+tbody tr:nth-child(even) td {
+  background: #fafbfc;
+}
+
+td.date {
+  white-space: nowrap;
+  width: 21mm;
+}
+
+td .detail {
+  display: block;
+  color: var(--muted);
+  font-size: 8pt;
+}
+
+td.ref {
+  white-space: nowrap;
+  color: var(--steel-2);
+}
+
+tr.carry td {
+  font-style: italic;
+  color: var(--muted);
+}
+
+tr.total td {
+  background: none;
+  border-top: 1.5px solid var(--steel);
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+  color: var(--steel);
+}
+
+tr.closing td {
+  background: var(--soft);
+  border-bottom: 1.5px solid var(--steel);
+  font-weight: 700;
+  color: var(--steel);
+}
+
+td.empty {
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+  padding: 6mm;
+}
+
+/* ---------- Footer ---------- */
+
+.note {
+  margin-top: 5mm;
+  font-size: 8pt;
+  color: var(--muted);
+  break-inside: avoid;
+}
+
+.sign {
+  margin-top: 14mm;
+  display: flex;
+  justify-content: space-between;
+  gap: 20mm;
+  break-inside: avoid;
+}
+
+.sign div {
+  flex: 1;
+  border-top: 1px solid var(--ink);
+  padding-top: 1.5mm;
+  font-size: 8pt;
+  color: var(--muted);
+}
+
+.sign div:last-child {
+  text-align: right;
+}
+
+.sign b {
+  color: var(--ink);
+}

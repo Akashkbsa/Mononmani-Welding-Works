@@ -70,6 +70,25 @@ impl StorageManager {
         self.get_invoices_dir().join(year)
     }
 
+    /// Pay slip PDFs, one folder per month (YYYY-MM).
+    pub fn get_pay_slips_dir(&self) -> PathBuf {
+        self.app_data_dir.join("Pay slips")
+    }
+
+    /// `Pay slips\<YYYY-MM>\<file>`, with the month folder made if needed.
+    pub fn prepare_pay_slip_path(&self, month: &str, file_name: &str) -> Result<PathBuf, String> {
+        let dir = self.get_pay_slips_dir().join(month);
+        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create the pay slip folder {}: {}", dir.display(), e))?;
+        Ok(dir.join(file_name))
+    }
+
+    /// `Ledgers\<file>`, with the folder made if needed.
+    pub fn prepare_ledger_path(&self, file_name: &str) -> Result<PathBuf, String> {
+        let dir = self.app_data_dir.join("Ledgers");
+        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create the Ledgers folder {}: {}", dir.display(), e))?;
+        Ok(dir.join(file_name))
+    }
+
     pub fn get_backups_dir(&self) -> PathBuf {
         self.app_data_dir.join("Backups")
     }

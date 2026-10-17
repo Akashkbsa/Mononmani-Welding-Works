@@ -22,9 +22,12 @@ export const figures = (over: Partial<MonthFigures> = {}): MonthFigures => ({
   wages: 0,
   ot_amount: 0,
   bonus: 0,
+  incentives: 0,
   earned: 0,
   given: 0,
   cleared: 0,
+  written_off: 0,
+  carried: 0,
   rounded_off: 0,
   balance: 0,
   ...over,
@@ -41,6 +44,7 @@ export const payRow = (over: Partial<PayRow> = {}): PayRow => ({
   bonus_amount: 0,
   bonus_note: null,
   note: null,
+  incentives: [],
   ...over,
 });
 

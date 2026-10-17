@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, HandCoins, HardHat, Plus } from "lucide-react";
-import { getPaySheet, savePaySheet } from "../../services/api";
-import { currentMonth, errorMessage, formatMoney, monthTitle, shiftMonth } from "../../lib/format";
-import { entryChanged, parseQuantity, payLine, STATUS_TONE, statusText } from "../../lib/payroll";
+import { CalendarDays, HandCoins, HardHat, Plus, Printer } from "lucide-react";
+import { getPaySheet, printMonthPaySlips, savePaySheet } from "../../services/api";
+import { currentMonth, errorMessage, formatMoney, monthTitle, round2, shiftMonth } from "../../lib/format";
+import { entryChanged, parseQuantity, payLine, settleNotes, statusText, statusTone } from "../../lib/payroll";
 import { PaySheet, PaySheetEntry, PaySheetRow } from "../../types/payroll";
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, inputClass, ListSkeleton, rowClass, rowProps, theadClass, useToast } from "../ui";
 import MonthFilter from "../MonthFilter";
@@ -40,6 +40,7 @@ export default function PaySheetTab() {
   const [creating, setCreating] = useState(false);
   const [giving, setGiving] = useState(false);
   const [viewing, setViewing] = useState<number | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +57,20 @@ export default function PaySheetTab() {
   }, [month, version]);
 
   const reload = () => setVersion((v) => v + 1);
+
+  // Everyone with days entered, one page each, in one PDF opened in the PDF viewer.
+  const printAll = async () => {
+    setPrinting(true);
+    setError(null);
+    try {
+      const done = await printMonthPaySlips(month);
+      toast(`Pay slips for ${done.count} ${done.count === 1 ? "employee" : "employees"} opened. Print them from the PDF viewer.`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setPrinting(false);
+    }
+  };
   usePageShortcuts({ onNew: () => setCreating(true) });
 
   // Every month from the first record to the last, as dates for the picker.
@@ -121,8 +136,19 @@ export default function PaySheetTab() {
     const rate = r.row ? r.row.ot_rate : r.current_ot_rate;
     const wages = payLine(x.entry.days_worked, wage);
     const ot = payLine(x.entry.ot_hours, rate);
-    return { wages, ot, earned: wages + ot + (r.row?.bonus_amount ?? 0), entered: true };
+    return { wages, ot, earned: round2(wages + ot + r.figures.bonus + r.figures.incentives), entered: true };
   };
+
+  // Days and OT hold inputs while typing; every cell shares the padding so the row lines up.
+  const cell = editing ? "py-2 pr-4" : "py-3 pr-4";
+  // The month's notes added up over everyone, for the footer.
+  const sum = (pick: (r: PaySheetRow) => number) => round2((sheet?.rows ?? []).reduce((t, r) => t + pick(r), 0));
+  const totalNotes = settleNotes({
+    ...(sheet?.rows[0]?.figures ?? ({} as PaySheetRow["figures"])),
+    written_off: sum((r) => r.figures.written_off),
+    carried: sum((r) => r.figures.carried),
+    rounded_off: sum((r) => (r.figures.rounded_off < 0 ? r.figures.rounded_off : 0)),
+  });
 
   return (
     <>
@@ -146,6 +172,15 @@ export default function PaySheetTab() {
             </>
           ) : (
             <>
+              <Button
+                icon={<Printer className="w-4 h-4" />}
+                loading={printing}
+                disabled={!sheet || sheet.rows.length === sheet.not_entered}
+                title="Everyone's pay slip for this month in one PDF"
+                onClick={printAll}
+              >
+                Pay slips
+              </Button>
               <Button icon={<HandCoins className="w-4 h-4" />} disabled={!sheet || sheet.rows.length === 0 || future} onClick={() => setGiving(true)}>
                 Give advance
               </Button>
@@ -192,6 +227,7 @@ export default function PaySheetTab() {
                 <th className="py-2.5 pr-4 font-semibold text-right">Wages</th>
                 <th className="py-2.5 pr-4 font-semibold text-right">OT</th>
                 <th className="py-2.5 pr-4 font-semibold text-right">Bonus</th>
+                <th className="py-2.5 pr-4 font-semibold text-right">Incentives</th>
                 <th className="py-2.5 pr-4 font-semibold text-right">Earned</th>
                 <th className="py-2.5 pr-4 font-semibold text-right">Paid</th>
                 <th className="py-2.5 px-4 font-semibold">Status</th>
@@ -202,15 +238,17 @@ export default function PaySheetTab() {
                 const s = shown(r);
                 const x = read[r.employee_id];
                 const d = drafts?.[r.employee_id];
+                const notes = settleNotes(r.figures);
+                const incentives = r.row?.incentives ?? [];
                 return (
                   <tr key={r.employee_id} {...(editing ? {} : rowProps(() => setViewing(r.employee_id)))} className={editing ? undefined : rowClass}>
-                    <td className="max-w-[16rem] py-3 px-4">
+                    <td className={`max-w-[16rem] ${cell} pl-4`}>
                       <div className="truncate font-medium text-slate-900" title={r.name}>
                         {r.name}
                       </div>
                       {r.role && <div className="text-xs text-slate-500">{r.role}</div>}
                     </td>
-                    <td className="py-2 pr-4 text-right tabular align-top">
+                    <td className={`${cell} text-right tabular`}>
                       {editing && d ? (
                         <QtyInput label={`Days for ${r.name}`} value={d.days} error={x?.days ?? null} onChange={(v) => setDraft(r.employee_id, { days: v })} />
                       ) : r.row ? (
@@ -219,7 +257,7 @@ export default function PaySheetTab() {
                         "—"
                       )}
                     </td>
-                    <td className="py-2 pr-4 text-right tabular align-top">
+                    <td className={`${cell} text-right tabular`}>
                       {editing && d ? (
                         <QtyInput label={`OT hours for ${r.name}`} value={d.hours} error={x?.hours ?? null} onChange={(v) => setDraft(r.employee_id, { hours: v })} />
                       ) : r.row ? (
@@ -228,13 +266,24 @@ export default function PaySheetTab() {
                         "—"
                       )}
                     </td>
-                    <td className="py-3 pr-4 text-right tabular">{s.entered ? formatMoney(s.wages) : "—"}</td>
-                    <td className="py-3 pr-4 text-right tabular">{s.entered && s.ot > 0 ? formatMoney(s.ot) : "—"}</td>
-                    <td className="py-3 pr-4 text-right tabular">{r.figures.bonus > 0 ? formatMoney(r.figures.bonus) : "—"}</td>
-                    <td className="py-3 pr-4 text-right tabular font-medium">{s.entered ? formatMoney(s.earned) : "—"}</td>
-                    <td className="py-3 pr-4 text-right tabular">{r.figures.given > 0 ? formatMoney(r.figures.given) : "—"}</td>
-                    <td className="py-3 px-4">
-                      <Badge tone={STATUS_TONE[r.status]}>{statusText(r.status, r.figures)}</Badge>
+                    <td className={`${cell} text-right tabular`}>{s.entered ? formatMoney(s.wages) : "—"}</td>
+                    <td className={`${cell} text-right tabular`}>{s.entered && s.ot > 0 ? formatMoney(s.ot) : "—"}</td>
+                    <td className={`${cell} text-right tabular`}>{r.figures.bonus > 0 ? formatMoney(r.figures.bonus) : "—"}</td>
+                    <td className={`${cell} text-right tabular`} title={incentives.map((i) => `${i.reason}: ${formatMoney(i.amount)}`).join("\n") || undefined}>
+                      {r.figures.incentives > 0 ? formatMoney(r.figures.incentives) : "—"}
+                      {incentives.length > 1 && <div className="text-xs text-slate-500">{incentives.length} items</div>}
+                    </td>
+                    <td className={`${cell} text-right tabular font-medium`}>{s.entered ? formatMoney(s.earned) : "—"}</td>
+                    <td className={`${cell} text-right tabular`}>
+                      {r.figures.given > 0 ? formatMoney(r.figures.given) : "—"}
+                      {notes.map((n) => (
+                        <div key={n} className="text-xs text-slate-500">
+                          {n}
+                        </div>
+                      ))}
+                    </td>
+                    <td className={`${cell} pl-4`}>
+                      <Badge tone={statusTone(r.status, r.figures)}>{statusText(r.status, r.figures)}</Badge>
                     </td>
                   </tr>
                 );
@@ -242,12 +291,19 @@ export default function PaySheetTab() {
             </tbody>
             <tfoot className="border-t border-slate-200 bg-slate-50 text-sm">
               <tr>
-                <td className="py-2.5 px-4 font-semibold" colSpan={6}>
+                <td className="py-2.5 px-4 font-semibold" colSpan={7}>
                   {sheet.not_entered > 0 ? `${sheet.not_entered} not entered` : "Everyone entered"}
                 </td>
                 <td className="py-2.5 pr-4 text-right tabular font-semibold">{formatMoney(sheet.total_earned)}</td>
                 <td className="py-2.5 pr-4 text-right tabular font-semibold">{formatMoney(sheet.total_given)}</td>
-                <td className="py-2.5 px-4 tabular font-semibold">Still to pay {formatMoney(sheet.total_to_pay)}</td>
+                <td className="py-2.5 px-4 tabular font-semibold">
+                  To pay {formatMoney(sheet.total_to_pay)}
+                  {totalNotes.map((n) => (
+                    <div key={n} className="text-xs font-normal text-slate-500">
+                      {n}
+                    </div>
+                  ))}
+                </td>
               </tr>
             </tfoot>
           </table>

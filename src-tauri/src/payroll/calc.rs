@@ -75,17 +75,22 @@ pub fn check_ot_hours(hours: f64, month_days: u32) -> Result<f64, String> {
 
 /// Each line is rounded to the paisa before adding, and the totals are rounded again so float
 /// dust never leaves a settled month a fraction of a paisa open.
-pub fn figures(row: Option<&PayRow>, given: f64, cleared: f64, rounded_off: f64) -> MonthFigures {
-    let (wages, ot_amount, bonus) = match row {
-        Some(r) => (round2(r.days_worked * r.daily_wage), round2(r.ot_hours * r.ot_rate), round2(r.bonus_amount)),
-        None => (0.0, 0.0, 0.0),
+pub fn figures(row: Option<&PayRow>, given: f64, cleared: f64, written_off: f64, rounded_off: f64) -> MonthFigures {
+    let (wages, ot_amount, bonus, incentives) = match row {
+        Some(r) => (
+            round2(r.days_worked * r.daily_wage),
+            round2(r.ot_hours * r.ot_rate),
+            round2(r.bonus_amount),
+            round2(r.incentives.iter().map(|i| round2(i.amount)).sum()),
+        ),
+        None => (0.0, 0.0, 0.0, 0.0),
     };
-    let earned = round2(wages + ot_amount + bonus);
-    let (given, cleared, rounded_off) = (round2(given), round2(cleared), round2(rounded_off));
+    let earned = round2(wages + ot_amount + bonus + incentives);
+    let (given, cleared, written_off, rounded_off) = (round2(given), round2(cleared), round2(written_off), round2(rounded_off));
     let balance = round2(earned - given + cleared - rounded_off);
     // -0.0 shows as "-0.00"; keep a plain zero.
     let balance = if balance == 0.0 { 0.0 } else { balance };
-    MonthFigures { wages, ot_amount, bonus, earned, given, cleared, rounded_off, balance }
+    MonthFigures { wages, ot_amount, bonus, incentives, earned, given, cleared, written_off, carried: 0.0, rounded_off, balance }
 }
 
 pub fn status(has_row: bool, balance: f64) -> &'static str {
@@ -104,9 +109,10 @@ pub fn status(has_row: bool, balance: f64) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::payroll::models::Incentive;
 
     fn row(days: f64, wage: f64, hours: f64, rate: f64, bonus: f64) -> PayRow {
-        PayRow { id: 1, employee_id: 1, month: "2026-10".into(), days_worked: days, daily_wage: wage, ot_hours: hours, ot_rate: rate, bonus_amount: bonus, bonus_note: None, note: None }
+        PayRow { id: 1, employee_id: 1, month: "2026-10".into(), days_worked: days, daily_wage: wage, ot_hours: hours, ot_rate: rate, bonus_amount: bonus, bonus_note: None, note: None, incentives: vec![] }
     }
 
     #[test]
@@ -164,21 +170,34 @@ mod tests {
 
     #[test]
     fn figures_round_each_line_then_add() {
-        let f = figures(Some(&row(25.5, 600.0, 12.0, 80.0, 500.0)), 3000.0, 0.0, 0.0);
+        let f = figures(Some(&row(25.5, 600.0, 12.0, 80.0, 500.0)), 3000.0, 0.0, 0.0, 0.0);
         assert_eq!((f.wages, f.ot_amount, f.bonus, f.earned, f.given, f.balance), (15300.0, 960.0, 500.0, 16760.0, 3000.0, 13760.0));
-        let f = figures(Some(&row(3.0, 433.33, 1.75, 66.67, 0.0)), 0.0, 0.0, 0.0);
+        let f = figures(Some(&row(3.0, 433.33, 1.75, 66.67, 0.0)), 0.0, 0.0, 0.0, 0.0);
         assert_eq!((f.wages, f.ot_amount, f.earned), (1299.99, 116.67, 1416.66));
-        let f = figures(None, 500.0, 0.0, 0.0);
+        let f = figures(None, 500.0, 0.0, 0.0, 0.0);
         assert_eq!((f.earned, f.balance), (0.0, -500.0));
-        let f = figures(Some(&row(10.0, 400.0, 0.0, 0.0, 0.0)), 5000.0, 600.0, 0.0);
+        let f = figures(Some(&row(10.0, 400.0, 0.0, 0.0, 0.0)), 5000.0, 600.0, 0.0, 0.0);
         assert_eq!(f.balance, -400.0, "cash returned or written off counts back towards zero");
-        let f = figures(Some(&row(10.0, 400.0, 0.0, 0.0, 0.0)), 3990.0, 0.0, 10.0);
+        let f = figures(Some(&row(10.0, 400.0, 0.0, 0.0, 0.0)), 3990.0, 0.0, 0.0, 10.0);
         assert_eq!(f.balance, 0.0, "a round-off finishes the month");
     }
 
     #[test]
+    fn incentives_add_to_the_earnings_and_a_write_off_is_kept_apart() {
+        let mut r = row(10.0, 400.0, 0.0, 0.0, 100.0);
+        r.incentives = vec![
+            Incentive { id: 1, reason: "Night work".into(), amount: 250.0 },
+            Incentive { id: 2, reason: "Site visit".into(), amount: 150.25 },
+        ];
+        let f = figures(Some(&r), 0.0, 0.0, 0.0, 0.0);
+        assert_eq!((f.incentives, f.earned), (400.25, 4500.25));
+        let f = figures(Some(&row(10.0, 400.0, 0.0, 0.0, 0.0)), 5000.0, 1000.0, 1000.0, 0.0);
+        assert_eq!((f.balance, f.written_off), (0.0, 1000.0), "settled, but the extra stays on record");
+    }
+
+    #[test]
     fn status_ignores_float_dust() {
-        let f = figures(Some(&row(1.0, 0.3, 0.0, 0.0, 0.0)), 0.1 + 0.2, 0.0, 0.0);
+        let f = figures(Some(&row(1.0, 0.3, 0.0, 0.0, 0.0)), 0.1 + 0.2, 0.0, 0.0, 0.0);
         assert_eq!(f.balance, 0.0);
         assert_eq!(status(true, f.balance), "PAID");
         assert_eq!(status(true, 10.0), "TO_PAY");

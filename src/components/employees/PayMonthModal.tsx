@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { EmployeePayment, PayMonthDetail, PayMonthInput, WageKind } from "../../types/payroll";
-import { deletePayMonth, getPayMonth, savePayMonth } from "../../services/api";
-import { errorMessage, formatDate, formatMoney, monthTitle } from "../../lib/format";
-import { carriedInLabel, parseQuantity, payLine, STATUS_TONE, statusText, WAGE_KIND_LABEL } from "../../lib/payroll";
+import { Copy, FileText, MessageCircle, Plus, Printer } from "lucide-react";
+import { EmployeePayMessage, EmployeePayment, Incentive, PayMonthDetail, PayMonthInput, PayStatus, WageKind } from "../../types/payroll";
+import {
+  deletePayMonth,
+  getEmployeePayMessage,
+  getPayMonth,
+  openEmployeePayWhatsApp,
+  printPaySlip,
+  savePayMonth,
+  sendPaySlipWhatsApp,
+} from "../../services/api";
+import { errorMessage, formatDate, formatMoney, formatPhone, monthTitle, round2 } from "../../lib/format";
+import { carriedInLabel, parseQuantity, shortMoney, payLine, statusText, statusTone, WAGE_KIND_LABEL } from "../../lib/payroll";
 import { Alert, Badge, Button, ConfirmDialog, Field, inputClass, Loading, Modal, SectionTitle, rowClass, rowProps, useToast } from "../ui";
+import IncentiveFormModal from "./IncentiveFormModal";
 import WageEntryFormModal from "./WageEntryFormModal";
 
 interface Props {
@@ -26,6 +36,12 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
   const [bonus, setBonus] = useState("");
   const [bonusNote, setBonusNote] = useState("");
   const [note, setNote] = useState("");
+  const [incentiveForm, setIncentiveForm] = useState<{ existing?: Incentive } | null>(null);
+  const [message, setMessage] = useState<EmployeePayMessage | null>(null);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [slipBusy, setSlipBusy] = useState<"print" | "send" | null>(null);
+  const [slipError, setSlipError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmPaidEdit, setConfirmPaidEdit] = useState<PayMonthInput | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -56,6 +72,30 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
     load();
   }, [load]);
 
+  // The pay message follows the saved month: it is filled again whenever the month changes.
+  useEffect(() => {
+    if (!detail?.row) {
+      setMessage(null);
+      setMessageError(null);
+      return;
+    }
+    let cancelled = false;
+    getEmployeePayMessage(employeeId, month)
+      .then((m) => {
+        if (cancelled) return;
+        setMessage(m);
+        setMessageError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setMessage(null);
+        setMessageError(errorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail, employeeId, month]);
+
   if (!detail) {
     return (
       <Modal title={monthTitle(month)} onClose={onClose}>
@@ -72,10 +112,56 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
   const wageValue = Number(wage);
   const rateValue = rate.trim() === "" ? 0 : Number(rate);
   const bonusValue = bonus.trim() === "" ? 0 : Number(bonus);
+  // Incentives are saved on their own (Add incentive), so the preview takes them as saved.
+  const incentiveTotal = f.incentives;
   const preview =
     daysIn.value !== null && wageValue > 0
-      ? payLine(daysIn.value, wageValue) + payLine(hoursIn.value ?? 0, rateValue >= 0 ? rateValue : 0) + (bonusValue >= 0 ? bonusValue : 0)
+      ? round2(
+          payLine(daysIn.value, wageValue) + payLine(hoursIn.value ?? 0, rateValue >= 0 ? rateValue : 0) + (bonusValue >= 0 ? bonusValue : 0) + incentiveTotal,
+        )
       : null;
+  // The working follows the boxes as they are typed: what the month will be once saved.
+  const valid =
+    detail.editable && daysIn.value !== null && !daysIn.error && !hoursIn.error && wageValue > 0 && rateValue >= 0 && bonusValue >= 0;
+  const typed = valid
+    ? {
+        days: daysIn.value as number,
+        hours: hoursIn.value ?? 0,
+        wage: round2(wageValue),
+        rate: round2(rateValue),
+        wages: payLine(daysIn.value as number, wageValue),
+        ot: payLine(hoursIn.value ?? 0, rateValue),
+        bonus: round2(bonusValue),
+        bonusNote: bonusNote.trim(),
+        incentives: row?.incentives ?? [],
+      }
+    : null;
+  const saved = row
+    ? {
+        days: row.days_worked,
+        hours: row.ot_hours,
+        wage: row.daily_wage,
+        rate: row.ot_rate,
+        wages: f.wages,
+        ot: f.ot_amount,
+        bonus: f.bonus,
+        bonusNote: row.bonus_note ?? "",
+        incentives: row.incentives,
+      }
+    : null;
+  const w = typed ?? saved;
+  const earned = typed && preview !== null ? preview : f.earned;
+  const balance = round2(earned - f.given + f.cleared - f.rounded_off);
+  const status: PayStatus = !w ? detail.status : balance > 0 ? "TO_PAY" : balance < 0 ? "OVERPAID" : "PAID";
+  const shownFigures = { ...f, earned, balance };
+  const unsaved =
+    typed !== null &&
+    (saved === null ||
+      typed.days !== saved.days ||
+      typed.hours !== saved.hours ||
+      typed.wage !== saved.wage ||
+      typed.rate !== saved.rate ||
+      typed.bonus !== saved.bonus);
 
   const write = async (input: PayMonthInput) => {
     setSaving(true);
@@ -114,12 +200,62 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
   const otWarning = (hoursIn.value ?? 0) > 0 && rateValue === 0;
   const kindLabel = (p: EmployeePayment) => (p.carried_to === month && p.kind === "CARRIED" ? carriedInLabel(p.month) : WAGE_KIND_LABEL[p.kind]);
   const allEntries = [...detail.carried_in, ...detail.entries];
+  const ownTotal = (kind: WageKind) => round2(detail.entries.filter((p) => p.kind === kind).reduce((t, p) => t + p.amount, 0));
+  const returned = ownTotal("RETURNED");
+  const carriedOut = ownTotal("CARRIED");
+
+  // WhatsApp opens with the message typed in; the owner presses Send there.
+  const sendOnWhatsApp = async () => {
+    setOpening(true);
+    try {
+      setMessage(await openEmployeePayWhatsApp(employeeId, month));
+      toast("WhatsApp opened. Press Send there.");
+    } catch (err) {
+      setMessageError(errorMessage(err));
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  // Pay slip PDF: printing opens it in the PDF viewer; sending also opens its folder and the chat.
+  const paySlip = async (how: "print" | "send") => {
+    setSlipBusy(how);
+    setSlipError(null);
+    try {
+      if (how === "print") {
+        await printPaySlip(employeeId, month);
+        toast("Pay slip opened. Print it from the PDF viewer.");
+      } else {
+        await sendPaySlipWhatsApp(employeeId, month);
+        toast("Drag the pay slip from the folder into the WhatsApp chat, then press Send.");
+      }
+    } catch (err) {
+      setSlipError(errorMessage(err));
+    } finally {
+      setSlipBusy(null);
+    }
+  };
+
+  const copyMessage = async () => {
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message.message);
+      toast("Message copied");
+    } catch {
+      setMessageError("Could not copy the message.");
+    }
+  };
 
   return (
     <>
       <Modal
         title={`${e.name} · ${monthTitle(month)}`}
-        subtitle={<Badge tone={STATUS_TONE[detail.status]}>{statusText(detail.status, f)}</Badge>}
+        subtitle={
+          <span className="inline-flex items-center gap-2">
+            <Badge tone={statusTone(status, shownFigures)}>{statusText(status, shownFigures)}</Badge>
+            {unsaved && <span className="text-xs text-amber-700">Not saved yet</span>}
+          </span>
+        }
         onClose={onClose}
         size="lg"
         footer={
@@ -128,6 +264,11 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
               {row && (
                 <Button variant="dangerText" className="mr-auto" onClick={() => setConfirmDelete(true)}>
                   Delete month
+                </Button>
+              )}
+              {row && (
+                <Button icon={<Plus className="h-4 w-4" />} onClick={() => setIncentiveForm({})}>
+                  Add incentive
                 </Button>
               )}
               <Button onClick={() => setEntryForm({ kind: "ADVANCE" })}>Give advance</Button>
@@ -147,21 +288,32 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
           <div>
             <SectionTitle>Working</SectionTitle>
             <dl className="space-y-1 tabular">
-              {row ? (
+              {w ? (
                 <>
-                  <Line label={`${row.days_worked} days × ${formatMoney(row.daily_wage)}`} value={f.wages} />
-                  {(row.ot_hours > 0 || f.ot_amount > 0) && <Line label={`${row.ot_hours} h OT × ${formatMoney(row.ot_rate)}`} value={f.ot_amount} />}
-                  {f.bonus > 0 && <Line label={`Bonus${row.bonus_note ? ` (${row.bonus_note})` : ""}`} value={f.bonus} />}
-                  <Line label="Earned" value={f.earned} strong />
+                  <Line label={`${w.days} days × ${formatMoney(w.wage)}`} value={w.wages} />
+                  {(w.hours > 0 || w.ot > 0) && <Line label={`${w.hours} h OT × ${formatMoney(w.rate)}`} value={w.ot} />}
+                  {w.bonus > 0 && <Line label={`Bonus${w.bonusNote ? ` (${w.bonusNote})` : ""}`} value={w.bonus} />}
+                  {w.incentives.map((i) => (
+                    <Line
+                      key={i.id}
+                      label={`Incentive (${i.reason})`}
+                      value={i.amount}
+                      onOpen={detail.editable ? () => setIncentiveForm({ existing: i }) : undefined}
+                    />
+                  ))}
+                  <Line label="Earned" value={earned} strong />
                 </>
               ) : (
                 <p className="text-slate-500">Days not entered yet.</p>
               )}
               {f.given > 0 && <Line label="Paid (advances and salary)" value={-f.given} />}
-              {f.cleared > 0 && <Line label="Returned, written off or taken from next month" value={f.cleared} />}
-              {f.rounded_off !== 0 && <Line label={f.rounded_off > 0 ? "Rounded off (paid less)" : "Extra counted as paid"} value={-f.rounded_off} />}
-              <Line label={f.balance < 0 ? "Overpaid" : "Still to pay"} value={Math.abs(f.balance)} strong />
+              {returned > 0 && <Line label="Cash returned" value={returned} />}
+              {carriedOut > 0 && <Line label="Extra, to next month" value={carriedOut} />}
+              {f.written_off > 0 && <Line label="Extra, written off" value={f.written_off} />}
+              {f.rounded_off !== 0 && <Line label={f.rounded_off > 0 ? "Rounded off (paid less)" : "Extra, rounded off"} value={-f.rounded_off} />}
+              <Line label={balance < 0 ? "Overpaid" : "Still to pay"} value={Math.abs(balance)} strong />
             </dl>
+            {unsaved && <p className="mt-2 text-xs text-amber-700">Showing the figures as typed below. Press {row ? "Save month" : "Enter the days"} to keep them.</p>}
           </div>
 
           {detail.editable && (
@@ -228,7 +380,7 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
                           {p.note && <div className="text-xs text-slate-500">{p.note}</div>}
                           {p.round_off !== 0 && (
                             <div className="text-xs text-slate-500">
-                              {p.round_off > 0 ? `Rounded off ${formatMoney(p.round_off)}` : `${formatMoney(-p.round_off)} extra, counted as paid`}
+                              {p.round_off > 0 ? `−${shortMoney(p.round_off)} rounded off` : `+${shortMoney(-p.round_off)} rounded off`}
                             </div>
                           )}
                         </td>
@@ -242,10 +394,54 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
             )}
           </div>
 
+          {row && (
+            <div>
+              <SectionTitle>Pay slip</SectionTitle>
+              {slipError && <Alert>{slipError}</Alert>}
+              {unsaved && <p className="mb-2 text-xs text-amber-700">Save the month first so the pay slip shows the new figures.</p>}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button icon={<Printer className="h-4 w-4" />} loading={slipBusy === "print"} disabled={slipBusy !== null} onClick={() => paySlip("print")}>
+                  Print pay slip
+                </Button>
+                <Button icon={<FileText className="h-4 w-4" />} loading={slipBusy === "send"} disabled={slipBusy !== null} onClick={() => paySlip("send")}>
+                  Send pay slip on WhatsApp
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Sending opens the pay slip in its folder and the employee's chat. Drag the file into the chat, then press Send.
+              </p>
+            </div>
+          )}
+
+          {row && (
+            <div>
+              <SectionTitle>WhatsApp message</SectionTitle>
+              {messageError && <Alert tone="info">{messageError}</Alert>}
+              {message && (
+                <div className="space-y-3">
+                  {unsaved && <p className="text-xs text-amber-700">Save the month first to send the new figures.</p>}
+                  <pre className="whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2.5 font-sans text-slate-700 tabular">{message.message}</pre>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="primary" loading={opening} onClick={sendOnWhatsApp}>
+                      <MessageCircle className="h-4 w-4" aria-hidden />
+                      Send on WhatsApp
+                    </Button>
+                    <Button onClick={copyMessage}>
+                      <Copy className="h-4 w-4" aria-hidden />
+                      Copy message
+                    </Button>
+                    <span className="text-xs text-slate-500 tabular">To {formatPhone(message.number)}</span>
+                  </div>
+                  <p className="text-xs text-slate-500">Change the wording in Settings, WhatsApp messages.</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {detail.editable && detail.status === "OVERPAID" && (
             <div className="rounded-md border border-red-200 bg-red-50 p-4 space-y-3">
               <p className="text-slate-700">
-                {e.name} was paid {formatMoney(-f.balance)} more than earned this month. How is it settled?
+                Paid {shortMoney(-f.balance)} extra. How is it settled?
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => setEntryForm({ kind: "CARRIED" })}>Take from next month</Button>
@@ -256,6 +452,20 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
           )}
         </div>
       </Modal>
+
+      {incentiveForm && (
+        <IncentiveFormModal
+          detail={detail}
+          existing={incentiveForm.existing}
+          onClose={() => setIncentiveForm(null)}
+          onSaved={(d) => {
+            setIncentiveForm(null);
+            // Only the figures change: anything typed in the month form stays as typed.
+            setDetail(d);
+            onChanged();
+          }}
+        />
+      )}
 
       {entryForm && (
         <WageEntryFormModal
@@ -288,7 +498,7 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete ${monthTitle(month)} for ${e.name}?`}
-          message="The days, OT hours and bonus for this month will be removed. A month with payments can't be deleted; delete or move the payments first."
+          message="The days, OT hours, bonus and incentives for this month will be removed. A month with payments can't be deleted; delete or move the payments first."
           confirmLabel="Delete month"
           onConfirm={async () => {
             await deletePayMonth(employeeId, month);
@@ -303,9 +513,26 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
   );
 }
 
-function Line({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+function Line({ label, value, strong, onOpen }: { label: string; value: number; strong?: boolean; onOpen?: () => void }) {
+  const look = strong ? "font-semibold text-slate-900 border-t border-slate-200 pt-1" : "text-slate-700";
+  if (onOpen) {
+    return (
+      <div
+        {...rowProps(onOpen)}
+        role="button"
+        aria-label={`Edit ${label}`}
+        className={`-mx-2 flex justify-between gap-4 rounded px-2 ${rowClass} ${look}`}
+      >
+        <dt>{label}</dt>
+        <dd className="flex items-center gap-2">
+          <span className="text-xs text-brand-700 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">Edit</span>
+          {formatMoney(value)}
+        </dd>
+      </div>
+    );
+  }
   return (
-    <div className={`flex justify-between gap-4 ${strong ? "font-semibold text-slate-900 border-t border-slate-200 pt-1" : "text-slate-700"}`}>
+    <div className={`flex justify-between gap-4 ${look}`}>
       <dt>{label}</dt>
       <dd>{formatMoney(value)}</dd>
     </div>

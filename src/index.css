@@ -360,3 +360,11 @@
   color: var(--color-slate-500);
   pointer-events: none;
 }
+
+/* Scrolls with the wheel or keyboard but draws no scrollbar (the sidebar menu on short windows). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -64,15 +64,25 @@ pub fn rent_amount_text(amount: f64) -> String {
     text.strip_suffix(".00").map(str::to_string).unwrap_or(text)
 }
 
-/// The one message sent to every tenant who has not paid.
-pub fn rent_reminder_text(name: &str, month_label: &str, amount: f64, place: &str) -> String {
-    format!(
-        "Hello {}, this is a reminder for your {} rent of {} for {}. Please pay at your earliest convenience. Thank you.",
-        name,
-        month_label,
-        rent_amount_text(amount),
-        place
+/// The owner's rent reminder template filled for one tenant.
+pub fn rent_reminder_from(template: &str, name: &str, month_label: &str, amount: f64, place: &str, business_name: &str) -> String {
+    crate::messages::templates::fill(
+        template,
+        &[
+            ("tenant_name", name.to_string()),
+            ("month", month_label.to_string()),
+            ("rent", rent_amount_text(amount)),
+            ("place", place.to_string()),
+            ("business_name", business_name.to_string()),
+        ],
     )
+}
+
+/// The default reminder, as sent before templates could be changed.
+#[cfg(test)]
+pub fn rent_reminder_text(name: &str, month_label: &str, amount: f64, place: &str) -> String {
+    let template = crate::messages::templates::default_template(crate::messages::templates::RENT_REMINDER);
+    rent_reminder_from(template, name, month_label, amount, place, "")
 }
 
 /// `https://wa.me/<digits>?text=<message>` with the message percent-encoded as UTF-8, so Tamil

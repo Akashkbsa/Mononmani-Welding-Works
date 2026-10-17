@@ -10,7 +10,7 @@ import {
   rejoinEmployee,
 } from "../../services/api";
 import { errorMessage, formatDate, formatMoney, formatPhone, monthTitle, todayISO } from "../../lib/format";
-import { STATUS_TONE, statusText } from "../../lib/payroll";
+import { settleNotes, statusText, statusTone } from "../../lib/payroll";
 import { Alert, Badge, Button, ConfirmDialog, Field, inputClass, Loading, Modal, SectionTitle, rowClass, rowProps, useToast } from "../ui";
 import FileViewer from "../attachments/FileViewer";
 import EmployeeFormModal from "./EmployeeFormModal";
@@ -142,9 +142,16 @@ export default function EmployeeDetailsModal({ employeeId, onClose, onChanged, o
                       <td className="py-2 text-right tabular">{h.row ? h.row.days_worked : "—"}</td>
                       <td className="py-2 text-right tabular">{h.row ? h.row.ot_hours : "—"}</td>
                       <td className="py-2 text-right tabular">{h.row ? formatMoney(h.figures.earned) : "—"}</td>
-                      <td className="py-2 text-right tabular">{h.figures.given > 0 ? formatMoney(h.figures.given) : "—"}</td>
+                      <td className="py-2 text-right tabular">
+                        {h.figures.given > 0 ? formatMoney(h.figures.given) : "—"}
+                        {settleNotes(h.figures).map((n) => (
+                          <div key={n} className="text-xs text-slate-500">
+                            {n}
+                          </div>
+                        ))}
+                      </td>
                       <td className="py-2 pl-4">
-                        <Badge tone={STATUS_TONE[h.status]}>{statusText(h.status, h.figures)}</Badge>
+                        <Badge tone={statusTone(h.status, h.figures)}>{statusText(h.status, h.figures)}</Badge>
                       </td>
                     </tr>
                   ))}

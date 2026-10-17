@@ -2,7 +2,7 @@ use super::models::{
     MarkPaidInput, MonthOverview, MonthRow, MonthSummary, Place, PlaceDetail, PlaceInput, PlaceListItem, ReminderEntry, RentHistoryRow,
     RentReminder, RentalFileInfo, Tenant, TenantDetail, TenantInput, TenantListItem,
 };
-use super::reminder::{month_label, normalize_whatsapp_number, rent_reminder_text, whatsapp_link};
+use super::reminder::{month_label, normalize_whatsapp_number, rent_reminder_from, whatsapp_link};
 use crate::attachments::{clean_file_name, validate_file};
 use crate::util::{check_amount, normalize_date, round2};
 use chrono::Utc;
@@ -569,7 +569,9 @@ impl RentalRepository {
         if paid > 0 {
             return Err(format!("{} has already paid for {}.", tenant.name, label));
         }
-        let message = rent_reminder_text(&tenant.name, &label, tenant.monthly_rent, &tenant.place_name);
+        let template = crate::messages::templates::template(conn, crate::messages::templates::RENT_REMINDER)?;
+        let business = crate::messages::templates::business_name(conn);
+        let message = rent_reminder_from(&template, &tenant.name, &label, tenant.monthly_rent, &tenant.place_name, &business);
         let link = whatsapp_link(&tenant.whatsapp_number, &message);
         let reminder_number = Self::confirmed_reminders(conn, tenant_id, month)? + 1;
         Ok(RentReminder { tenant_id, tenant_name: tenant.name, number: tenant.whatsapp_number, reminder_number, message, link })

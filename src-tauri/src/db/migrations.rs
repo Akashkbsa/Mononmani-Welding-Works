@@ -508,7 +508,53 @@ const MIGRATIONS: &[Migration] = &[
         name: "026_document_vault",
         sql: DOCUMENT_VAULT_SQL,
     },
+    Migration {
+        version: 27,
+        name: "027_pay_incentives",
+        sql: PAY_INCENTIVES_SQL,
+    },
+    Migration {
+        version: 28,
+        name: "028_opening_balance",
+        sql: OPENING_BALANCE_SQL,
+    },
 ];
+
+/// A company's opening balance for its ledger: what it owed before its records in the app
+/// (+ they owe us, − we owe them) and the date it stood on. Customers are already in `change_log`.
+pub const OPENING_BALANCE_SQL: &str = r#"
+    ALTER TABLE customers ADD COLUMN opening_balance REAL NOT NULL DEFAULT 0;
+    ALTER TABLE customers ADD COLUMN opening_balance_date TEXT NULL
+        CHECK (opening_balance_date IS NULL OR opening_balance_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]');
+"#;
+
+/// Incentives: any number of extra amounts on an employee's month, each with its reason (night
+/// work, site visit, ...). They add to what the month earned, like the bonus. Removed with their
+/// month. Tracked in `change_log` for the backup.
+pub const PAY_INCENTIVES_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS pay_incentives (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pay_month_id INTEGER NOT NULL REFERENCES pay_months(id) ON DELETE CASCADE,
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        amount REAL NOT NULL CHECK (amount > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pay_incentives_month ON pay_incentives(pay_month_id);
+
+    CREATE TRIGGER IF NOT EXISTS trg_pay_incentives_insert_log AFTER INSERT ON pay_incentives
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('pay_incentives', NEW.id, 'INSERT', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_pay_incentives_update_log AFTER UPDATE ON pay_incentives
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('pay_incentives', NEW.id, 'UPDATE', datetime('now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_pay_incentives_delete_log AFTER DELETE ON pay_incentives
+    BEGIN
+        INSERT INTO change_log (table_name, row_id, op, changed_at) VALUES ('pay_incentives', OLD.id, 'DELETE', datetime('now'));
+    END;
+"#;
 
 /// Document Vault: the owner's own documents in two groups, Important and Keep for Future. The file
 /// itself lives in the Documents folder under its SHA-256, never in the database, so the daily
@@ -1940,6 +1986,40 @@ mod tests {
         conn.execute_batch("DELETE FROM employee_payments; DELETE FROM pay_months; DELETE FROM employees;").unwrap();
         let files: i64 = conn.query_row("SELECT COUNT(*) FROM employee_files", [], |r| r.get(0)).unwrap();
         assert_eq!(files, 0, "files go with the employee");
+    }
+
+    #[test]
+    fn migration_27_incentives_go_with_their_month_and_log_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&database_at_version_15(dir.path()));
+        assert!(latest_version() >= 27);
+        conn.execute_batch(
+            "INSERT INTO employees (name, joined_on, daily_wage, created_at, updated_at) VALUES ('Murugan', '2026-01-01', 600, 'x', 'x');
+             INSERT INTO pay_months (employee_id, month, days_worked, daily_wage, created_at, updated_at) VALUES (1, '2026-10', 26, 600, 'x', 'x');
+             INSERT INTO pay_incentives (pay_month_id, reason, amount, created_at, updated_at) VALUES (1, 'Night work', 200, 'x', 'x');
+             UPDATE pay_incentives SET amount = 250;",
+        )
+        .unwrap();
+        let bad = |reason: &str, amount: f64| {
+            conn.execute(
+                "INSERT INTO pay_incentives (pay_month_id, reason, amount, created_at, updated_at) VALUES (1, ?1, ?2, 'x', 'x')",
+                params![reason, amount],
+            )
+            .is_err()
+        };
+        assert!(bad(" ", 100.0), "a reason is needed");
+        assert!(bad("Site", 0.0), "the amount is more than 0");
+        conn.execute("DELETE FROM pay_months", []).unwrap();
+        let left: i64 = conn.query_row("SELECT COUNT(*) FROM pay_incentives", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0, "incentives go with their month");
+        let ops: Vec<String> = conn
+            .prepare("SELECT op FROM change_log WHERE table_name = 'pay_incentives' ORDER BY seq")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(ops, vec!["INSERT", "UPDATE", "DELETE"]);
     }
 
     #[test]

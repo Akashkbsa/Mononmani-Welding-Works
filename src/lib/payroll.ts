@@ -34,7 +34,35 @@ export const STATUS_TONE: Record<PayStatus, "neutral" | "amber" | "green" | "red
   OVERPAID: "red",
 };
 
-/** "To pay ₹13,260.00", "Paid · rounded off ₹10.00", "Overpaid ₹1,000.00", ... */
+/** Money paid beyond what was earned and let go: written off, or counted as paid by a round-off. */
+export function paidExtra(f: MonthFigures): number {
+  return round2(f.written_off + Math.max(0, -f.rounded_off));
+}
+
+/** ₹3,600 or ₹3,600.50: whole rupees without the empty paise, for short notes. */
+export function shortMoney(value: number): string {
+  return formatMoney(value).replace(/\.00$/, "");
+}
+
+/**
+ * Short notes on how a paid month was settled, shown under the amount paid:
+ * "+₹3,600 written off", "+₹1,000 to next month", "+₹5 rounded off", "−₹10 rounded off".
+ */
+export function settleNotes(f: MonthFigures): string[] {
+  const notes: string[] = [];
+  if (f.written_off > 0) notes.push(`+${shortMoney(f.written_off)} written off`);
+  if (f.carried > 0) notes.push(`+${shortMoney(f.carried)} to next month`);
+  if (f.rounded_off < 0) notes.push(`+${shortMoney(-f.rounded_off)} rounded off`);
+  if (f.rounded_off > 0) notes.push(`−${shortMoney(f.rounded_off)} rounded off`);
+  return notes;
+}
+
+/** Like STATUS_TONE, but a month where more than earned was paid stands out from a plain "Paid". */
+export function statusTone(status: PayStatus, f: MonthFigures): "neutral" | "amber" | "green" | "red" | "blue" {
+  return status === "PAID" && (paidExtra(f) > 0 || f.carried > 0) ? "blue" : STATUS_TONE[status];
+}
+
+/** "To pay ₹13,260.00", "Paid", "Overpaid ₹1,000.00", ... How a paid month was settled is in settleNotes. */
 export function statusText(status: PayStatus, f: MonthFigures): string {
   switch (status) {
     case "TO_PAY":
@@ -42,11 +70,9 @@ export function statusText(status: PayStatus, f: MonthFigures): string {
     case "OVERPAID":
       return `Overpaid ${formatMoney(-f.balance)}`;
     case "PAID":
-      if (f.rounded_off > 0) return `Paid · rounded off ${formatMoney(f.rounded_off)}`;
-      if (f.rounded_off < 0) return `Paid · ${formatMoney(-f.rounded_off)} extra`;
       return "Paid";
     default:
-      return f.given > 0 ? `Not entered · ${formatMoney(f.given)} given` : "Not entered";
+      return f.given > 0 ? `Not entered · ${shortMoney(f.given)} given` : "Not entered";
   }
 }
 

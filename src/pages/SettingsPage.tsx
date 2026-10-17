@@ -8,6 +8,7 @@ import { Alert, Button, Card, Loading, PageHeader, useToast } from "../component
 import BackupCard from "../components/BackupCard";
 import BusinessSettingsCard from "../components/BusinessSettingsCard";
 import SnoozeSettingsCard from "../components/SnoozeSettingsCard";
+import MessageTemplatesCard from "../components/MessageTemplatesCard";
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -26,7 +27,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Your business details, tax defaults and backups, and where your records are kept." />
+      <PageHeader title="Settings" description="Your business details, tax defaults, WhatsApp messages and backups, and where your records are kept." />
 
       {error && <Alert>{error}</Alert>}
       {!storage || !db ? (
@@ -58,6 +59,7 @@ export default function SettingsPage() {
 
       <div className="mt-6 space-y-6">
         <BusinessSettingsCard />
+        <MessageTemplatesCard />
         <SnoozeSettingsCard />
         <BackupCard />
       </div>

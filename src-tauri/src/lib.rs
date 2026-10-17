@@ -2,6 +2,8 @@ mod attachments;
 mod backup;
 mod customers;
 mod db;
+mod ledger;
+mod messages;
 pub mod documents;
 pub mod invoices;
 pub mod payments;
@@ -235,6 +237,20 @@ pub fn run() {
             rentals::get_tenant_rent_history,
             rentals::open_rental_file,
             payroll::list_employees,
+            payroll::list_incentive_reasons,
+            payroll::get_employee_pay_message,
+            payroll::open_employee_pay_whatsapp,
+            payroll::print_pay_slip,
+            payroll::print_month_pay_slips,
+            payroll::send_pay_slip_whatsapp,
+            ledger::get_ledger,
+            ledger::set_opening_balance,
+            ledger::print_ledger,
+            messages::get_message_templates,
+            messages::save_message_template,
+            payroll::add_incentive,
+            payroll::update_incentive,
+            payroll::delete_incentive,
             payroll::get_employee,
             payroll::create_employee,
             payroll::update_employee,

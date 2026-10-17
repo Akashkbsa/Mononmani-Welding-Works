@@ -54,6 +54,9 @@ pub struct EmployeeFileInfo {
 pub struct EmployeeDetail {
     pub employee: Employee,
     pub files: Vec<EmployeeFileInfo>,
+    /// After a rate change: the unpaid months (YYYY-MM) that took the new rate.
+    #[serde(default)]
+    pub rate_updated_months: Vec<String>,
 }
 
 /// One employee's entered month: days, OT hours and the rates copied when it was first saved.
@@ -70,6 +73,22 @@ pub struct PayRow {
     pub bonus_amount: f64,
     pub bonus_note: Option<String>,
     pub note: Option<String>,
+    /// Extra amounts on the month, each with its reason.
+    #[serde(default)]
+    pub incentives: Vec<Incentive>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Incentive {
+    pub id: i64,
+    pub reason: String,
+    pub amount: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncentiveInput {
+    pub reason: String,
+    pub amount: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +101,18 @@ pub struct PayMonthInput {
     pub bonus_amount: f64,
     pub bonus_note: Option<String>,
     pub note: Option<String>,
+    /// The month's whole list of incentives; None keeps what is saved (the pay sheet).
+    #[serde(default)]
+    pub incentives: Option<Vec<IncentiveInput>>,
+}
+
+/// The pay message for one employee's month and the WhatsApp link to their chat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmployeePayMessage {
+    pub message: String,
+    /// `+` and digits, e.g. +919876543210.
+    pub number: String,
+    pub link: String,
 }
 
 /// A month's pay worked out from its row and entries. Never stored.
@@ -90,11 +121,19 @@ pub struct MonthFigures {
     pub wages: f64,
     pub ot_amount: f64,
     pub bonus: f64,
+    #[serde(default)]
+    pub incentives: f64,
     pub earned: f64,
     /// Advances and salary, plus an advance carried in from the month before.
     pub given: f64,
     /// Cash returned, written off, or taken from next month.
     pub cleared: f64,
+    /// The part of `cleared` written off: paid more and let go.
+    #[serde(default)]
+    pub written_off: f64,
+    /// The part of `cleared` taken from next month (paid extra, counted as an advance there).
+    #[serde(default)]
+    pub carried: f64,
     /// + paid less and accepted, - paid more.
     pub rounded_off: f64,
     /// + still to pay, - overpaid.

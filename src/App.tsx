@@ -244,7 +244,7 @@ function App() {
               {sidebar.closed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
             </button>
           </div>
-          <nav className={`flex-1 overflow-y-auto overflow-x-hidden ${sidebar.closed ? "px-2" : "px-3"}`}>
+          <nav className={`flex-1 overflow-y-auto overflow-x-hidden scrollbar-none ${sidebar.closed ? "px-2" : "px-3"}`}>
             {NAV_GROUPS.map((group, i) => (
               <div key={i} className={`space-y-0.5 ${i > 0 ? "mt-2 border-t border-white/10 pt-2" : ""}`}>
                 {group.map((item) => (

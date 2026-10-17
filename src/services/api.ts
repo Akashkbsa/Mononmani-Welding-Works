@@ -73,6 +73,8 @@ import {
 import { Reminder, ReminderInput, ReminderLinkKind, ReminderTab } from "../types/reminder";
 import { StorageInfo } from "../types/storage";
 import { BusinessSettings } from "../types/settings";
+import { MessageKind, MessageTemplate } from "../types/messages";
+import { Ledger, OpeningBalance } from "../types/ledger";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
 import { DocumentFilter, DocumentInput, DocumentSummary, VaultDocument } from "../types/document";
 import {
@@ -82,6 +84,8 @@ import {
   EmployeeListItem,
   EmployeePayment,
   EmployeePaymentInput,
+  EmployeePayMessage,
+  IncentiveInput,
   PayMonthDetail,
   PayMonthInput,
   PayMonthSummary,
@@ -365,6 +369,31 @@ export const getEmployeeFilePreview = (fileId: number) => call<string>("get_empl
 export const openEmployeeFile = (fileId: number) => call<void>("open_employee_file", { fileId });
 /** The last 12 months up to this month, newest first. */
 export const getEmployeePayHistory = (employeeId: number) => call<PayMonthSummary[]>("get_employee_pay_history", { employeeId });
+export const getEmployeePayMessage = (employeeId: number, month: string) =>
+  call<EmployeePayMessage>("get_employee_pay_message", { employeeId, month });
+/** Opens the employee's WhatsApp chat with the pay message typed in; the owner presses Send there. */
+export const openEmployeePayWhatsApp = (employeeId: number, month: string) =>
+  call<EmployeePayMessage>("open_employee_pay_whatsapp", { employeeId, month });
+/** One employee's pay slip PDF for the month, opened in the PDF viewer. Returns its path. */
+export const printPaySlip = (employeeId: number, month: string) => call<string>("print_pay_slip", { employeeId, month });
+/** Everyone's pay slip for the month in one PDF, opened in the PDF viewer. */
+export const printMonthPaySlips = (month: string) => call<{ path: string; count: number }>("print_month_pay_slips", { month });
+/** Saves the pay slip, shows it in its folder and opens the employee's WhatsApp chat with the message typed in. */
+export const sendPaySlipWhatsApp = (employeeId: number, month: string) =>
+  call<EmployeePayMessage>("send_pay_slip_whatsapp", { employeeId, month });
+/** A company's ledger for the period (YYYY-MM-DD; null for no limit). */
+export const getLedger = (companyId: number, from: string | null, to: string | null) => call<Ledger>("get_ledger", { companyId, from, to });
+export const setOpeningBalance = (companyId: number, input: { amount: number; as_on: string | null }) =>
+  call<OpeningBalance>("set_opening_balance", { companyId, input });
+/** The ledger as a PDF, opened in the PDF viewer. Returns its path. */
+export const printLedger = (companyId: number, from: string | null, to: string | null) => call<string>("print_ledger", { companyId, from, to });
+export const getMessageTemplates = () => call<MessageTemplate[]>("get_message_templates");
+export const saveMessageTemplate = (kind: MessageKind, template: string) => call<MessageTemplate>("save_message_template", { kind, template });
+export const listIncentiveReasons = () => call<string[]>("list_incentive_reasons");
+export const addIncentive = (employeeId: number, month: string, input: IncentiveInput) =>
+  call<PayMonthDetail>("add_incentive", { employeeId, month, input });
+export const updateIncentive = (id: number, input: IncentiveInput) => call<PayMonthDetail>("update_incentive", { id, input });
+export const deleteIncentive = (id: number) => call<PayMonthDetail>("delete_incentive", { id });
 export const getPaySheet = (month: string) => call<PaySheet>("get_pay_sheet", { month });
 export const savePaySheet = (month: string, rows: PaySheetEntry[]) => call<PaySheet>("save_pay_sheet", { month, rows });
 export const getPayMonth = (employeeId: number, month: string) => call<PayMonthDetail>("get_pay_month", { employeeId, month });

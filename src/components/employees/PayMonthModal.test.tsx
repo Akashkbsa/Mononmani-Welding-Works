@@ -13,6 +13,14 @@ const api = vi.hoisted(() => ({
   createEmployeePayment: vi.fn(),
   deleteEmployeePayment: vi.fn(),
   updateEmployeePayment: vi.fn(),
+  listIncentiveReasons: vi.fn(),
+  addIncentive: vi.fn(),
+  updateIncentive: vi.fn(),
+  deleteIncentive: vi.fn(),
+  getEmployeePayMessage: vi.fn(),
+  openEmployeePayWhatsApp: vi.fn(),
+  printPaySlip: vi.fn(),
+  sendPaySlipWhatsApp: vi.fn(),
 }));
 vi.mock("../../services/api", () => api);
 
@@ -24,6 +32,10 @@ beforeEach(() => {
   api.getPayMonth.mockResolvedValue(monthDetail());
   api.savePayMonth.mockResolvedValue(monthDetail());
   api.deletePayMonth.mockResolvedValue(undefined);
+  api.listIncentiveReasons.mockResolvedValue(["Night work"]);
+  const payMessage = { message: "Hello Murugan,\nBalance : ₹21,200.00", number: "+919876500003", link: "https://wa.me/919876500003?text=x" };
+  api.getEmployeePayMessage.mockResolvedValue(payMessage);
+  api.openEmployeePayWhatsApp.mockResolvedValue(payMessage);
   onClose = vi.fn<() => void>();
   onChanged = vi.fn<() => void>();
 });
@@ -66,8 +78,75 @@ describe("the month's working", () => {
     expect(working("Paid (advances and salary)")).toBe("-₹22,700.00");
     expect(working("Overpaid")).toBe("₹1,000.00");
     expect(screen.getByText("Two advances")).toBeInTheDocument();
-    expect(screen.getByText("₹5.00 extra, counted as paid")).toBeInTheDocument();
-    expect(screen.getByText("Murugan was paid ₹1,000.00 more than earned this month. How is it settled?")).toBeInTheDocument();
+    expect(screen.getByText("+₹5 rounded off")).toBeInTheDocument();
+    expect(screen.getByText("Paid ₹1,000 extra. How is it settled?")).toBeInTheDocument();
+  });
+
+  it("lists each incentive and keeps money written off in view", async () => {
+    api.getPayMonth.mockResolvedValue(
+      monthDetail({
+        row: payRow({ days_worked: 16, daily_wage: 500, ot_hours: 0, incentives: [{ id: 1, reason: "Night work", amount: 300 }] }),
+        figures: figures({ wages: 8000, incentives: 300, earned: 8300, given: 12000, cleared: 3700, written_off: 3200, balance: 0 }),
+        status: "PAID",
+        entries: [
+          wagePayment({ id: 21, kind: "SALARY", amount: 12000 }),
+          wagePayment({ id: 22, kind: "RETURNED", amount: 500 }),
+          wagePayment({ id: 23, kind: "WRITE_OFF", amount: 3200, payment_method: null }),
+        ],
+      })
+    );
+    await open();
+    expect(working("Incentive (Night work)")).toContain("₹300.00");
+    expect(working("Cash returned")).toBe("₹500.00");
+    expect(working("Extra, written off")).toBe("₹3,200.00");
+    expect(screen.getByText("Paid")).toBeInTheDocument();
+  });
+
+  it("shows the pay message and opens WhatsApp with it", async () => {
+    await open();
+    expect(await screen.findByText(/Balance : ₹21,200.00/)).toBeInTheDocument();
+    expect(api.getEmployeePayMessage).toHaveBeenCalledWith(3, "2026-09");
+    await userEvent.click(screen.getByRole("button", { name: "Send on WhatsApp" }));
+    await waitFor(() => expect(api.openEmployeePayWhatsApp).toHaveBeenCalledWith(3, "2026-09"));
+    expect(await screen.findByText("WhatsApp opened. Press Send there.")).toBeInTheDocument();
+  });
+
+  it("prints the pay slip", async () => {
+    api.printPaySlip.mockResolvedValue("C:/data/Pay slips/2026-09/Murugan - Pay slip September 2026.pdf");
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Print pay slip" }));
+    await waitFor(() => expect(api.printPaySlip).toHaveBeenCalledWith(3, "2026-09"));
+    expect(await screen.findByText("Pay slip opened. Print it from the PDF viewer.")).toBeInTheDocument();
+  });
+
+  it("sends the pay slip on WhatsApp and says to drag it into the chat", async () => {
+    api.sendPaySlipWhatsApp.mockResolvedValue({ message: "Hello", number: "+919876500003", link: "https://wa.me/919876500003?text=Hello" });
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Send pay slip on WhatsApp" }));
+    await waitFor(() => expect(api.sendPaySlipWhatsApp).toHaveBeenCalledWith(3, "2026-09"));
+    expect(await screen.findByText("Drag the pay slip from the folder into the WhatsApp chat, then press Send.")).toBeInTheDocument();
+  });
+
+  it("shows why the pay slip could not be made", async () => {
+    api.printPaySlip.mockRejectedValue(new Error("The PDF was not created. Try again."));
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Print pay slip" }));
+    expect(await screen.findByText("The PDF was not created. Try again.")).toBeInTheDocument();
+  });
+
+  it("says why the pay message can't be sent", async () => {
+    api.getEmployeePayMessage.mockRejectedValue(new Error("Add a phone number for Murugan (Employees, Edit) to send on WhatsApp."));
+    await open();
+    expect(await screen.findByText("Add a phone number for Murugan (Employees, Edit) to send on WhatsApp.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send on WhatsApp" })).not.toBeInTheDocument();
+  });
+
+  it("has no pay message before the days are entered", async () => {
+    api.getPayMonth.mockResolvedValue(monthDetail({ row: null, figures: figures(), status: "NOT_ENTERED" }));
+    await open();
+    expect(screen.queryByText("WhatsApp message")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Print pay slip" })).not.toBeInTheDocument();
+    expect(api.getEmployeePayMessage).not.toHaveBeenCalled();
   });
 
   it("names an advance carried in from the month before", async () => {
@@ -150,6 +229,64 @@ describe("entering the days", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save month" }));
     expect(screen.getByRole("alert")).toHaveTextContent(message);
     expect(api.savePayMonth).not.toHaveBeenCalled();
+  });
+
+  it("adds an incentive from its own button and keeps what is typed in the month", async () => {
+    await open();
+    type("Days", "20");
+    api.addIncentive.mockResolvedValue(
+      monthDetail({
+        row: payRow({ incentives: [{ id: 7, reason: "Night work", amount: 300 }] }),
+        figures: figures({ wages: 20800, ot_amount: 400, incentives: 300, earned: 21500, balance: 21500 }),
+        status: "TO_PAY",
+      })
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Add incentive" }));
+    const form = await screen.findByRole("dialog", { name: "Add incentive" });
+    fireEvent.change(within(form).getByLabelText("Reason"), { target: { value: " Night work " } });
+    fireEvent.change(within(form).getByLabelText("Amount"), { target: { value: "300" } });
+    await userEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.addIncentive).toHaveBeenCalledWith(3, "2026-09", { reason: "Night work", amount: 300 }));
+    expect(await screen.findByText("Incentive saved")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Add incentive" })).not.toBeInTheDocument();
+    expect(working("Incentive (Night work)")).toContain("₹300.00");
+    expect(screen.getByLabelText("Days")).toHaveValue("20");
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("opens a saved incentive to edit it", async () => {
+    api.getPayMonth.mockResolvedValue(monthDetail({ row: payRow({ incentives: [{ id: 7, reason: "Target met", amount: 1000 }] }) }));
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Incentive (Target met)" }));
+    const form = await screen.findByRole("dialog", { name: "Edit incentive" });
+    expect(within(form).getByLabelText("Reason")).toHaveValue("Target met");
+    expect(within(form).getByLabelText("Amount")).toHaveValue(1000);
+  });
+
+  it("offers Add incentive only once the days are entered", async () => {
+    api.getPayMonth.mockResolvedValue(monthDetail({ row: null, figures: figures(), status: "NOT_ENTERED" }));
+    await open();
+    expect(screen.queryByRole("button", { name: "Add incentive" })).not.toBeInTheDocument();
+  });
+
+  it("updates the working and what is left to pay as the rates are typed", async () => {
+    api.getPayMonth.mockResolvedValue(
+      monthDetail({ figures: figures({ wages: 20800, ot_amount: 400, earned: 21200, given: 5000, balance: 16200 }), status: "TO_PAY" })
+    );
+    await open();
+    expect(screen.queryByText("Not saved yet")).not.toBeInTheDocument();
+    type("Daily wage", "900");
+    type("OT rate per hour", "150");
+    expect(working("26 days × ₹900.00")).toBe("₹23,400.00");
+    expect(working("4 h OT × ₹150.00")).toBe("₹600.00");
+    expect(working("Earned")).toBe("₹24,000.00");
+    expect(working("Still to pay")).toBe("₹19,000.00");
+    expect(screen.getByText("To pay ₹19,000.00")).toBeInTheDocument();
+    expect(screen.getByText("Not saved yet")).toBeInTheDocument();
+    type("Daily wage", "800");
+    type("OT rate per hour", "100");
+    expect(working("Still to pay")).toBe("₹16,200.00");
+    expect(screen.queryByText("Not saved yet")).not.toBeInTheDocument();
   });
 
   it("shows a bad number right under its box", async () => {
