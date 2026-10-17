@@ -1,19 +1,26 @@
-/* Ledger account: A4, as many pages as it needs; the table head repeats on each page. */
+/* Ledger account: A4, as many pages as it needs; the table head repeats on each page.
+   Built to print well both in colour and in black and white: near-black text, structure from
+   ruled lines rather than coloured blocks, only light grey shading, and nothing said by colour
+   alone (Dr and Cr are always written). */
 @page {
   size: A4;
-  margin: 12mm 13mm 14mm;
+  margin: 13mm 14mm 16mm;
+
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 8pt;
+    color: #4a4a4a;
+  }
 }
 
 :root {
-  --ink: #1a2633;
-  --muted: #5b6b7b;
-  --line: #d9e1e8;
-  --soft: #f3f6f9;
-  --steel: #1a374b;
-  --steel-2: #2c5878;
-  --arc: #e8731a;
-  /* Darker orange for small text: #e8731a is 3.04:1 on white, this is 5.02:1. */
-  --arc-text: #b45309;
+  --ink: #111111;
+  --muted: #4a4a4a;
+  --rule: #9a9a9a;
+  --rule-light: #cfcfcf;
+  --rule-strong: #111111;
+  --shade: #ececec;
 }
 
 * {
@@ -42,15 +49,15 @@ body {
   white-space: nowrap;
 }
 
-/* ---------- Header ---------- */
+/* ---------- Letterhead ---------- */
 
 .head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 10mm;
-  padding-bottom: 4mm;
-  border-bottom: 2.5px solid var(--arc);
+  padding-bottom: 3.5mm;
+  border-bottom: 1.6pt solid var(--rule-strong);
 }
 
 .brand {
@@ -60,31 +67,27 @@ body {
 }
 
 .brand svg {
-  width: 13mm;
-  height: 13mm;
+  width: 12mm;
+  height: 12mm;
   flex: none;
 }
 
 .brand h1 {
   margin: 0;
   font-size: 15pt;
-  letter-spacing: 0.02em;
-  color: var(--steel);
-  line-height: 1.15;
+  line-height: 1.1;
 }
 
-.brand .sub {
-  color: var(--steel-2);
-  font-weight: 600;
+.brand .tag {
   font-size: 8.5pt;
-  letter-spacing: 0.08em;
+  font-weight: 600;
 }
 
 .brand .contact {
   margin-top: 1mm;
-  color: var(--muted);
   font-size: 8pt;
-  max-width: 105mm;
+  color: var(--muted);
+  max-width: 110mm;
 }
 
 .title {
@@ -92,191 +95,182 @@ body {
   flex: none;
 }
 
-.title .label {
-  font-size: 8.5pt;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  color: var(--arc-text);
+.title h2 {
+  margin: 0;
+  font-size: 17pt;
+  line-height: 1.1;
 }
 
 .title .period {
-  font-size: 12pt;
-  font-weight: 700;
-  color: var(--steel);
+  margin-top: 1mm;
+  font-size: 10pt;
+  font-weight: 600;
 }
 
 .title .ref {
-  color: var(--muted);
   font-size: 8pt;
-}
-
-/* ---------- Party and balance ---------- */
-
-.party {
-  margin-top: 5mm;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6mm;
-  align-items: stretch;
-}
-
-.party .who {
-  padding: 4mm 5mm;
-  background: var(--soft);
-  border-radius: 2.5mm;
-}
-
-.k {
   color: var(--muted);
-  font-size: 7.5pt;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-.party .name {
-  font-size: 13pt;
-  font-weight: 700;
-  color: var(--steel);
-  margin-top: 0.5mm;
-}
-
-.party .lines {
-  margin-top: 1mm;
-  color: var(--muted);
-  font-size: 8.5pt;
-}
-
-.party .due {
-  min-width: 62mm;
-  padding: 4mm 5mm;
-  border-radius: 2.5mm;
-  background: var(--steel);
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.party .due .k {
-  color: #b8cadb;
-}
-
-.party .due .amount {
-  font-size: 17pt;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-
-.party .due .side {
-  font-size: 8.5pt;
-  color: #dbe5ee;
-}
-
-/* ---------- Summary ---------- */
-
-.summary {
-  margin-top: 4mm;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  border: 1px solid var(--line);
-  border-radius: 2.5mm;
-}
-
-.summary > div {
-  padding: 2.5mm 4mm;
-}
-
-.summary > div + div {
-  border-left: 1px solid var(--line);
-}
-
-.summary .v {
-  font-weight: 700;
-  font-size: 10.5pt;
-  font-variant-numeric: tabular-nums;
-  color: var(--steel);
-}
-
-/* ---------- Table ---------- */
+/* ---------- Account: who it is for, and where it stands ---------- */
 
 table {
   width: 100%;
-  margin-top: 5mm;
   border-collapse: collapse;
 }
 
-thead {
-  display: table-header-group;
+.acct {
+  margin-top: 4mm;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10mm;
 }
 
-th {
-  text-align: left;
-  font-size: 7.5pt;
+.party .k {
+  font-size: 8pt;
+  color: var(--muted);
+}
+
+.party .name {
+  font-size: 11pt;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #fff;
-  background: var(--steel);
-  padding: 2mm 2.5mm;
 }
 
-th.num {
-  text-align: right;
+.party .line {
+  font-size: 8.5pt;
+  color: var(--muted);
 }
 
-td {
-  padding: 1.8mm 2.5mm;
-  border-bottom: 1px solid var(--line);
+.party .line:empty {
+  display: none;
+}
+
+.party {
+  flex: 1;
+  min-width: 0;
+}
+
+.sum {
+  width: 92mm;
+  flex: none;
+  table-layout: fixed;
+}
+
+.sum th {
+  width: 52%;
+}
+
+.sum th,
+.sum td {
+  border: 0.75pt solid var(--rule);
+  padding: 1.5mm 2.4mm;
+  text-align: left;
   vertical-align: top;
 }
 
-tr {
+.sum th {
+  background: var(--shade);
+  font-weight: 600;
+}
+
+.sum .num {
+  text-align: right;
+}
+
+.sum .closing th,
+.sum .closing td {
+  font-weight: 700;
+}
+
+.sum .closing td {
+  font-size: 10.5pt;
+  vertical-align: middle;
+}
+
+.sum .as {
+  display: block;
+  font-size: 7.5pt;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* ---------- Entries ---------- */
+
+.entries {
+  margin-top: 5mm;
+}
+
+.entries thead {
+  display: table-header-group;
+}
+
+/* The totals print once, at the end, not at the foot of every page. */
+.entries tfoot {
+  display: table-row-group;
+}
+
+.entries th {
+  text-align: left;
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--shade);
+  border-top: 1.2pt solid var(--rule-strong);
+  border-bottom: 1.2pt solid var(--rule-strong);
+  padding: 2mm 2.5mm;
+}
+
+.entries th.num {
+  text-align: right;
+}
+
+.entries td {
+  padding: 1.8mm 2.5mm;
+  border-bottom: 0.5pt solid var(--rule-light);
+  vertical-align: top;
+}
+
+.entries tr {
   break-inside: avoid;
 }
 
-tbody tr:nth-child(even) td {
-  background: #fafbfc;
-}
-
-td.date {
+.entries td.date {
   white-space: nowrap;
   width: 21mm;
 }
 
-td .detail {
+.entries td .detail {
   display: block;
   color: var(--muted);
   font-size: 8pt;
 }
 
-td.ref {
+.entries td.ref {
   white-space: nowrap;
-  color: var(--steel-2);
 }
 
-tr.carry td {
+.entries tr.carry td {
   font-style: italic;
   color: var(--muted);
 }
 
-tr.total td {
-  background: none;
-  border-top: 1.5px solid var(--steel);
-  border-bottom: 1px solid var(--line);
+.entries tr.total td {
+  border-top: 1.2pt solid var(--rule-strong);
+  border-bottom: 0;
   font-weight: 700;
-  color: var(--steel);
 }
 
-tr.closing td {
-  background: var(--soft);
-  border-bottom: 1.5px solid var(--steel);
+/* The closing balance: accounting double rule above, light shading, bold. */
+.entries tr.closing td {
+  border-top: 2.4pt double var(--rule-strong);
+  border-bottom: 1.2pt solid var(--rule-strong);
+  background: var(--shade);
   font-weight: 700;
-  color: var(--steel);
 }
 
-td.empty {
+.entries td.empty {
   text-align: center;
   color: var(--muted);
   font-style: italic;
@@ -286,32 +280,30 @@ td.empty {
 /* ---------- Footer ---------- */
 
 .note {
-  margin-top: 5mm;
-  font-size: 8pt;
-  color: var(--muted);
+  margin-top: 4mm;
+  font-size: 8.5pt;
   break-inside: avoid;
 }
 
+.note b {
+  font-weight: 600;
+}
+
 .sign {
-  margin-top: 14mm;
+  margin-top: 16mm;
   display: flex;
   justify-content: space-between;
-  gap: 20mm;
+  gap: 24mm;
   break-inside: avoid;
 }
 
 .sign div {
   flex: 1;
-  border-top: 1px solid var(--ink);
+  border-top: 0.75pt solid var(--ink);
   padding-top: 1.5mm;
-  font-size: 8pt;
-  color: var(--muted);
+  font-size: 8.5pt;
 }
 
 .sign div:last-child {
   text-align: right;
-}
-
-.sign b {
-  color: var(--ink);
 }

@@ -63,20 +63,15 @@ pub fn ledger_html(l: &Ledger, company: &Customer, seller: &BusinessSettings, pr
         .iter()
         .filter_map(|p| p.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(esc))
         .collect();
-    let mut party_lines = Vec::new();
-    if !address.is_empty() {
-        party_lines.push(address.join(", "));
-    }
+    let party_address = address.join(", ");
     let mut ids = Vec::new();
     if let Some(g) = company.gstin.as_deref().filter(|g| !g.trim().is_empty()) {
-        ids.push(format!("GSTIN {}", esc(g)));
+        ids.push(format!("<span class=\"nw\">GSTIN {}</span>", esc(g)));
     }
     if let Some(p) = company.phone.as_deref().filter(|p| !p.trim().is_empty()) {
-        ids.push(format!("Phone {}", esc(p)));
+        ids.push(format!("<span class=\"nw\">Phone {}</span>", esc(p)));
     }
-    if !ids.is_empty() {
-        party_lines.push(ids.join(" · "));
-    }
+    let party_ids = ids.join(" \u{00b7} ");
 
     let mut rows = String::new();
     if l.from.is_some() {
@@ -105,13 +100,13 @@ pub fn ledger_html(l: &Ledger, company: &Customer, seller: &BusinessSettings, pr
 
     let as_on = l.to.as_deref().map(display_date).unwrap_or_else(|| printed_on.to_string());
     let side = if l.closing > 0.0 {
-        format!("Due to {}", business)
+        format!("due to {}", business)
     } else if l.closing < 0.0 {
-        format!("Due from {}", business)
+        format!("due from {}", business)
     } else {
-        "Account settled".to_string()
+        "account settled".to_string()
     };
-    let opening_label = if l.from.is_some() { "Brought forward" } else { "Opening" };
+    let opening_label = if l.from.is_some() { "Brought forward" } else { "Opening balance" };
 
     format!(
         r#"<!DOCTYPE html>
@@ -120,19 +115,24 @@ pub fn ledger_html(l: &Ledger, company: &Customer, seller: &BusinessSettings, pr
 </style></head><body>
 <header class="head">
   <div class="brand">{logo}<div><h1>{business}</h1>{subtitle}<div class="contact">{contact}</div></div></div>
-  <div class="title"><div class="label">LEDGER ACCOUNT</div><div class="period">{period}</div><div class="ref">Printed on {printed_on}</div></div>
+  <div class="title"><h2>Ledger Account</h2><div class="period">{period}</div><div class="ref">Printed on {printed_on}</div></div>
 </header>
-<section class="party">
-  <div class="who"><div class="k">Account of</div><div class="name">{name}</div><div class="lines">{party_lines}</div></div>
-  <div class="due"><div class="k">Balance as on {as_on}</div><div class="amount">{closing}</div><div class="side">{side}</div></div>
+<section class="acct">
+  <div class="party">
+    <div class="k">Account of</div>
+    <div class="name">{name}</div>
+    <div class="line">{party_address}</div>
+    <div class="line">{party_ids}</div>
+  </div>
+  <table class="sum">
+    <tr><th>Period</th><td class="num">{period}</td></tr>
+    <tr><th>{opening_label}</th><td class="num">{brought}</td></tr>
+    <tr><th>Total debit</th><td class="num">{debit}</td></tr>
+    <tr><th>Total credit</th><td class="num">{credit}</td></tr>
+    <tr class="closing"><th>Closing balance<span class="as">as on {as_on}, {side}</span></th><td class="num">{closing}</td></tr>
+  </table>
 </section>
-<section class="summary">
-  <div><div class="k">{opening_label}</div><div class="v">{brought}</div></div>
-  <div><div class="k">Total debit</div><div class="v">{debit}</div></div>
-  <div><div class="k">Total credit</div><div class="v">{credit}</div></div>
-  <div><div class="k">Closing</div><div class="v">{closing}</div></div>
-</section>
-<table>
+<table class="entries">
   <thead><tr><th>Date</th><th>Particulars</th><th>Ref. no.</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
   <tbody>{rows}</tbody>
   <tfoot>
@@ -140,18 +140,19 @@ pub fn ledger_html(l: &Ledger, company: &Customer, seller: &BusinessSettings, pr
     <tr class="closing"><td></td><td>Closing balance</td><td></td><td></td><td></td><td class="num">{closing}</td></tr>
   </tfoot>
 </table>
-<p class="note">Dr: amount due to {business}. Cr: amount due from {business}. Please check this statement and confirm the balance.</p>
-<div class="sign"><div>Balance confirmed by <b>{name}</b></div><div>For <b>{business}</b><br>Authorised signatory</div></div>
+<p class="note"><b>Dr</b> = amount due to {business}. <b>Cr</b> = amount due from {business}. Please check this statement and confirm the balance.</p>
+<div class="sign"><div>Balance confirmed by {name}</div><div>For {business}<br>Authorised signatory</div></div>
 </body></html>"#,
         css = include_str!("../../templates/ledger.css"),
         logo = LOGO,
         business = business,
-        subtitle = if seller.business_subtitle.trim().is_empty() { String::new() } else { format!("<div class=\"sub\">{}</div>", esc(&seller.business_subtitle)) },
+        subtitle = if seller.business_subtitle.trim().is_empty() { String::new() } else { format!("<div class=\"tag\">{}</div>", esc(&seller.business_subtitle)) },
         contact = contact,
         period = period_text(l.from.as_deref(), l.to.as_deref()),
         printed_on = esc(printed_on),
         name = esc(&company.name),
-        party_lines = party_lines.join("<br>"),
+        party_address = party_address,
+        party_ids = party_ids,
         as_on = as_on,
         closing = balance_text(l.closing),
         side = side,
@@ -203,7 +204,7 @@ mod tests {
             brought_forward: 18500.0,
             lines: vec![
                 line("2026-04-10", "Sales invoice", "MWW/26-27/001", 11800.0, 0.0, 30300.0),
-                LedgerLine { detail: "Bank Transfer · UTR9".into(), ..line("2026-05-02", "Payment received", "PAY/26-27/004", 0.0, 10000.0, 20300.0) },
+                line("2026-05-02", "Payment received", "PAY/26-27/004", 0.0, 10000.0, 20300.0),
                 line("2026-05-10", "Purchase bill", "SKE-55", 0.0, 4000.0, 16300.0),
             ],
             total_debit: 11800.0,
@@ -228,21 +229,21 @@ mod tests {
     fn the_printed_ledger_has_every_part() {
         let html = ledger_html(&ledger(), &company(), &BusinessSettings::default(), "17-10-2026");
         for part in [
-            "LEDGER ACCOUNT",
+            "Ledger Account",
             "01-04-2026 to 17-10-2026",
             "Sri Krishna &lt;Engg&gt;",
-            "GSTIN 34AAACS1234F1ZV",
+            "GSTIN 34AAACS1234F1ZV</span>",
             "12, Industrial Estate, Puducherry, 605009",
             "Balance brought forward",
             "₹18,500.00 Dr",
             "MWW/26-27/001",
-            "Bank Transfer · UTR9",
             "SKE-55",
             "₹16,300.00 Dr",
-            "Total credit",
             "₹14,000.00",
             "Closing balance",
-            "Balance as on 17-10-2026",
+            "Total credit",
+            "as on 17-10-2026, due to",
+            "Page \" counter(page)",
             "Please check this statement and confirm the balance.",
         ] {
             assert!(html.contains(part), "missing {:?}", part);
@@ -279,7 +280,7 @@ mod tests {
             };
             b += d - cr;
             let day = format!("2026-{:02}-{:02}", 4 + i / 6, 1 + (i % 6) * 4);
-            lines.push(LedgerLine { detail: if cr > 0.0 && p.starts_with("Payment") { "Bank Transfer · UTR 55120".into() } else { String::new() }, ..line(&day, p, &n, d, cr, (b * 100.0f64).round() / 100.0) });
+            lines.push(line(&day, p, &n, d, cr, (b * 100.0f64).round() / 100.0));
         }
         l.total_debit = lines.iter().map(|x| x.debit).sum();
         l.total_credit = lines.iter().map(|x| x.credit).sum();

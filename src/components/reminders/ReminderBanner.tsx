@@ -92,7 +92,7 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   };
 
   return (
-    <section role="region" aria-label="Reminders" className="mww-fade mb-5 rounded-lg border border-slate-200 bg-white shadow-card">
+    <section role="region" aria-label="Reminders" className="mww-fade mb-5 rounded-lg border border-slate-200 bg-white shadow-md">
       <ul className="divide-y divide-slate-200">
         {items.slice(0, expanded ? SHOWN : 1).map((r) => {
           const style = STATE_STYLE[r.state];

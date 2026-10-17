@@ -284,7 +284,13 @@ function App() {
 
         <main className="flex-1 min-w-0 overflow-y-auto">
           <div className="@container mx-auto max-w-[120rem] px-4 py-5 sm:px-6 lg:px-10 lg:py-7">
-            {page !== "reminders" && <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />}
+            {page !== "reminders" && (
+              // Floats at the top while the page scrolls, until Done, Snooze or Dismiss. The silver strip
+              // behind it (cancelled out by the negative margin at rest) hides content scrolling past.
+              <div className="sticky top-0 z-30 -mt-5 bg-canvas pt-5 lg:-mt-7 lg:pt-7">
+                <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />
+              </div>
+            )}
             <BackupBanner refreshKey={`${page}-${backupVersion}`} onChanged={backupChanged} />
             <div key={page} className="mww-page">
               <ErrorBoundary>

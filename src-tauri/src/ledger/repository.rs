@@ -1,6 +1,11 @@
 //! A company's ledger: everything with them in one account, as Tally keeps it. Debit is what they
-//! owe us more (our invoices, our payments to them, refunds); Credit is what they owe us less
-//! (their payments, TDS, write-offs, their bills). The balance is + Dr (they owe us), − Cr (we owe them).
+//! owe us more (our invoices, our payments to them); Credit is what they owe us less (their
+//! payments, their bills). The balance is + Dr (they owe us), − Cr (we owe them).
+//!
+//! Each payment is one line carrying everything it settled: money received plus recognised TDS and
+//! any short payment written off, less any extra refunded or kept as a round-off (and the same for
+//! our payments to a supplier). The owner asked for no separate TDS / round-off lines; folding them
+//! in keeps the balance exact.
 
 use super::models::{Ledger, LedgerLine, OpeningBalance, OpeningBalanceInput};
 use crate::util::{check_amount, normalize_date, round2};
@@ -18,10 +23,6 @@ struct Entry {
     detail: String,
     debit: f64,
     credit: f64,
-}
-
-fn join_detail(parts: &[Option<String>]) -> String {
-    parts.iter().flatten().map(|s| s.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ")
 }
 
 fn query<T>(conn: &Connection, sql: &str, id: i64, map: impl FnMut(&rusqlite::Row) -> rusqlite::Result<T>) -> Result<Vec<T>, String> {
@@ -71,7 +72,7 @@ impl LedgerRepository {
                 order: (0, 0, 0),
                 particulars: "Opening balance".into(),
                 number: String::new(),
-                detail: "Balance before records in the app".into(),
+                detail: String::new(),
                 debit: opening.amount.max(0.0),
                 credit: (-opening.amount).max(0.0),
             });
@@ -98,7 +99,7 @@ impl LedgerRepository {
         // Payments received, with TDS, write-off and what happened to anything paid extra.
         let payments = query(
             conn,
-            "SELECT id, payment_date, payment_number, payment_method, reference_number, amount_received,
+            "SELECT id, payment_date, payment_number, amount_received,
                     tds_deducted, tds_recognized, writeoff_amount, excess_amount, excess_action
              FROM payments WHERE customer_id = ?1",
             id,
@@ -107,41 +108,28 @@ impl LedgerRepository {
                     r.get::<_, i64>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                    r.get::<_, f64>(5)?,
+                    r.get::<_, f64>(3)?,
+                    r.get::<_, f64>(4)?,
+                    r.get::<_, i64>(5)? != 0,
                     r.get::<_, f64>(6)?,
-                    r.get::<_, i64>(7)? != 0,
-                    r.get::<_, f64>(8)?,
-                    r.get::<_, f64>(9)?,
-                    r.get::<_, String>(10)?,
+                    r.get::<_, f64>(7)?,
+                    r.get::<_, String>(8)?,
                 ))
             },
         )?;
-        for (pid, date, number, method, reference, received, tds, tds_ok, writeoff, excess, action) in payments {
-            let line = |step: u8, particulars: &str, detail: String, debit: f64, credit: f64| Entry {
-                date: date.clone(),
-                order: (2, pid, step),
-                particulars: particulars.into(),
-                number: number.clone(),
-                detail,
-                debit,
-                credit,
-            };
-            if received > 0.0 {
-                out.push(line(0, "Payment received", join_detail(&[method.clone(), reference.clone()]), 0.0, received));
-            }
-            if tds_ok && tds > 0.0 {
-                out.push(line(1, "TDS deducted", String::new(), 0.0, tds));
-            }
-            if writeoff > 0.0 {
-                out.push(line(2, "Written off", "Short payment accepted".into(), 0.0, writeoff));
-            }
-            if excess > 0.0 && action == "REFUND" {
-                out.push(line(3, "Refund", "Extra paid, returned".into(), excess, 0.0));
-            }
-            if excess > 0.0 && action == "ROUNDOFF" {
-                out.push(line(3, "Round-off", "Extra paid, kept".into(), excess, 0.0));
+        for (pid, date, number, received, tds, tds_ok, writeoff, excess, action) in payments {
+            let given_back = if matches!(action.as_str(), "REFUND" | "ROUNDOFF") { excess } else { 0.0 };
+            let settled = round2(received + if tds_ok { tds } else { 0.0 } + writeoff - given_back);
+            if settled > 0.0 {
+                out.push(Entry {
+                    date,
+                    order: (2, pid, 0),
+                    particulars: "Payment received".into(),
+                    number,
+                    detail: String::new(),
+                    debit: 0.0,
+                    credit: settled,
+                });
             }
         }
 
@@ -166,8 +154,7 @@ impl LedgerRepository {
         // Our payments to them, with their write-off and any extra counted as paid.
         let paid = query(
             conn,
-            "SELECT id, payment_date, payment_number, payment_method, reference_number, amount_paid, writeoff_amount,
-                    excess_amount, excess_action
+            "SELECT id, payment_date, payment_number, amount_paid, writeoff_amount, excess_amount, excess_action
              FROM supplier_payments WHERE supplier_id = ?1",
             id,
             |r| {
@@ -175,33 +162,26 @@ impl LedgerRepository {
                     r.get::<_, i64>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, f64>(3)?,
+                    r.get::<_, f64>(4)?,
                     r.get::<_, f64>(5)?,
-                    r.get::<_, f64>(6)?,
-                    r.get::<_, f64>(7)?,
-                    r.get::<_, String>(8)?,
+                    r.get::<_, String>(6)?,
                 ))
             },
         )?;
-        for (pid, date, number, method, reference, amount, writeoff, excess, action) in paid {
-            let line = |step: u8, particulars: &str, detail: String, debit: f64, credit: f64| Entry {
-                date: date.clone(),
-                order: (4, pid, step),
-                particulars: particulars.into(),
-                number: number.clone(),
-                detail,
-                debit,
-                credit,
-            };
-            if amount > 0.0 {
-                out.push(line(0, "Payment made", join_detail(&[method.clone(), reference.clone()]), amount, 0.0));
-            }
-            if writeoff > 0.0 {
-                out.push(line(1, "Written off", "Short payment accepted by them".into(), writeoff, 0.0));
-            }
-            if excess > 0.0 && action != "NONE" {
-                out.push(line(2, "Round-off", "Extra paid, counted as paid".into(), 0.0, excess));
+        for (pid, date, number, amount, writeoff, excess, action) in paid {
+            let kept = if action != "NONE" { excess } else { 0.0 };
+            let settled = round2(amount + writeoff - kept);
+            if settled > 0.0 {
+                out.push(Entry {
+                    date,
+                    order: (4, pid, 0),
+                    particulars: "Payment made".into(),
+                    number,
+                    detail: String::new(),
+                    debit: settled,
+                    credit: 0.0,
+                });
             }
         }
 
@@ -351,16 +331,14 @@ mod tests {
             rows,
             vec![
                 ("Sales invoice", 11800.0, 0.0, 11800.0),
-                ("Payment received", 0.0, 11000.0, 800.0),
-                ("TDS deducted", 0.0, 200.0, 600.0),
-                ("Written off", 0.0, 600.0, 0.0),
+                ("Payment received", 0.0, 11800.0, 0.0),
                 ("Purchase bill", 0.0, 4000.0, -4000.0),
-                ("Payment made", 3950.0, 0.0, -50.0),
-                ("Written off", 50.0, 0.0, 0.0),
-            ]
+                ("Payment made", 4000.0, 0.0, 0.0),
+            ],
+            "one line per payment: received 11,000 + TDS 200 + written off 600; paid 3,950 + their write-off 50"
         );
         assert_eq!((l.total_debit, l.total_credit, l.closing), (15800.0, 15800.0, 0.0));
-        assert_eq!(l.lines[1].detail, "Bank Transfer · UTR9");
+        assert!(l.lines.iter().all(|x| x.detail.is_empty()), "no method or reference lines");
         assert_eq!(l.party_type, "BOTH");
     }
 
@@ -374,7 +352,7 @@ mod tests {
         received(&conn, "P3", "2026-04-13", 20.0, 0.0, false, 0.0, 20.0, "ROUNDOFF");
         let l = LedgerRepository::ledger(&conn, 1, None, None).unwrap();
         assert_eq!(l.closing, -500.0, "a refund and a round-off cancel their extra; unrecognised TDS is left out");
-        assert!(l.lines.iter().any(|x| x.particulars == "Refund" && x.debit == 300.0));
+        assert_eq!(l.lines.len(), 2, "a payment fully refunded or kept as a round-off leaves no line");
         bill(&conn, "B1", "2026-04-20", 100.0);
         paid(&conn, "S1", "2026-04-21", 105.0, 0.0, 5.0);
         assert_eq!(LedgerRepository::ledger(&conn, 1, None, None).unwrap().closing, -500.0);
