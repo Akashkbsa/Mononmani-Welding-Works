@@ -54,42 +54,50 @@
 }
 
 /*
-  Mononmani Welding Works: "Arc and Steel".
-  Steel is the work: cool, solid, trustworthy. It carries structure and actions.
-  The arc is the heat of the trade. It is used sparingly and only where it means something:
-  the logo, the active page, money still owed, and the glow on something just saved.
-  See docs/BRAND.md.
+  Mononmani Welding Works: "Graphite, Sky and Arc" (palette #232731, #3B4252, #00A7FF, #FF6B00, #E6E6E6).
+  Graphite is the frame (sidebar, darkest text). Sky blue carries actions and selection; the exact
+  #00A7FF is used where it can be read (on graphite), and deeper shades of the same blue wherever
+  text or white-on-blue must stay readable on light surfaces. The arc orange is used sparingly and
+  only where it means something: the logo, the active page, money still owed. Cool silver is the
+  page behind the white cards. Contrast of every pair: docs/ui-ux-audit-2026-10-17.md.
 */
 @theme {
   --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 
-  /* Steel: primary actions, selection, focus. (Named brand-* because the whole UI uses it.) */
-  --color-brand-50: #eef3f7;
-  --color-brand-100: #dbe5ee;
-  --color-brand-200: #b8cadb;
-  --color-brand-500: #3a6a8f;
-  --color-brand-600: #2c5878;
-  --color-brand-700: #234861;
-  --color-brand-800: #1a374b;
+  /* Sky: primary actions, selection, focus. (Named brand-* because the whole UI uses it.)
+     500 is the focus ring and input focus border (3.98:1 on white, 3.19:1 on silver);
+     600 is button blue (white text 4.87:1); 700 is link text (6.46:1). */
+  --color-brand-50: #e6f6ff;
+  --color-brand-100: #cceeff;
+  --color-brand-200: #99dcff;
+  --color-brand-500: #0086cc;
+  --color-brand-600: #0077b6;
+  --color-brand-700: #00639a;
+  --color-brand-800: #004d78;
 
-  /* Forge ink: the sidebar and the darkest text. */
-  --color-ink-700: #232f3d;
-  --color-ink-800: #19232f;
-  --color-ink-900: #121b25;
+  /* The palette's exact sky blue, for accents on graphite (5.67:1 on #232731), never as text on white. */
+  --color-sky: #00a7ff;
 
-  /* Arc: weld orange. Meaning, not decoration. */
-  --color-arc: #e8731a;
-  --color-arc-50: #fff5ec;
-  --color-arc-100: #ffe5d0;
-  --color-arc-200: #ffc9a0;
-  --color-arc-400: #f58f45;
-  --color-arc-500: #e8731a;
-  --color-arc-600: #c45a0b;
-  --color-arc-700: #9a4609;
+  /* Graphite: the sidebar and the darkest surfaces. */
+  --color-ink-700: #3b4252;
+  --color-ink-800: #2b303c;
+  --color-ink-900: #232731;
 
-  --color-canvas: #f2f4f7;
+  /* Arc: the palette's orange. Meaning, not decoration. 500 is the exact #FF6B00 (logo, active
+     page marker on graphite: 5.23:1); 600 and 700 are for orange text on light surfaces. */
+  --color-arc: #ff6b00;
+  --color-arc-50: #fff3eb;
+  --color-arc-100: #ffe3cc;
+  --color-arc-200: #ffc799;
+  --color-arc-400: #ff8a33;
+  --color-arc-500: #ff6b00;
+  --color-arc-600: #c25200;
+  --color-arc-700: #a84600;
 
-  --shadow-card: 0 1px 2px rgb(18 27 37 / 0.05);
+  /* Cool silver: the page behind the white cards. */
+  --color-canvas: #e6e6e6;
+
+  --shadow-card: 0 1px 2px rgb(35 39 49 / 0.06);
 }
 
 :root {

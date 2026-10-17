@@ -97,7 +97,7 @@ function NavButton({
           : "text-slate-300 hover:bg-white/5 hover:text-white"
       }`}
     >
-      <Icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : "text-slate-400"}`} aria-hidden="true" />
+      <Icon className={`w-4 h-4 shrink-0 ${active ? "text-sky" : "text-slate-400"}`} aria-hidden="true" />
       {!compact && <span className="truncate">{label}</span>}
       {badge && (
         <span
