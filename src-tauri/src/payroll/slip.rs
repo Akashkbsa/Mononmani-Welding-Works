@@ -4,7 +4,7 @@ use super::models::{EmployeePayment, PayMonthDetail, PayRow};
 use crate::invoices::repository::InvoiceRepository;
 use crate::rentals::reminder::month_label;
 use crate::settings::models::BusinessSettings;
-use crate::util::{display_date, rupees};
+use crate::util::{display_date, indian_number, rupees};
 
 /// Text shown as it is when put into HTML.
 fn esc(text: &str) -> String {
@@ -25,160 +25,184 @@ pub fn slip_number(employee_id: i64, month: &str) -> String {
 /// The app's mark: an "M" weld bead on an orange tile.
 const LOGO: &str = r##"<svg viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="8" fill="#e8731a"/><path d="M9 26V11l9 10 9-10v15" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M29.5 7.5l1.7-2.1M32 11.5h2.2M26 4.8l.5-2.3" fill="none" stroke="#fff" stroke-opacity="0.85" stroke-width="1.6" stroke-linecap="round"/></svg>"##;
 
-fn earnings_rows(row: &PayRow, d: &PayMonthDetail) -> String {
+/// One line in a column of the main table: what it is, a smaller second line, and the amount.
+struct Item {
+    what: String,
+    detail: Option<String>,
+    amount: f64,
+}
+
+fn earnings(row: &PayRow, d: &PayMonthDetail) -> Vec<Item> {
     let f = &d.figures;
-    let mut out = format!(
-        "<tr><td>Wages<span class=\"note\">{} days × {}</span></td><td class=\"num\">{}</td></tr>",
-        quantity(row.days_worked),
-        rupees(row.daily_wage),
-        rupees(f.wages)
-    );
+    let mut out = vec![Item {
+        what: "Wages".into(),
+        detail: Some(format!("{} days × {}", quantity(row.days_worked), rupees(row.daily_wage))),
+        amount: f.wages,
+    }];
     if row.ot_hours > 0.0 || f.ot_amount > 0.0 {
-        out.push_str(&format!(
-            "<tr><td>Overtime<span class=\"note\">{} h × {}</span></td><td class=\"num\">{}</td></tr>",
-            quantity(row.ot_hours),
-            rupees(row.ot_rate),
-            rupees(f.ot_amount)
-        ));
+        out.push(Item { what: "Overtime".into(), detail: Some(format!("{} h × {}", quantity(row.ot_hours), rupees(row.ot_rate))), amount: f.ot_amount });
     }
     if f.bonus > 0.0 {
-        let note = row.bonus_note.as_deref().map(|n| format!("<span class=\"note\">{}</span>", esc(n))).unwrap_or_default();
-        out.push_str(&format!("<tr><td>Bonus{}</td><td class=\"num\">{}</td></tr>", note, rupees(f.bonus)));
+        out.push(Item { what: "Bonus".into(), detail: row.bonus_note.clone(), amount: f.bonus });
     }
     for i in &row.incentives {
-        out.push_str(&format!(
-            "<tr><td>Incentive<span class=\"note\">{}</span></td><td class=\"num\">{}</td></tr>",
-            esc(&i.reason),
-            rupees(i.amount)
-        ));
+        out.push(Item { what: "Incentive".into(), detail: Some(i.reason.clone()), amount: i.amount });
     }
-    out.push_str(&format!("<tr class=\"total\"><td>Total earned</td><td class=\"num\">{}</td></tr>", rupees(f.earned)));
     out
 }
 
-fn payment_row(date: &str, what: &str, note: Option<String>, amount: String, class: &str) -> String {
-    let note = note.map(|n| format!("<span class=\"note\">{}</span>", esc(&n))).unwrap_or_default();
+/// Money handed over for the month: advances, salary, and an advance carried in, by date.
+fn payments(d: &PayMonthDetail) -> Vec<Item> {
+    let mut given: Vec<&EmployeePayment> = d.carried_in.iter().chain(d.entries.iter().filter(|p| p.kind == "ADVANCE" || p.kind == "SALARY")).collect();
+    given.sort_by(|a, b| a.entry_date.cmp(&b.entry_date).then(a.id.cmp(&b.id)));
+    given
+        .into_iter()
+        .map(|p| {
+            let what = match p.kind.as_str() {
+                "CARRIED" => format!("Advance from {}", month_label(&p.month).unwrap_or_else(|_| p.month.clone())),
+                "SALARY" => "Salary".to_string(),
+                _ => "Advance".to_string(),
+            };
+            let detail = match &p.payment_method {
+                Some(m) => format!("{} · {}", display_date(&p.entry_date), m),
+                None => display_date(&p.entry_date),
+            };
+            Item { what, detail: Some(detail), amount: p.amount }
+        })
+        .collect()
+}
+
+/// A description cell and its amount cell; empty cells when this side has run out of lines.
+fn item_cells(item: Option<&Item>) -> String {
+    match item {
+        Some(i) => format!(
+            "<td class=\"desc\">{}{}</td><td class=\"amt\">{}</td>",
+            esc(&i.what),
+            i.detail.as_deref().map(|t| format!("<span class=\"sub\">{}</span>", esc(t))).unwrap_or_default(),
+            indian_number(i.amount)
+        ),
+        None => "<td class=\"desc\"></td><td class=\"amt\"></td>".to_string(),
+    }
+}
+
+/// Earnings and payments side by side in one table, so every line and both totals sit level.
+fn main_table(row: &PayRow, d: &PayMonthDetail) -> String {
+    let left = earnings(row, d);
+    let right = payments(d);
+    let lines = left.len().max(right.len()).max(1);
+    let mut body = String::new();
+    for n in 0..lines {
+        let paid = if right.is_empty() && n == 0 {
+            "<td class=\"desc none\">Nothing paid yet</td><td class=\"amt\"></td>".to_string()
+        } else {
+            item_cells(right.get(n))
+        };
+        body.push_str(&format!("<tr>{}{}</tr>", item_cells(left.get(n)), paid));
+    }
     format!(
-        "<tr class=\"{}\"><td>{}</td><td>{}{}</td><td class=\"num\">{}</td></tr>",
-        class,
-        display_date(date),
-        esc(what),
-        note,
-        amount
+        r#"<table class="main">
+    <colgroup><col class="c-desc"><col class="c-amt"><col class="c-desc"><col class="c-amt"></colgroup>
+    <thead><tr><th>Earnings</th><th class="amt">Amount (₹)</th><th>Payments made</th><th class="amt">Amount (₹)</th></tr></thead>
+    <tbody>{body}</tbody>
+    <tfoot><tr><td>Total earned</td><td class="amt">{earned}</td><td>Total paid</td><td class="amt">{given}</td></tr></tfoot>
+  </table>"#,
+        body = body,
+        earned = indian_number(d.figures.earned),
+        given = indian_number(d.figures.given),
     )
 }
 
-fn payments_rows(d: &PayMonthDetail) -> String {
+/// The settlement: earned, less what was paid, any adjustments, and what is left. It adds up.
+fn settlement(d: &PayMonthDetail) -> String {
     let f = &d.figures;
-    let mut out = String::new();
-    let mut given: Vec<&EmployeePayment> = d.carried_in.iter().chain(d.entries.iter().filter(|p| p.kind == "ADVANCE" || p.kind == "SALARY")).collect();
-    given.sort_by(|a, b| a.entry_date.cmp(&b.entry_date).then(a.id.cmp(&b.id)));
-    for p in &given {
-        let what = match p.kind.as_str() {
-            "CARRIED" => format!("Advance from {}", month_label(&p.month).unwrap_or_else(|_| p.month.clone())),
-            "SALARY" => "Salary".to_string(),
-            _ => "Advance".to_string(),
-        };
-        out.push_str(&payment_row(&p.entry_date, &what, p.payment_method.clone(), rupees(p.amount), ""));
+    let sum = |kind: &str| d.entries.iter().filter(|p| p.kind == kind).map(|p| p.amount).sum::<f64>();
+    let mut rows = vec![
+        ("Total earned".to_string(), indian_number(f.earned)),
+        ("Less: paid".to_string(), format!("\u{2212} {}", indian_number(f.given))),
+    ];
+    for (kind, label) in [("RETURNED", "Add: cash returned"), ("CARRIED", "Add: extra, to next month"), ("WRITE_OFF", "Add: extra, written off")] {
+        let amount = sum(kind);
+        if amount > 0.0 {
+            rows.push((label.to_string(), format!("+ {}", indian_number(amount))));
+        }
     }
-    if given.is_empty() {
-        out.push_str("<tr><td class=\"empty\" colspan=\"3\">Nothing paid yet</td></tr>");
+    if f.rounded_off > 0.0 {
+        rows.push(("Less: rounded off".to_string(), format!("\u{2212} {}", indian_number(f.rounded_off))));
+    } else if f.rounded_off < 0.0 {
+        rows.push(("Add: extra, rounded off".to_string(), format!("+ {}", indian_number(-f.rounded_off))));
     }
-    out.push_str(&format!("<tr class=\"total\"><td colspan=\"2\">Total paid</td><td class=\"num\">{}</td></tr>", rupees(f.given)));
-
-    // How the month was settled beyond what was handed over.
-    for p in d.entries.iter().filter(|p| matches!(p.kind.as_str(), "RETURNED" | "WRITE_OFF" | "CARRIED")) {
-        let what = match p.kind.as_str() {
-            "RETURNED" => "Cash returned",
-            "WRITE_OFF" => "Extra, written off",
-            _ => "Extra, to next month",
-        };
-        out.push_str(&payment_row(&p.entry_date, what, None, rupees(p.amount), "settle"));
-    }
-    for p in d.entries.iter().filter(|p| p.kind == "SALARY" && p.round_off != 0.0) {
-        let what = if p.round_off > 0.0 { "Rounded off (paid less)" } else { "Extra, rounded off" };
-        out.push_str(&payment_row(&p.entry_date, what, None, rupees(p.round_off.abs()), "settle"));
-    }
-    out
-}
-
-/// The highlighted cell: what is left to pay, or that the month is settled.
-fn balance_cell(d: &PayMonthDetail) -> (String, String, &'static str) {
-    let f = &d.figures;
-    match d.status.as_str() {
-        "TO_PAY" => ("Balance to pay".to_string(), rupees(f.balance), ""),
-        "OVERPAID" => ("Paid extra".to_string(), rupees(-f.balance), ""),
-        _ => ("Balance".to_string(), "Fully paid".to_string(), " paid"),
-    }
+    let (label, value) = match d.status.as_str() {
+        "TO_PAY" => ("Balance to pay", rupees(f.balance)),
+        "OVERPAID" => ("Paid extra", rupees(-f.balance)),
+        _ => ("Balance", "Fully paid".to_string()),
+    };
+    let lines: String = rows.iter().map(|(l, v)| format!("<tr><td>{}</td><td class=\"amt\">{}</td></tr>", l, v)).collect();
+    format!(
+        r#"<table class="settle">{lines}<tr class="due"><td>{label}</td><td class="amt">{value}</td></tr></table>"#,
+        lines = lines,
+        label = label,
+        value = value,
+    )
 }
 
 fn one_slip(d: &PayMonthDetail, row: &PayRow, seller: &BusinessSettings, generated_on: &str) -> Result<String, String> {
     let e = &d.employee;
     let label = month_label(&d.month)?;
     let days_in_month = super::calc::days_in_month(&d.month)?;
-    let f = &d.figures;
-    let contact: Vec<String> = [seller.address.trim(), seller.phone.trim()]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .map(|s| esc(s))
-        .collect();
-    let contact = match seller.phone.trim() {
-        "" => contact.join(" · "),
-        _ => contact.join(" · Cell: "),
-    };
-    let (balance_label, balance_value, balance_class) = balance_cell(d);
-    let remark = row.note.as_deref().filter(|n| !n.trim().is_empty()).map(|n| format!("<div class=\"remark\"><b>Note:</b> {}</div>", esc(n))).unwrap_or_default();
+    let mut contact = vec![esc(seller.address.trim())];
+    if !seller.phone.trim().is_empty() {
+        contact.push(format!("<span class=\"nw\">Cell: {}</span>", esc(seller.phone.trim())));
+    }
+    let contact = contact.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+    let gstin = if seller.gstin.trim().is_empty() { String::new() } else { format!("<div>GSTIN {}</div>", esc(seller.gstin.trim())) };
+    let note = row
+        .note
+        .as_deref()
+        .filter(|n| !n.trim().is_empty())
+        .map(|n| format!("<p class=\"note\"><b>Note:</b> {}</p>", esc(n)))
+        .unwrap_or_default();
+    let dash = || "\u{2014}".to_string();
     Ok(format!(
         r#"<section class="slip">
   <header class="head">
-    <div class="brand">{logo}<div><h1>{business}</h1>{subtitle}<div class="contact">{contact}</div></div></div>
-    <div class="title"><div class="label">PAY SLIP</div><div class="month">{label}</div><div class="ref">{number}</div></div>
+    <div class="brand">{logo}<div><h1>{business}</h1>{subtitle}<div class="contact">{contact}</div>{gstin}</div></div>
+    <div class="title"><h2>Pay Slip</h2><div class="month">{label}</div><div class="ref">Slip no. {number}</div></div>
   </header>
-  <div class="who">
-    <div><div class="k">Employee</div><div class="v big">{name}</div></div>
-    <div><div class="k">Designation</div><div class="v">{role}</div></div>
-    <div><div class="k">Phone</div><div class="v">{phone}</div></div>
-    <div><div class="k">Joined on</div><div class="v">{joined}</div></div>
-    <div><div class="k">Days worked</div><div class="v">{days} of {days_in_month}</div></div>
-    <div><div class="k">Daily wage · OT rate</div><div class="v">{wage} · {rate}/h</div></div>
+  <table class="who">
+    <colgroup><col class="c-k"><col class="c-v"><col class="c-k"><col class="c-v"></colgroup>
+    <tr><th>Employee</th><td class="name">{name}</td><th>Pay month</th><td>{label}</td></tr>
+    <tr><th>Designation</th><td>{role}</td><th>Days worked</th><td>{days} of {days_in_month}</td></tr>
+    <tr><th>Phone</th><td>{phone}</td><th>Daily wage</th><td>{wage}</td></tr>
+    <tr><th>Joined on</th><td>{joined}</td><th>OT rate</th><td>{rate} per hour</td></tr>
+  </table>
+  {main}
+  <div class="close">
+    <div class="words"><div class="k">Earned in words</div><div>{words}</div></div>
+    {settle}
   </div>
-  <div class="cols">
-    <table><caption>Earnings</caption><thead><tr><th>Description</th><th class="num">Amount</th></tr></thead><tbody>{earnings}</tbody></table>
-    <table><caption>Payments</caption><thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th></tr></thead><tbody>{payments}</tbody></table>
-  </div>
-  <div class="net">
-    <div><div class="k">Earned</div><div class="v">{earned}</div></div>
-    <div><div class="k">Paid</div><div class="v">{given}</div></div>
-    <div class="main"><div class="k">{balance_label}</div><div class="v{balance_class}">{balance_value}</div></div>
-  </div>
-  <div class="words">Earned in words: <b>{words}</b></div>
-  {remark}
-  <div class="sign"><div><b>Employee's signature</b></div><div>For <b>{business}</b><br>Authorised signatory</div></div>
+  {note}
+  <div class="sign"><div>Employee's signature</div><div>For {business}<br>Authorised signatory</div></div>
   <footer class="foot"><span>This is a computer-generated pay slip.</span><span>Generated on {generated_on}</span></footer>
 </section>"#,
         logo = LOGO,
         business = esc(&seller.business_name),
-        subtitle = if seller.business_subtitle.trim().is_empty() { String::new() } else { format!("<div class=\"sub\">{}</div>", esc(&seller.business_subtitle)) },
+        subtitle = if seller.business_subtitle.trim().is_empty() { String::new() } else { format!("<div class=\"tag\">{}</div>", esc(&seller.business_subtitle)) },
         contact = contact,
+        gstin = gstin,
         label = label,
         number = slip_number(e.id, &d.month),
         name = esc(&e.name),
-        role = e.role.as_deref().map(esc).unwrap_or_else(|| "—".to_string()),
-        phone = e.phone.as_deref().map(esc).unwrap_or_else(|| "—".to_string()),
+        role = e.role.as_deref().map(esc).unwrap_or_else(dash),
+        phone = e.phone.as_deref().map(esc).unwrap_or_else(dash),
         joined = display_date(&e.joined_on),
         days = quantity(row.days_worked),
         days_in_month = days_in_month,
         wage = rupees(row.daily_wage),
         rate = rupees(row.ot_rate),
-        earnings = earnings_rows(row, d),
-        payments = payments_rows(d),
-        earned = rupees(f.earned),
-        given = rupees(f.given),
-        balance_label = balance_label,
-        balance_class = balance_class,
-        balance_value = balance_value,
-        words = InvoiceRepository::money_in_words(f.earned),
-        remark = remark,
+        main = main_table(row, d),
+        words = InvoiceRepository::money_in_words(d.figures.earned),
+        settle = settlement(d),
+        note = note,
         generated_on = esc(generated_on),
     ))
 }
@@ -292,7 +316,7 @@ mod tests {
         let d = detail("TO_PAY", 6600.0, vec![pay(1, "ADVANCE", "2026-10-05", 5000.0, 0.0), pay(2, "SALARY", "2026-10-31", 10000.0, 0.0)]);
         let html = pay_slips_html(&[d], &seller(), "17-10-2026").unwrap();
         for part in [
-            "PAY SLIP",
+            "Pay Slip",
             "October 2026",
             "PS-2026-10-003",
             "Murugan &lt;M&gt;",
@@ -301,10 +325,11 @@ mod tests {
             "Diwali",
             "Night work",
             "Total earned",
-            "₹21,600.00",
+            "21,600.00",
             "05-10-2026",
             "Total paid",
-            "₹15,000.00",
+            "− 15,000.00",
+            "15,000.00",
             "Balance to pay",
             "₹6,600.00",
             "TWENTY-ONE THOUSAND SIX HUNDRED RUPEES ONLY",
@@ -325,7 +350,7 @@ mod tests {
         d.figures.given = 25000.0;
         let html = pay_slips_html(&[d], &seller(), "17-10-2026").unwrap();
         assert!(html.contains("Fully paid"));
-        assert!(html.contains("Extra, written off"));
+        assert!(html.contains("Add: extra, written off"));
     }
 
     #[test]

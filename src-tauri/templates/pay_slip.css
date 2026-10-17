@@ -1,21 +1,18 @@
-/* Pay slip: one A4 page per employee. System fonts only, so it prints the same offline. */
+/* Pay slip: one A4 page per employee, laid out like a printed salary statement: ruled tables on
+   one grid, figures right-aligned in their own columns, one dark accent. System fonts only, so it
+   prints the same offline. */
 @page {
   size: A4;
   margin: 0;
 }
 
 :root {
-  --ink: #1a2633;
-  --muted: #5b6b7b;
-  --line: #d9e1e8;
-  --soft: #f3f6f9;
+  --ink: #17202b;
+  --muted: #586473;
+  --rule: #b9c3ce;
+  --rule-strong: #17202b;
+  --head: #eef2f5;
   --steel: #1a374b;
-  --steel-2: #2c5878;
-  --arc: #e8731a;
-  /* Darker orange for small text: #e8731a is 3.04:1 on white, this is 5.02:1. */
-  --arc-text: #b45309;
-  --green: #17663a;
-  --red: #b42318;
 }
 
 * {
@@ -28,8 +25,8 @@ body {
   padding: 0;
   color: var(--ink);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
-  font-size: 10.5pt;
-  line-height: 1.4;
+  font-size: 10pt;
+  line-height: 1.35;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
@@ -37,7 +34,7 @@ body {
 .slip {
   width: 210mm;
   min-height: 297mm;
-  padding: 14mm 15mm 12mm;
+  padding: 16mm 16mm 12mm;
   display: flex;
   flex-direction: column;
   page-break-after: always;
@@ -49,9 +46,7 @@ body {
   break-after: auto;
 }
 
-.num {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
+.nw {
   white-space: nowrap;
 }
 
@@ -60,10 +55,10 @@ body {
 .head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 10mm;
-  padding-bottom: 5mm;
-  border-bottom: 2.5px solid var(--arc);
+  padding-bottom: 4mm;
+  border-bottom: 1.6pt solid var(--rule-strong);
 }
 
 .brand {
@@ -73,31 +68,30 @@ body {
 }
 
 .brand svg {
-  width: 15mm;
-  height: 15mm;
+  width: 13mm;
+  height: 13mm;
   flex: none;
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 17pt;
-  letter-spacing: 0.02em;
+  font-size: 16pt;
+  line-height: 1.1;
   color: var(--steel);
-  line-height: 1.15;
 }
 
-.brand .sub {
-  color: var(--steel-2);
-  font-weight: 600;
+.brand .tag {
   font-size: 9pt;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--steel);
 }
 
-.brand .contact {
-  margin-top: 1.5mm;
-  color: var(--muted);
+.brand .contact,
+.brand .contact + div {
+  margin-top: 1mm;
   font-size: 8.5pt;
-  max-width: 105mm;
+  color: var(--muted);
+  max-width: 110mm;
 }
 
 .title {
@@ -105,220 +99,185 @@ body {
   flex: none;
 }
 
-.title .label {
-  font-size: 9pt;
+.title h2 {
+  margin: 0;
+  font-size: 18pt;
+  line-height: 1.1;
   font-weight: 700;
-  letter-spacing: 0.32em;
-  color: var(--arc-text);
+  color: var(--ink);
 }
 
 .title .month {
-  font-size: 18pt;
-  font-weight: 700;
-  color: var(--steel);
-  line-height: 1.2;
+  margin-top: 1mm;
+  font-size: 11pt;
+  font-weight: 600;
 }
 
 .title .ref {
-  color: var(--muted);
   font-size: 8.5pt;
-}
-
-/* ---------- Employee panel ---------- */
-
-.who {
-  margin-top: 6mm;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 3.5mm 6mm;
-  padding: 4.5mm 5mm;
-  background: var(--soft);
-  border-radius: 2.5mm;
-}
-
-.who .k {
   color: var(--muted);
-  font-size: 7.5pt;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-.who .v {
-  font-weight: 600;
-  font-size: 10.5pt;
-}
-
-.who .v.big {
-  font-size: 12.5pt;
-  color: var(--steel);
-}
-
-/* ---------- Tables ---------- */
-
-.cols {
-  margin-top: 6mm;
-  display: grid;
-  grid-template-columns: 1.15fr 1fr;
-  gap: 6mm;
-  align-items: start;
-}
+/* ---------- Tables: one ruled grid ---------- */
 
 table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
-caption {
-  text-align: left;
-  font-size: 8pt;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--steel-2);
-  padding-bottom: 2mm;
-}
-
-th {
-  text-align: left;
-  font-size: 8pt;
-  font-weight: 600;
-  color: var(--muted);
-  border-bottom: 1.5px solid var(--steel);
-  padding: 1.5mm 2mm;
-}
-
-th.num {
-  text-align: right;
-}
-
+th,
 td {
-  padding: 2mm;
-  border-bottom: 1px solid var(--line);
+  border: 0.75pt solid var(--rule);
+  padding: 1.9mm 2.6mm;
+  text-align: left;
   vertical-align: top;
 }
 
-td .note {
-  display: block;
-  color: var(--muted);
-  font-size: 8.5pt;
+.amt {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-tr.total td {
-  border-bottom: none;
-  border-top: 1.5px solid var(--steel);
+/* Employee details: label / value / label / value. */
+.who {
+  margin-top: 6mm;
+}
+
+.who .c-k {
+  width: 17%;
+}
+
+.who .c-v {
+  width: 33%;
+}
+
+.who th {
+  background: var(--head);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.who .name {
   font-weight: 700;
-  color: var(--steel);
 }
 
-tr.settle td {
+/* Earnings and payments share rows, so lines and totals sit level. */
+.main {
+  margin-top: 6mm;
+}
+
+.main .c-desc {
+  width: 32%;
+}
+
+.main .c-amt {
+  width: 18%;
+}
+
+.main thead th {
+  background: var(--head);
+  font-weight: 700;
+  border-bottom: 1.2pt solid var(--rule-strong);
+}
+
+.main tbody td {
+  border-top: 0;
+  border-bottom: 0;
+  padding-top: 1.6mm;
+  padding-bottom: 1.6mm;
+}
+
+.main tbody tr:first-child td {
+  padding-top: 2.4mm;
+}
+
+.main tbody tr:last-child td {
+  padding-bottom: 2.4mm;
+}
+
+.main .sub {
+  display: block;
+  font-size: 8.5pt;
   color: var(--muted);
-  font-size: 9pt;
 }
 
-td.empty {
+.main .none {
   color: var(--muted);
   font-style: italic;
 }
 
-/* ---------- Net band ---------- */
+.main tfoot td {
+  font-weight: 700;
+  border-top: 1.2pt solid var(--rule-strong);
+  background: var(--head);
+}
 
-.net {
-  margin-top: 7mm;
+/* Settlement on the right, amount in words beside it. */
+.close {
+  margin-top: 6mm;
   display: grid;
-  grid-template-columns: 1fr 1fr 1.25fr;
-  border-radius: 2.5mm;
-  overflow: hidden;
-  border: 1px solid var(--steel);
+  grid-template-columns: 1fr 50%;
+  gap: 6mm;
+  align-items: start;
 }
 
-.net > div {
-  padding: 3.5mm 5mm;
-}
-
-.net .k {
-  font-size: 7.5pt;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.net .v {
-  font-size: 14pt;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--steel);
-}
-
-.net .main {
-  background: var(--steel);
-}
-
-.net .main .k {
-  color: #b8cadb;
-}
-
-.net .main .v {
-  color: #fff;
-  font-size: 16pt;
-}
-
-.net .main .v.paid {
-  color: #9ee6b8;
-}
-
-.words {
-  margin-top: 3mm;
-  font-size: 9pt;
-  color: var(--muted);
-}
-
-.words b {
-  color: var(--ink);
+.words .k {
+  font-size: 8.5pt;
   font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 1mm;
 }
 
-.remark {
-  margin-top: 4mm;
-  padding: 3mm 4mm;
-  border-radius: 2mm;
-  background: var(--soft);
+.words div + div {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.settle td:first-child {
+  width: 64%;
+}
+
+.settle .due td {
+  font-weight: 700;
+  font-size: 11pt;
+  color: #fff;
+  background: var(--steel);
+  border-color: var(--steel);
+}
+
+.note {
+  margin: 5mm 0 0;
   font-size: 9pt;
 }
 
 /* ---------- Signatures and footer ---------- */
 
 .sign {
-  margin-top: auto;
-  padding-top: 16mm;
+  margin-top: 22mm;
   display: flex;
   justify-content: space-between;
-  gap: 20mm;
+  gap: 24mm;
 }
 
 .sign div {
   flex: 1;
-  border-top: 1px solid var(--ink);
+  border-top: 0.75pt solid var(--ink);
   padding-top: 1.5mm;
-  font-size: 8.5pt;
-  color: var(--muted);
+  font-size: 9pt;
 }
 
 .sign div:last-child {
   text-align: right;
 }
 
-.sign b {
-  color: var(--ink);
-}
-
 .foot {
-  margin-top: 6mm;
-  padding-top: 2.5mm;
-  border-top: 1px solid var(--line);
+  margin-top: auto;
+  padding-top: 3mm;
+  border-top: 0.75pt solid var(--rule);
   display: flex;
   justify-content: space-between;
-  font-size: 7.5pt;
+  font-size: 8pt;
   color: var(--muted);
 }
