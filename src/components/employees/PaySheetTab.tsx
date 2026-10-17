@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, HandCoins, HardHat, Plus, Printer } from "lucide-react";
 import { getPaySheet, printMonthPaySlips, savePaySheet } from "../../services/api";
 import { currentMonth, errorMessage, formatMoney, monthTitle, round2, shiftMonth } from "../../lib/format";
-import { entryChanged, parseQuantity, payLine, settleNotes, statusText, statusTone } from "../../lib/payroll";
+import { entryChanged, parseQuantity, payLine, settleNotes, shortStatusText, statusText, statusTone } from "../../lib/payroll";
 import { PaySheet, PaySheetEntry, PaySheetRow } from "../../types/payroll";
 import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, inputClass, ListSkeleton, rowClass, rowProps, theadClass, useToast } from "../ui";
 import MonthFilter from "../MonthFilter";
@@ -139,8 +139,10 @@ export default function PaySheetTab() {
     return { wages, ot, earned: round2(wages + ot + r.figures.bonus + r.figures.incentives), entered: true };
   };
 
+  // Bonus and incentives share one Extras column, shown only in a month that has some.
+  const hasExtras = !!sheet?.rows.some((r) => r.figures.bonus > 0 || r.figures.incentives > 0);
   // Days and OT hold inputs while typing; every cell shares the padding so the row lines up.
-  const cell = editing ? "py-2 pr-4" : "py-3 pr-4";
+  const cell = editing ? "py-2 pr-3" : "py-3 pr-3";
   // The month's notes added up over everyone, for the footer.
   const sum = (pick: (r: PaySheetRow) => number) => round2((sheet?.rows ?? []).reduce((t, r) => t + pick(r), 0));
   const totalNotes = settleNotes({
@@ -152,7 +154,7 @@ export default function PaySheetTab() {
 
   return (
     <>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <MonthFilter
           dates={monthDates}
           value={month}
@@ -162,7 +164,7 @@ export default function PaySheetTab() {
             setMonth(m || currentMonth());
           }}
         />
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {editing ? (
             <>
               <Button onClick={() => (dirty ? setConfirmDiscard(true) : stopEditing())}>Cancel</Button>
@@ -218,19 +220,18 @@ export default function PaySheetTab() {
             }
           />
         ) : (
-          <table className="mww-fade w-full text-sm">
+          <table data-hide-narrow="4 5" className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Name</th>
-                <th className="py-2.5 pr-4 font-semibold text-right w-28">Days</th>
-                <th className="py-2.5 pr-4 font-semibold text-right w-28">OT hrs</th>
-                <th className="py-2.5 pr-4 font-semibold text-right">Wages</th>
-                <th className="py-2.5 pr-4 font-semibold text-right">OT</th>
-                <th className="py-2.5 pr-4 font-semibold text-right">Bonus</th>
-                <th className="py-2.5 pr-4 font-semibold text-right">Incentives</th>
-                <th className="py-2.5 pr-4 font-semibold text-right">Earned</th>
-                <th className="py-2.5 pr-4 font-semibold text-right">Paid</th>
-                <th className="py-2.5 px-4 font-semibold">Status</th>
+                <th className="py-2.5 pr-3 font-semibold text-right w-12">Days</th>
+                <th className="py-2.5 pr-3 font-semibold text-right w-16 whitespace-nowrap">OT hrs</th>
+                <th className="py-2.5 pr-3 font-semibold text-right">Wages</th>
+                <th className="py-2.5 pr-3 font-semibold text-right">OT</th>
+                {hasExtras && <th className="py-2.5 pr-3 font-semibold text-right @max-[44rem]:hidden">Extras</th>}
+                <th className="py-2.5 pr-3 font-semibold text-right">Earned</th>
+                <th className="py-2.5 pr-3 font-semibold text-right @max-[44rem]:hidden">Paid</th>
+                <th className="py-2.5 pl-1 pr-3 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -239,7 +240,11 @@ export default function PaySheetTab() {
                 const x = read[r.employee_id];
                 const d = drafts?.[r.employee_id];
                 const notes = settleNotes(r.figures);
-                const incentives = r.row?.incentives ?? [];
+                const extras = [
+                  ...(r.figures.bonus > 0 ? [`Bonus${r.row?.bonus_note ? ` (${r.row.bonus_note})` : ""}: ${formatMoney(r.figures.bonus)}`] : []),
+                  ...(r.row?.incentives ?? []).map((i) => `${i.reason}: ${formatMoney(i.amount)}`),
+                ];
+                const extrasTotal = r.figures.bonus + r.figures.incentives;
                 return (
                   <tr key={r.employee_id} {...(editing ? {} : rowProps(() => setViewing(r.employee_id)))} className={editing ? undefined : rowClass}>
                     <td className={`max-w-[16rem] ${cell} pl-4`}>
@@ -268,13 +273,14 @@ export default function PaySheetTab() {
                     </td>
                     <td className={`${cell} text-right tabular`}>{s.entered ? formatMoney(s.wages) : "—"}</td>
                     <td className={`${cell} text-right tabular`}>{s.entered && s.ot > 0 ? formatMoney(s.ot) : "—"}</td>
-                    <td className={`${cell} text-right tabular`}>{r.figures.bonus > 0 ? formatMoney(r.figures.bonus) : "—"}</td>
-                    <td className={`${cell} text-right tabular`} title={incentives.map((i) => `${i.reason}: ${formatMoney(i.amount)}`).join("\n") || undefined}>
-                      {r.figures.incentives > 0 ? formatMoney(r.figures.incentives) : "—"}
-                      {incentives.length > 1 && <div className="text-xs text-slate-500">{incentives.length} items</div>}
-                    </td>
+                    {hasExtras && (
+                      <td className={`${cell} text-right tabular @max-[44rem]:hidden`} title={extras.join("\n") || undefined}>
+                        {extrasTotal > 0 ? formatMoney(extrasTotal) : "—"}
+                        {extras.length > 1 && <div className="text-xs text-slate-500">{extras.length} items</div>}
+                      </td>
+                    )}
                     <td className={`${cell} text-right tabular font-medium`}>{s.entered ? formatMoney(s.earned) : "—"}</td>
-                    <td className={`${cell} text-right tabular`}>
+                    <td className={`${cell} text-right tabular @max-[44rem]:hidden`}>
                       {r.figures.given > 0 ? formatMoney(r.figures.given) : "—"}
                       {notes.map((n) => (
                         <div key={n} className="text-xs text-slate-500">
@@ -282,8 +288,10 @@ export default function PaySheetTab() {
                         </div>
                       ))}
                     </td>
-                    <td className={`${cell} pl-4`}>
-                      <Badge tone={statusTone(r.status, r.figures)}>{statusText(r.status, r.figures)}</Badge>
+                    <td className={`${cell} pl-1`}>
+                      <span title={statusText(r.status, r.figures)}>
+                        <Badge tone={statusTone(r.status, r.figures)}>{shortStatusText(r.status, r.figures)}</Badge>
+                      </span>
                     </td>
                   </tr>
                 );
@@ -291,12 +299,12 @@ export default function PaySheetTab() {
             </tbody>
             <tfoot className="border-t border-slate-200 bg-slate-50 text-sm">
               <tr>
-                <td className="py-2.5 px-4 font-semibold" colSpan={7}>
+                <td className="py-2.5 px-4 font-semibold" colSpan={hasExtras ? 6 : 5}>
                   {sheet.not_entered > 0 ? `${sheet.not_entered} not entered` : "Everyone entered"}
                 </td>
                 <td className="py-2.5 pr-4 text-right tabular font-semibold">{formatMoney(sheet.total_earned)}</td>
                 <td className="py-2.5 pr-4 text-right tabular font-semibold">{formatMoney(sheet.total_given)}</td>
-                <td className="py-2.5 px-4 tabular font-semibold">
+                <td className="py-2.5 pl-1 pr-3 tabular font-semibold">
                   To pay {formatMoney(sheet.total_to_pay)}
                   {totalNotes.map((n) => (
                     <div key={n} className="text-xs font-normal text-slate-500">

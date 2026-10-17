@@ -3,21 +3,7 @@ import { Download, FileText, Plus, Search } from "lucide-react";
 import { InvoiceListItem } from "../types/invoice";
 import { downloadMonthInvoices, listInvoices, printInvoice } from "../services/api";
 import { errorMessage, formatDate, formatMoney, todayISO, monthTitle } from "../lib/format";
-import {
-  Alert,
-  Button,
-  Card,
-  EmptyState,
-  inputClass,
-  ListSkeleton,
-  PageHeader,
-  RowChevron,
-  rowClass,
-  rowProps,
-  StatusBadge,
-  theadClass,
-  useToast,
-} from "../components/ui";
+import { Alert, Button, Card, EmptyState, inputClass, ListSkeleton, onTabListKeyDown, PageHeader, RowChevron, rowClass, rowProps, StatusBadge, theadClass, useToast } from "../components/ui";
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
 import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
@@ -138,7 +124,7 @@ export default function InvoicesPage({
       />
 
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Invoice status" className="relative flex gap-1">
+        <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Invoice status" className="relative flex gap-1">
           <span
             aria-hidden="true"
             className={`${sliderReady ? "mww-slider" : ""} pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600`}
@@ -190,7 +176,7 @@ export default function InvoicesPage({
             >
               Download {monthTitle(month)} (PDF)
             </Button>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-600">
               {monthPdfCount} invoice{monthPdfCount === 1 ? "" : "s"} in the PDF, cancelled ones marked; drafts are left out
             </span>
           </>
@@ -225,7 +211,7 @@ export default function InvoicesPage({
           />
         ) : (
           <>
-            <table className="mww-fade w-full text-sm">
+            <table data-hide-narrow="" className="mww-fade w-full text-sm">
               <thead className={theadClass}>
                 <tr>
                   <th className="py-2.5 px-4 font-semibold">Invoice</th>

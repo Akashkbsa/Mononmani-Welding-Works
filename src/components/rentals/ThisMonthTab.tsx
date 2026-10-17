@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, House, MessageCircle } from "lucide-react";
+import { Check, House, MessageCircle } from "lucide-react";
 import { getRentMonthOverview, undoRentPaid } from "../../services/api";
 import { currentMonth, errorMessage, formatMoney, monthTitle, shiftMonth, shortDate } from "../../lib/format";
 import { MonthOverview, MonthRow } from "../../types/rental";
+import MonthFilter from "../MonthFilter";
 import {
   Alert,
   Badge,
@@ -55,9 +56,13 @@ export default function ThisMonthTab() {
     <>
       <div className="flex items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-2">
-          <Button size="sm" aria-label="Previous month" icon={<ChevronLeft className="w-4 h-4" />} onClick={() => setMonth(shiftMonth(month, -1))} />
-          <h2 className="w-44 text-center text-lg font-semibold tracking-tight text-slate-900">{monthTitle(month)}</h2>
-          <Button size="sm" aria-label="Next month" icon={<ChevronRight className="w-4 h-4" />} onClick={() => setMonth(shiftMonth(month, 1))} />
+          {/* The same month picker as the other screens; rent can be marked up to a year ahead. */}
+          <MonthFilter
+            dates={[`${shiftMonth(currentMonth(), -240)}-01`, `${shiftMonth(currentMonth(), 12)}-01`]}
+            value={month}
+            allowAll={false}
+            onChange={(m) => setMonth(m || currentMonth())}
+          />
           {month !== currentMonth() && (
             <Button size="sm" variant="ghost" onClick={() => setMonth(currentMonth())}>
               Back to this month
@@ -98,7 +103,7 @@ export default function ThisMonthTab() {
         ) : overview.rows.length === 0 ? (
           <EmptyState icon={House} title="No tenants yet" description="Add places and tenants in the other tabs." />
         ) : (
-          <table className={`mww-fade w-full text-sm ${stale ? "opacity-60" : ""}`}>
+          <table data-hide-narrow="2" className={`mww-fade w-full text-sm ${stale ? "opacity-60" : ""}`}>
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Tenant</th>

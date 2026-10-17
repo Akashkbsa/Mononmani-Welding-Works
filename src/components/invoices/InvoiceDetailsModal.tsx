@@ -302,7 +302,7 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged, onO
             <tbody className="divide-y divide-slate-100">
               {data.items.map((item) => (
                 <tr key={item.id}>
-                  <td className="py-2 text-slate-400">{item.sl_no}</td>
+                  <td className="py-2 text-slate-500">{item.sl_no}</td>
                   <td className="rich py-2" dangerouslySetInnerHTML={{ __html: sanitizeRich(item.description) }} />
                   <td className="py-2 text-slate-600">{item.hsn_sac}</td>
                   <td className="py-2 text-right tabular">

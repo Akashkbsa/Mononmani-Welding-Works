@@ -76,6 +76,20 @@ export function statusText(status: PayStatus, f: MonthFigures): string {
   }
 }
 
+/** The pay sheet's compact status: "To pay ₹16,500", "Overpaid ₹1,000", "Paid", "Not entered". */
+export function shortStatusText(status: PayStatus, f: MonthFigures): string {
+  switch (status) {
+    case "TO_PAY":
+      return `To pay ${shortMoney(f.balance)}`;
+    case "OVERPAID":
+      return `Overpaid ${shortMoney(-f.balance)}`;
+    case "PAID":
+      return "Paid";
+    default:
+      return "Not entered";
+  }
+}
+
 export const WAGE_KIND_LABEL: Record<WageKind, string> = {
   ADVANCE: "Advance",
   SALARY: "Salary",

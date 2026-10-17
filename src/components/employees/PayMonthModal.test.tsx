@@ -75,7 +75,7 @@ describe("the month's working", () => {
     );
     await open();
     expect(working("Bonus (Diwali)")).toBe("₹500.00");
-    expect(working("Paid (advances and salary)")).toBe("-₹22,700.00");
+    expect(working("Paid (advances and salary)")).toBe("−₹22,700.00");
     expect(working("Overpaid")).toBe("₹1,000.00");
     expect(screen.getByText("Two advances")).toBeInTheDocument();
     expect(screen.getByText("+₹5 rounded off")).toBeInTheDocument();

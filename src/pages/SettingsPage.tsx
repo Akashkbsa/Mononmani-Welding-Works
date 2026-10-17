@@ -46,7 +46,7 @@ export default function SettingsPage() {
           </dl>
 
           <div className="flex items-center justify-between border-t border-slate-200 pt-4">
-            <span className="text-xs text-slate-500">Database version {db.applied_migrations.length}</span>
+            <span className="text-xs text-slate-500">App data version {db.applied_migrations.length}</span>
             <Button
               icon={<FolderOpen className="w-4 h-4" />}
               onClick={() => openDataFolder().catch((err) => toast(errorMessage(err), "error"))}

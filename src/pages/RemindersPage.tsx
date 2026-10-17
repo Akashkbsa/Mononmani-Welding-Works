@@ -4,7 +4,7 @@ import { deleteReminder, listReminders, markReminderDone, markReminderNotDone, s
 import { errorMessage, formatDate, todayISO } from "../lib/format";
 import { remindText, repeatText, STATE_STYLE, whenText } from "../lib/reminders";
 import { LINK_KIND_LABEL, Reminder, ReminderLinkKind, ReminderTab } from "../types/reminder";
-import { Alert, Button, Card, ConfirmDialog, EmptyState, ListSkeleton, PageHeader, theadClass, useToast } from "../components/ui";
+import { Alert, Button, Card, ConfirmDialog, EmptyState, ListSkeleton, onTabListKeyDown, PageHeader, theadClass, useToast } from "../components/ui";
 import ReminderFormModal from "../components/reminders/ReminderFormModal";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
 
@@ -88,7 +88,7 @@ export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: P
       />
 
       <div className="mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Reminders" className="relative flex w-fit gap-1">
+        <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Reminders" className="relative flex w-fit gap-1">
           <span
             aria-hidden="true"
             className="mww-slider pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600"
@@ -126,7 +126,7 @@ export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: P
         ) : rows.length === 0 ? (
           <EmptyState icon={BellRing} title="No reminders here" description={empty} />
         ) : (
-          <table className="mww-fade w-full text-sm">
+          <table data-hide-narrow="4 5" className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">State</th>
@@ -171,7 +171,7 @@ export default function RemindersPage({ onOpenRecord, onChanged, refreshKey }: P
                             onClick={() => onOpenRecord(r.link_kind!, r.link_id!)}
                           >
                             <span className="text-xs text-slate-500">{LINK_KIND_LABEL[r.link_kind]} </span>
-                            {r.link_label}
+                            <span className="whitespace-nowrap">{r.link_label}</span>
                           </button>
                         )
                       ) : (

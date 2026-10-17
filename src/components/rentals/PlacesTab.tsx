@@ -69,7 +69,7 @@ export default function PlacesTab({ openId = null, onOpenHandled }: { openId?: n
             }
           />
         ) : (
-          <table className="mww-fade w-full text-sm">
+          <table data-hide-narrow="2 5" className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Name</th>

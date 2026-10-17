@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { PageHeader } from "../components/ui";
+import { onTabListKeyDown, PageHeader } from "../components/ui";
 import ThisMonthTab from "../components/rentals/ThisMonthTab";
 import TenantsTab from "../components/rentals/TenantsTab";
 import PlacesTab from "../components/rentals/PlacesTab";
@@ -47,7 +47,7 @@ export default function RentalsPage({ openTenantId = null, openPlaceId = null, o
       <PageHeader title="Rentals" description="Places you rent out, your tenants, and who has paid this month." />
 
       <div className="mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Rentals" className="relative flex gap-1 w-fit">
+        <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Rentals" className="relative flex gap-1 w-fit">
           <span
             aria-hidden="true"
             className={`${sliderReady ? "mww-slider" : ""} pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600`}

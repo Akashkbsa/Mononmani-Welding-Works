@@ -3,21 +3,7 @@ import { Plus, ReceiptText, Search } from "lucide-react";
 import { getSupplierBillsSummary, listSupplierBills } from "../services/api";
 import { errorMessage, formatDate, formatMoney } from "../lib/format";
 import { SupplierBillListItem, SupplierBillsSummary } from "../types/supplierBill";
-import {
-  Alert,
-  Button,
-  Card,
-  EmptyState,
-  inputClass,
-  ListSkeleton,
-  PageHeader,
-  RowChevron,
-  rowClass,
-  rowProps,
-  Stat,
-  StatStrip,
-  theadClass,
-} from "../components/ui";
+import { Alert, Button, Card, EmptyState, inputClass, ListSkeleton, onTabListKeyDown, PageHeader, RowChevron, rowClass, rowProps, Stat, StatStrip, theadClass } from "../components/ui";
 import SupplierBillFormModal from "../components/supplierBills/SupplierBillFormModal";
 import SupplierBillDetailsModal from "../components/supplierBills/SupplierBillDetailsModal";
 import SupplierBillStatusBadge from "../components/supplierBills/SupplierBillStatusBadge";
@@ -127,7 +113,7 @@ export default function SupplierBillsPage({
       )}
 
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Supplier bill status" className="relative flex shrink-0 gap-1">
+        <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Supplier bill status" className="relative flex shrink-0 gap-1">
           <span
             aria-hidden="true"
             className={`${sliderReady ? "mww-slider" : ""} pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600`}
@@ -197,7 +183,7 @@ export default function SupplierBillsPage({
           />
         ) : (
           <>
-            <table className="mww-fade w-full text-sm">
+            <table data-hide-narrow="3 4 7" className="mww-fade w-full text-sm">
               <thead className={theadClass}>
                 <tr>
                   <th className="py-2.5 px-4 font-semibold">Bill number</th>

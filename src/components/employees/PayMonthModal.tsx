@@ -513,28 +513,24 @@ export default function PayMonthModal({ employeeId, month, onClose, onChanged }:
   );
 }
 
+/** Money in the working; an amount taken off reads "−₹5,000.00" with a true minus sign. */
+function signedMoney(value: number): string {
+  return value < 0 ? `−${formatMoney(-value)}` : formatMoney(value);
+}
+
 function Line({ label, value, strong, onOpen }: { label: string; value: number; strong?: boolean; onOpen?: () => void }) {
   const look = strong ? "font-semibold text-slate-900 border-t border-slate-200 pt-1" : "text-slate-700";
-  if (onOpen) {
-    return (
-      <div
-        {...rowProps(onOpen)}
-        role="button"
-        aria-label={`Edit ${label}`}
-        className={`-mx-2 flex justify-between gap-4 rounded px-2 ${rowClass} ${look}`}
-      >
-        <dt>{label}</dt>
-        <dd className="flex items-center gap-2">
-          <span className="text-xs text-brand-700 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">Edit</span>
-          {formatMoney(value)}
-        </dd>
-      </div>
-    );
-  }
   return (
     <div className={`flex justify-between gap-4 ${look}`}>
       <dt>{label}</dt>
-      <dd>{formatMoney(value)}</dd>
+      <dd className="flex items-center gap-3">
+        {onOpen && (
+          <button type="button" aria-label={`Edit ${label}`} onClick={onOpen} className="text-xs font-medium text-brand-700 hover:underline">
+            Edit
+          </button>
+        )}
+        {signedMoney(value)}
+      </dd>
     </div>
   );
 }

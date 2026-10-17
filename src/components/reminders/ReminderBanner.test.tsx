@@ -82,17 +82,28 @@ describe("ReminderBanner", () => {
     expect(screen.getByText("12-10-2026 · 3 days late")).toBeInTheDocument();
   });
 
-  it("shows three and links to the rest", async () => {
+  it("shows the most urgent one, opens up to three, and links to the rest", async () => {
     const { onOpenAll } = setup([1, 2, 3, 4, 5].map((id) => reminder({ id, title: `R${id}` })));
     await screen.findByText("R1");
+    expect(screen.queryByText("R2")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show 4 more reminders" }));
+    expect(screen.getByText("R3")).toBeInTheDocument();
     expect(screen.queryByText("R4")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "and 2 more reminders" }));
+    await userEvent.click(screen.getByRole("button", { name: "and 2 more on the Reminders page" }));
     expect(onOpenAll).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.queryByText("R2")).not.toBeInTheDocument();
   });
 
   it("says 'reminder' for one more", async () => {
-    setup([1, 2, 3, 4].map((id) => reminder({ id, title: `R${id}` })));
-    expect(await screen.findByRole("button", { name: "and 1 more reminder" })).toBeInTheDocument();
+    setup([1, 2].map((id) => reminder({ id, title: `R${id}` })));
+    expect(await screen.findByRole("button", { name: "Show 1 more reminder" })).toBeInTheDocument();
+  });
+
+  it("has no extra line for a single reminder", async () => {
+    setup([reminder({ id: 1, title: "R1" })]);
+    await screen.findByText("R1");
+    expect(screen.queryByRole("button", { name: /more reminder/ })).not.toBeInTheDocument();
   });
 
   it("opens the linked record", async () => {

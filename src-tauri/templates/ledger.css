@@ -12,6 +12,8 @@
   --steel: #1a374b;
   --steel-2: #2c5878;
   --arc: #e8731a;
+  /* Darker orange for small text: #e8731a is 3.04:1 on white, this is 5.02:1. */
+  --arc-text: #b45309;
 }
 
 * {
@@ -94,7 +96,7 @@ body {
   font-size: 8.5pt;
   font-weight: 700;
   letter-spacing: 0.3em;
-  color: var(--arc);
+  color: var(--arc-text);
 }
 
 .title .period {

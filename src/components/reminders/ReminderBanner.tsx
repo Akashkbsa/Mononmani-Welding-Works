@@ -7,6 +7,7 @@ import { LINK_KIND_LABEL, Reminder } from "../../types/reminder";
 import { Button, useToast } from "../ui";
 import { useReminders } from "./RemindersContext";
 
+/** Shown when the banner is opened up; the rest are on the Reminders page. */
 const SHOWN = 3;
 
 /** Row tints so the most urgent reminder stands out: overdue red, due today orange, coming up amber. */
@@ -24,7 +25,8 @@ interface Props {
 
 /**
  * Reminders that are coming up, due or overdue, at the top of every screen. They stay until the owner
- * presses Done or Dismiss, or snoozes them until a later day.
+ * presses Done or Dismiss, or snoozes them until a later day. Only the most urgent one shows (the list
+ * comes overdue first), with the others one click away, so the banner never takes over the screen.
  */
 export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   const toast = useToast();
@@ -35,6 +37,7 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   const [snoozeDays, setSnoozeDays] = useState<number[]>([1]);
   /** The reminder whose "how long?" snooze menu is open. */
   const [menuId, setMenuId] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   // Close the snooze menu on a click elsewhere or Escape.
   useEffect(() => {
@@ -91,7 +94,7 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
   return (
     <section role="region" aria-label="Reminders" className="mww-fade mb-5 rounded-lg border border-slate-200 bg-white shadow-card">
       <ul className="divide-y divide-slate-200">
-        {items.slice(0, SHOWN).map((r) => {
+        {items.slice(0, expanded ? SHOWN : 1).map((r) => {
           const style = STATE_STYLE[r.state];
           return (
             <li key={r.id} className={`relative flex items-center gap-3 py-2.5 pl-5 pr-3 first:rounded-t-lg last:rounded-b-lg ${ROW_TINT[r.state] ?? ""}`}>
@@ -170,10 +173,17 @@ export default function ReminderBanner({ refreshKey, onOpenAll }: Props) {
           );
         })}
       </ul>
-      {items.length > SHOWN && (
-        <button type="button" onClick={onOpenAll} className="w-full border-t border-slate-200 px-5 py-2 text-left text-sm text-brand-700 hover:bg-slate-50">
-          and {items.length - SHOWN} more reminder{items.length - SHOWN === 1 ? "" : "s"}
-        </button>
+      {items.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-4 border-t border-slate-200 px-5 py-1.5 text-sm">
+          <button type="button" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)} className="py-0.5 text-brand-700 hover:underline">
+            {expanded ? "Show less" : `Show ${items.length - 1} more reminder${items.length - 1 === 1 ? "" : "s"}`}
+          </button>
+          {expanded && items.length > SHOWN && (
+            <button type="button" onClick={onOpenAll} className="py-0.5 text-brand-700 hover:underline">
+              and {items.length - SHOWN} more on the Reminders page
+            </button>
+          )}
+        </div>
       )}
     </section>
   );

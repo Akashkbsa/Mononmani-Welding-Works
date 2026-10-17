@@ -450,25 +450,25 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          {/* Line items; on a narrow window they keep a usable width and scroll sideways. */}
+          {/* Line items; on a narrow dialog the columns shrink (and # hides) so Qty, Rate and Amount stay in view. */}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[48rem] text-sm">
+            <table className="w-full @min-[40rem]:min-w-[48rem] text-sm">
               <thead>
                 <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                  <th className="py-2 w-8 font-medium">#</th>
-                  <th className="py-2 pr-2 min-w-[12rem] font-medium">Description</th>
-                  <th className="py-2 pr-2 w-28 font-medium">HSN/SAC</th>
-                  <th className="py-2 pr-2 w-24 font-medium">Unit</th>
-                  <th className="py-2 pr-2 w-24 font-medium text-right">Qty</th>
-                  <th className="py-2 pr-2 w-32 font-medium text-right">Rate</th>
-                  <th className="py-2 w-32 font-medium text-right">Amount</th>
+                  <th className="py-2 w-8 font-medium @max-[40rem]:hidden">#</th>
+                  <th className="py-2 pr-2 min-w-[7rem] @min-[40rem]:min-w-[12rem] font-medium">Description</th>
+                  <th className="py-2 pr-2 w-16 @min-[40rem]:w-28 font-medium">HSN/SAC</th>
+                  <th className="py-2 pr-2 w-20 @min-[40rem]:w-24 font-medium">Unit</th>
+                  <th className="py-2 pr-2 w-12 @min-[40rem]:w-24 font-medium text-right">Qty</th>
+                  <th className="py-2 pr-2 w-20 @min-[40rem]:w-32 font-medium text-right">Rate</th>
+                  <th className="py-2 w-20 @min-[40rem]:w-32 font-medium text-right">Amount</th>
                   <th className="w-9" />
                 </tr>
               </thead>
               <tbody>
                 {form.items.map((item, idx) => (
                   <tr key={idx} className="align-top">
-                    <td className="py-2 text-slate-400 pt-4">{idx + 1}</td>
+                    <td className="py-2 text-slate-500 pt-4 @max-[40rem]:hidden">{idx + 1}</td>
                     <td className="py-2 pr-2">
                       <RichTextBox
                         ariaLabel={`Description for line ${idx + 1}`}
@@ -506,7 +506,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                         type="number"
                         min={0}
                         step="any"
-                        className={`${inputClass} text-right tabular`}
+                        className={`${inputClass} text-right tabular @max-[40rem]:px-2 @max-[40rem]:[appearance:textfield] @max-[40rem]:[&::-webkit-inner-spin-button]:appearance-none`}
                         aria-label={`Quantity for line ${idx + 1}`}
                         value={item.quantity}
                         onChange={(e) => updateItem(idx, { quantity: e.target.value as unknown as number })}
@@ -517,7 +517,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                         type="number"
                         min={0}
                         step="0.01"
-                        className={`${inputClass} text-right tabular`}
+                        className={`${inputClass} text-right tabular @max-[40rem]:px-2 @max-[40rem]:[appearance:textfield] @max-[40rem]:[&::-webkit-inner-spin-button]:appearance-none`}
                         aria-label={`Rate for line ${idx + 1}`}
                         value={item.rate}
                         onChange={(e) => updateItem(idx, { rate: e.target.value as unknown as number })}
@@ -551,7 +551,7 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
           </div>
 
           {/* Tax and totals */}
-          <div className="grid grid-cols-2 gap-8 border-t border-slate-200 pt-5">
+          <div className="grid grid-cols-1 gap-6 border-t border-slate-200 pt-5 @min-[40rem]:grid-cols-2 @min-[40rem]:gap-8">
             <div className="space-y-3">
               <Field
                 label="Tax"
@@ -563,9 +563,9 @@ export default function InvoiceFormModal({ invoice, onClose, onSaved }: Props) {
                     : undefined
                 }
               >
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <select
-                    className={inputClass}
+                    className={`${inputClass} min-w-[13rem] flex-1`}
                     value={form.tax_type}
                     onChange={(e) => update("tax_type", e.target.value as TaxType)}
                   >

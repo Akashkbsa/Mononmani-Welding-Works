@@ -13,6 +13,7 @@ import {
   ListSkeleton,
   Loading,
   Modal,
+  onTabListKeyDown,
   PageHeader,
   rowProps,
   SearchSelect,
@@ -86,6 +87,28 @@ describe("Field", () => {
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
   });
 
+  it("connects the label to a plain control without an id, and its hint", () => {
+    render(
+      <Field label="Amount" hint="In rupees">
+        <div className="relative">
+          <input />
+        </div>
+      </Field>
+    );
+    const box = screen.getByLabelText("Amount");
+    expect(box.tagName).toBe("INPUT");
+    expect(box).toHaveAccessibleDescription("In rupees");
+  });
+
+  it("keeps a control's own id", () => {
+    render(
+      <Field label="Rate">
+        <input id="rate-box" />
+      </Field>
+    );
+    expect(screen.getByLabelText("Rate")).toHaveAttribute("id", "rate-box");
+  });
+
   it("marks a required field", () => {
     render(
       <Field label="Name" required>
@@ -109,6 +132,35 @@ describe("Field", () => {
     );
     expect(screen.getByText("GSTIN is not valid")).toBeInTheDocument();
     expect(screen.queryByText("15 characters")).not.toBeInTheDocument();
+  });
+});
+
+describe("onTabListKeyDown", () => {
+  function Tabs() {
+    const [tab, setTab] = useState("a");
+    return (
+      <div role="tablist" onKeyDown={onTabListKeyDown}>
+        {["a", "b", "c"].map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+            {t.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  it("moves and selects with the arrow keys, Home and End", async () => {
+    render(<Tabs />);
+    screen.getByRole("tab", { name: "A" }).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "B" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "B" })).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(screen.getByRole("tab", { name: "C" })).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{Home}");
+    expect(screen.getByRole("tab", { name: "A" })).toHaveFocus();
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "C" })).toHaveFocus();
   });
 });
 

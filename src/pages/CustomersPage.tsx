@@ -166,7 +166,7 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
             }
           />
         ) : (
-          <table className="mww-fade w-full text-sm">
+          <table data-hide-narrow="4 5" className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="w-10" />
@@ -174,7 +174,6 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
                 <th className="py-2.5 pr-4 font-semibold">Type</th>
                 <th className="py-2.5 pr-4 font-semibold">Phone</th>
                 <th className="py-2.5 pr-4 font-semibold">GSTIN</th>
-                <th className="py-2.5 pr-4 font-semibold">Location</th>
                 <th className="py-2.5 pr-4 text-right font-semibold">Balance due</th>
                 <th className="w-8" />
               </tr>
@@ -194,15 +193,22 @@ export default function CustomersPage({ openId = null, onOpenHandled }: { openId
                       <Star className={`w-4 h-4 ${c.is_favorite ? "fill-amber-400 text-amber-400" : "text-slate-300"}`} />
                     </button>
                   </td>
-                  <td className="max-w-[20rem] truncate py-3 pr-4 font-medium text-slate-900" title={c.name}>
-                    {c.name}
+                  <td className="max-w-[20rem] py-3 pr-4">
+                    {/* The city sits under the name: one column less, so the balance always fits. */}
+                    <div className="truncate font-medium text-slate-900" title={c.name}>
+                      {c.name}
+                    </div>
+                    {(c.city || c.state) && (
+                      <div className="truncate text-xs text-slate-500">
+                        {[c.city, c.state && c.state.toLowerCase() !== c.city?.toLowerCase() ? c.state : null].filter(Boolean).join(", ")}
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 pr-4">
                     <PartyTypeBadge type={c.party_type} />
                   </td>
-                  <td className="py-3 pr-4 text-slate-600">{c.phone || "—"}</td>
+                  <td className="py-3 pr-4 text-slate-600 whitespace-nowrap">{c.phone || "—"}</td>
                   <td className="py-3 pr-4 text-slate-600 font-mono text-xs">{c.gstin || "—"}</td>
-                  <td className="py-3 pr-4 text-slate-600">{[c.city, c.state].filter(Boolean).join(", ") || "—"}</td>
                   <td className="py-3 pr-4 text-right tabular">
                     {c.party_type === "SUPPLIER" ? (
                       <span className="text-slate-500">—</span>

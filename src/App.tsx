@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Users, Vault } from "lucide-react";
+import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Users, FolderLock } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -63,7 +63,7 @@ const NAV_GROUPS: { id: Page; label: string; icon: typeof FileText }[][] = [
   [{ id: "customers", label: "Customers & suppliers", icon: Users }],
   [{ id: "employees", label: "Employees", icon: HardHat }],
   [{ id: "rentals", label: "Rentals", icon: House }],
-  [{ id: "documents", label: "Document Vault", icon: Vault }],
+  [{ id: "documents", label: "Document Vault", icon: FolderLock }],
 ];
 
 function NavButton({
@@ -284,7 +284,7 @@ function App() {
 
         <main className="flex-1 min-w-0 overflow-y-auto">
           <div className="@container mx-auto max-w-[120rem] px-4 py-5 sm:px-6 lg:px-10 lg:py-7">
-            <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />
+            {page !== "reminders" && <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />}
             <BackupBanner refreshKey={`${page}-${backupVersion}`} onChanged={backupChanged} />
             <div key={page} className="mww-page">
               <ErrorBoundary>

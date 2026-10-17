@@ -1,10 +1,10 @@
 import { DragEvent, useCallback, useEffect, useRef, useState } from "react";
-import { CloudCheck, CloudUpload, ExternalLink, Eye, Pencil, Plus, Search, Trash2, Vault } from "lucide-react";
+import { CloudCheck, CloudUpload, ExternalLink, Eye, Pencil, Plus, Search, Trash2, FolderLock } from "lucide-react";
 import { deleteDocument, getDocumentPreview, getDocumentSummary, listDocuments, openDocument } from "../services/api";
 import { errorMessage, formatDate, formatFileSize } from "../lib/format";
 import { canPreview, fileKind } from "../lib/documents";
 import { DOCUMENT_CATEGORIES, DocumentCategory, DocumentSummary, VaultDocument } from "../types/document";
-import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, inputClass, ListSkeleton, PageHeader, theadClass, useToast } from "../components/ui";
+import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, inputClass, ListSkeleton, onTabListKeyDown, PageHeader, theadClass, useToast } from "../components/ui";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
 import AddDocumentsModal from "../components/documents/AddDocumentsModal";
 import EditDocumentModal from "../components/documents/EditDocumentModal";
@@ -104,7 +104,7 @@ export default function DocumentVaultPage() {
       />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div role="tablist" aria-label="Groups" className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1">
+        <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Groups" className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1">
           {DOCUMENT_CATEGORIES.map((c) => (
             <button
               key={c.id}
@@ -166,7 +166,7 @@ export default function DocumentVaultPage() {
           <ListSkeleton label="Loading documents" />
         ) : documents.length === 0 ? (
           <EmptyState
-            icon={Vault}
+            icon={FolderLock}
             title={nothingYet ? `Nothing in ${tabLabel} yet` : "No documents found"}
             description={
               nothingYet
@@ -183,7 +183,7 @@ export default function DocumentVaultPage() {
           />
         ) : (
           <>
-            <table className="mww-fade w-full text-sm">
+            <table data-hide-narrow="2 3 4" className="mww-fade w-full text-sm">
               <thead className={theadClass}>
                 <tr>
                   <th className="py-2.5 px-4 font-semibold">Title</th>

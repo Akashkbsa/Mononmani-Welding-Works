@@ -71,7 +71,7 @@ export default function TenantsTab({ openId = null, onOpenHandled }: { openId?: 
             }
           />
         ) : (
-          <table className="mww-fade w-full text-sm">
+          <table data-hide-narrow="3 5 6" className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Name</th>

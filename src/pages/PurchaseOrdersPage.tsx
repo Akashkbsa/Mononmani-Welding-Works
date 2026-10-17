@@ -3,20 +3,7 @@ import { ClipboardList, Plus, Search } from "lucide-react";
 import { listPurchaseOrders } from "../services/api";
 import { errorMessage, formatDate } from "../lib/format";
 import { PurchaseOrderListItem } from "../types/purchaseOrder";
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  inputClass,
-  ListSkeleton,
-  PageHeader,
-  RowChevron,
-  rowClass,
-  rowProps,
-  theadClass,
-} from "../components/ui";
+import { Alert, Badge, Button, Card, EmptyState, inputClass, ListSkeleton, onTabListKeyDown, PageHeader, RowChevron, rowClass, rowProps, theadClass } from "../components/ui";
 import PurchaseOrderFormModal from "../components/purchaseOrders/PurchaseOrderFormModal";
 import PurchaseOrderDetailsModal from "../components/purchaseOrders/PurchaseOrderDetailsModal";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
@@ -119,7 +106,7 @@ export default function PurchaseOrdersPage({
       />
 
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Purchase order status" className="relative flex shrink-0 gap-1">
+        <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Purchase order status" className="relative flex shrink-0 gap-1">
           <span
             aria-hidden="true"
             className={`${sliderReady ? "mww-slider" : ""} pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600`}
@@ -189,7 +176,7 @@ export default function PurchaseOrdersPage({
           />
         ) : (
           <>
-            <table className="mww-fade w-full text-sm">
+            <table data-hide-narrow="4 6 7" className="mww-fade w-full text-sm">
               <thead className={theadClass}>
                 <tr>
                   <th className="py-2.5 px-4 font-semibold">PO number</th>

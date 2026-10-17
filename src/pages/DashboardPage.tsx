@@ -22,7 +22,7 @@ import {
 } from "../services/api";
 import { ageLabel, currentMonth, daysSince, errorMessage, formatDate, formatMoney, shiftMonth, todayISO } from "../lib/format";
 import { ageInDays, compactMoney, lastMonths, monthlySums, topByName } from "../lib/dashboardStats";
-import { Alert, Button, Card, PageHeader, SectionTitle, Skeleton, useToast } from "../components/ui";
+import { Alert, Button, Card, onTabListKeyDown, PageHeader, SectionTitle, Skeleton, useToast } from "../components/ui";
 import { BarChart, ProgressBar, Segment, SegmentBar, SharePart, ShareRing, Sparkline } from "../components/dashboard/charts";
 import { ListCard, ListRow } from "../components/dashboard/ListCard";
 import InvoiceFormModal from "../components/invoices/InvoiceFormModal";
@@ -98,7 +98,7 @@ function Amount({ value }: { value: number }) {
   return (
     <span className="tabular">
       {dot > 0 ? text.slice(0, dot) : text}
-      {dot > 0 && <span className="text-[0.6em] font-medium text-slate-400">{text.slice(dot)}</span>}
+      {dot > 0 && <span className="text-[0.7em] font-medium text-slate-500">{text.slice(dot)}</span>}
     </span>
   );
 }
@@ -378,7 +378,7 @@ export default function DashboardPage({
             <Card className="flex flex-col p-5 @min-[34rem]:col-span-3 @min-[65rem]:col-span-2">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-slate-900">Last {MONTHS} months</h3>
-                <div role="tablist" aria-label="Chart" className="flex rounded-md bg-slate-100 p-0.5 text-xs">
+                <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Chart" className="flex rounded-md bg-slate-100 p-0.5 text-xs">
                   {(
                     [
                       ["cash", "Money in and out"],

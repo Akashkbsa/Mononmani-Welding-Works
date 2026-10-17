@@ -112,7 +112,7 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
         </div>
         <MonthFilter dates={(payments ?? []).map((r) => r.payment_date)} value={month} onChange={setMonth} />
         <div className="w-44">
-          <select className={inputClass} value={method} onChange={(e) => setMethod(e.target.value)}>
+          <select aria-label="Payment method" className={inputClass} value={method} onChange={(e) => setMethod(e.target.value)}>
             <option value="">All methods</option>
             {PAYMENT_METHODS.map((m) => (
               <option key={m}>{m}</option>
@@ -146,11 +146,18 @@ export default function SupplierPaymentsPage({ openPaymentId = null, onOpenHandl
           <EmptyState
             icon={HandCoins}
             title={filtered ? "No supplier payments match these filters" : month && payments.length > 0 ? `No supplier payments in ${periodTitle(month)}` : "No supplier payments yet"}
-            description={filtered || (month && payments.length > 0) ? undefined : "Record a payment when you pay a supplier."}
+            description={
+              filtered ? undefined : month && payments.length > 0 ? "Nothing was paid in this period. Earlier payments are under All dates." : "Record a payment when you pay a supplier."
+            }
+            action={
+              !filtered && month && payments.length > 0 ? (
+                <Button onClick={() => setMonth("")}>Show all dates</Button>
+              ) : undefined
+            }
           />
         ) : (
           <>
-          <table className="mww-fade w-full text-sm">
+          <table data-hide-narrow="4 5" className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Payment</th>

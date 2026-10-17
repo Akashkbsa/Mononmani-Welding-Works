@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { PageHeader } from "../components/ui";
+import { onTabListKeyDown, PageHeader } from "../components/ui";
 import PaySheetTab from "../components/employees/PaySheetTab";
 import EmployeesTab from "../components/employees/EmployeesTab";
 
@@ -34,7 +34,7 @@ export default function EmployeesPage() {
       <PageHeader title="Employees" description="Who works here, their days and overtime each month, and what has been paid." />
 
       <div className="mb-4 border-b border-slate-200">
-        <div role="tablist" aria-label="Employees" className="relative flex gap-1 w-fit">
+        <div role="tablist" onKeyDown={onTabListKeyDown} aria-label="Employees" className="relative flex gap-1 w-fit">
           <span
             aria-hidden="true"
             className={`${sliderReady ? "mww-slider" : ""} pointer-events-none absolute -bottom-px left-0 h-0.5 w-[100px] origin-left bg-brand-600`}

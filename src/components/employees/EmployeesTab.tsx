@@ -114,7 +114,7 @@ export default function EmployeesTab() {
         ) : shown.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">No employees match.</p>
         ) : (
-          <table className="mww-fade w-full text-sm">
+          <table data-hide-narrow="3 5 6" className="mww-fade w-full text-sm">
             <thead className={theadClass}>
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Name</th>

@@ -3,6 +3,7 @@ import { MonthFigures } from "../types/payroll";
 import {
   carriedInLabel,
   settleNotes,
+  shortStatusText,
   statusTone,
   entryChanged,
   finishStartsTicked,
@@ -88,6 +89,15 @@ describe("status labels and tones", () => {
 
   it("names every wage kind", () => {
     expect(Object.keys(WAGE_KIND_LABEL).sort()).toEqual(["ADVANCE", "CARRIED", "RETURNED", "SALARY", "WRITE_OFF"]);
+  });
+});
+
+describe("shortStatusText", () => {
+  it("keeps the pay sheet badge short", () => {
+    expect(shortStatusText("TO_PAY", figures({ balance: 16500 }))).toBe("To pay ₹16,500");
+    expect(shortStatusText("OVERPAID", figures({ balance: -1000.5 }))).toBe("Overpaid ₹1,000.50");
+    expect(shortStatusText("PAID", figures())).toBe("Paid");
+    expect(shortStatusText("NOT_ENTERED", figures({ given: 1000 }))).toBe("Not entered");
   });
 });
 

@@ -368,3 +368,22 @@
     display: none;
   }
 }
+
+/* Narrow lists (half the screen): a table names the columns it can do without, e.g.
+   data-hide-narrow="4 5", and they hide when its area is narrower than 44rem, so the money
+   and status columns stay in view instead of scrolling off to the side. */
+@container (max-width: 44rem) {
+  table[data-hide-narrow~="2"] :is(thead, tbody) > tr > :nth-child(2),
+  table[data-hide-narrow~="3"] :is(thead, tbody) > tr > :nth-child(3),
+  table[data-hide-narrow~="4"] :is(thead, tbody) > tr > :nth-child(4),
+  table[data-hide-narrow~="5"] :is(thead, tbody) > tr > :nth-child(5),
+  table[data-hide-narrow~="6"] :is(thead, tbody) > tr > :nth-child(6),
+  table[data-hide-narrow~="7"] :is(thead, tbody) > tr > :nth-child(7) {
+    display: none;
+  }
+  /* Long names shorten sooner, so the amounts beside them stay in view. */
+  table[data-hide-narrow] td.truncate,
+  table[data-hide-narrow] td > .truncate {
+    max-width: 9rem;
+  }
+}

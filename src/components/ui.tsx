@@ -105,6 +105,24 @@ export function Button({
   );
 }
 
+/* ---------- Tabs ---------- */
+
+/**
+ * Arrow keys for a row of tabs (`role="tablist"` holding `role="tab"` buttons): Left/Right move to
+ * the previous or next tab and select it, Home and End jump to the first and last.
+ */
+export function onTabListKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+  if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+  const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]:not([disabled])'));
+  const at = tabs.indexOf(document.activeElement as HTMLElement);
+  if (tabs.length === 0 || at < 0) return;
+  e.preventDefault();
+  const next =
+    e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (at + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].focus();
+  tabs[next].click();
+}
+
 /* ---------- Form fields ---------- */
 
 export const inputClass =
@@ -123,18 +141,57 @@ interface FieldProps {
   children: React.ReactNode;
 }
 
+const FORM_CONTROLS = new Set(["input", "textarea", "select"]);
+
+/**
+ * Gives the first native input, textarea or select inside `node` the label's id (unless it has its
+ * own) and points it at the hint or error, so clicking the label focuses it and a screen reader
+ * names it. Custom controls (SearchSelect, date boxes) name themselves and are left alone.
+ */
+function connectControl(node: React.ReactNode, id: string, describedBy: string | undefined): { node: React.ReactNode; id: string | undefined } {
+  let done = false;
+  let used: string | undefined;
+  const visit = (n: React.ReactNode): React.ReactNode => {
+    if (done || !React.isValidElement(n)) return n;
+    const el = n as React.ReactElement<{ id?: string; children?: React.ReactNode; "aria-describedby"?: string }>;
+    if (typeof el.type === "string" && FORM_CONTROLS.has(el.type)) {
+      done = true;
+      used = el.props.id ?? id;
+      return React.cloneElement(el, {
+        id: used,
+        "aria-describedby": [el.props["aria-describedby"], describedBy].filter(Boolean).join(" ") || undefined,
+      });
+    }
+    if (typeof el.type === "string" && el.props.children !== undefined) {
+      const children = React.Children.map(el.props.children, visit);
+      return done ? React.cloneElement(el, undefined, children) : n;
+    }
+    return n;
+  };
+  const out = React.Children.map(node, visit);
+  return { node: done ? out : node, id: used };
+}
+
 export function Field({ label, htmlFor, hint, error, required, className = "", children }: FieldProps) {
+  const auto = useId();
+  const noteId = `${auto}-note`;
+  const describedBy = error || hint ? noteId : undefined;
+  const connected = htmlFor ? { node: children, id: htmlFor } : connectControl(children, auto, describedBy);
   return (
     <div className={className}>
-      <label htmlFor={htmlFor} className="block text-[13px] font-medium text-slate-700 mb-1">
+      <label htmlFor={connected.id} className="block text-[13px] font-medium text-slate-700 mb-1">
         {label}
         {required && <span className="text-red-600"> *</span>}
       </label>
-      {children}
+      {connected.node}
       {error ? (
-        <p className="mt-1 text-xs text-red-600">{error}</p>
+        <p id={noteId} className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
       ) : hint ? (
-        <p className="mt-1 text-xs text-slate-500">{hint}</p>
+        <p id={noteId} className="mt-1 text-xs text-slate-600">
+          {hint}
+        </p>
       ) : null}
     </div>
   );
@@ -339,7 +396,7 @@ export function PageHeader({
     <div className="flex items-end justify-between gap-4 mb-5 pb-4 border-b border-slate-200">
       <div>
         <h1 className="text-xl font-semibold text-slate-900 tracking-tight">{title}</h1>
-        {description && <p className="text-sm text-slate-500 mt-1">{description}</p>}
+        {description && <p className="text-sm text-slate-600 mt-1">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>}
     </div>
@@ -356,11 +413,12 @@ export function Card({
   children: React.ReactNode;
 }) {
   return (
-    // A list table inside scrolls sideways when the window is narrow (half the screen) instead of being cut off,
-    // and keeps a sensible width so dates and amounts stay on one line.
+    // A list table keeps a sensible width on a wide window and scrolls sideways rather than being cut off.
+    // On a narrow one (half the screen) it drops its minimum width and hides the columns it names in
+    // data-hide-narrow (index.css), so the money and status columns stay in view.
     <div
       style={style}
-      className={`bg-white border border-slate-200 rounded-lg shadow-card [&:has(>table)]:overflow-x-auto [&>table]:min-w-[46rem] @max-[44rem]:[&>table_:is(td,th)]:whitespace-nowrap ${className}`}
+      className={`bg-white border border-slate-200 rounded-lg shadow-card [&:has(>table)]:overflow-x-auto @min-[44rem]:[&>table]:min-w-[46rem] ${className}`}
     >
       {children}
     </div>
