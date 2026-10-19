@@ -8,6 +8,7 @@ import DashboardPage from "./pages/DashboardPage";
 import { ReminderLinkKind } from "./types/reminder";
 import ReminderBanner from "./components/reminders/ReminderBanner";
 import BackupBanner from "./components/BackupBanner";
+import ShortcutGuide from "./components/ShortcutGuide";
 import { todayISO } from "./lib/format";
 import { useSidebar } from "./lib/useSidebar";
 import { RemindersContext } from "./components/reminders/RemindersContext";
@@ -354,6 +355,7 @@ function App() {
         </main>
       </div>
       </RemindersContext.Provider>
+      <ShortcutGuide />
     </ToastProvider>
   );
 }
