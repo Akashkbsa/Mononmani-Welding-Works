@@ -163,7 +163,20 @@ export default function PurchaseOrderDetailsModal({ id, onClose, onChanged, onOp
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete purchase order ${data.order.po_number}?`}
-          message="This purchase order and its attached files will be deleted. This cannot be undone."
+          message={
+            data.invoices.length > 0 ? (
+              <>
+                <strong>{data.order.po_number}</strong> for <strong>{data.order.customer_name}</strong> and any attached files
+                will be deleted. The {data.invoices.length} linked invoice{data.invoices.length !== 1 ? "s" : ""} (
+                {data.invoices.map((inv) => inv.invoice_number).join(", ")}) will lose their PO reference.
+              </>
+            ) : (
+              <>
+                <strong>{data.order.po_number}</strong> for <strong>{data.order.customer_name}</strong> and any attached files
+                will be deleted permanently.
+              </>
+            )
+          }
           confirmLabel="Delete purchase order"
           onConfirm={async () => {
             await deletePurchaseOrder(id);
