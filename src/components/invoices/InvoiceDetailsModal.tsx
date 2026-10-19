@@ -443,9 +443,18 @@ export default function InvoiceDetailsModal({ invoiceId, onClose, onChanged, onO
         <ConfirmDialog
           title={`Delete invoice ${inv.invoice_number}?`}
           message={
-            payments.payments.length > 0
-              ? "This invoice has payments recorded against it. Delete those payments first."
-              : "The invoice will be removed permanently and its number will be gone from your records. If it was already sent to the customer, use Cancel invoice instead."
+            payments.payments.length > 0 ? (
+              <>
+                <strong>{inv.invoice_number}</strong> for <strong>{inv.customer_name}</strong> ({formatMoney(inv.total_amount)}) has{" "}
+                {payments.payments.length} payment{payments.payments.length !== 1 ? "s" : ""} recorded against it.
+                Delete {payments.payments.length !== 1 ? "those payments" : "that payment"} first.
+              </>
+            ) : (
+              <>
+                <strong>{inv.invoice_number}</strong> for <strong>{inv.customer_name}</strong> ({formatMoney(inv.total_amount)}) will
+                be removed permanently. If it was already sent to the customer, use <em>Cancel invoice</em> instead.
+              </>
+            )
           }
           confirmLabel="Delete invoice"
           onConfirm={async () => {
