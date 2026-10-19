@@ -138,7 +138,23 @@ export default function PaymentDetailsModal({ paymentId, onClose, onChanged }: P
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete payment ${p.payment_number}?`}
-          message="The invoices it was applied to will show as unpaid again, and any advance it used is given back to the customer."
+          message={
+            data.allocations.length > 0 ? (
+              <>
+                <strong>{p.payment_number}</strong> from <strong>{p.customer_name}</strong> ({formatMoney(p.amount_received)},{" "}
+                {formatDate(p.payment_date)}) will be deleted. The{" "}
+                {data.allocations.length} invoice{data.allocations.length !== 1 ? "s" : ""} it was applied to will show as unpaid again.
+              </>
+            ) : (
+              <>
+                <strong>{p.payment_number}</strong> from <strong>{p.customer_name}</strong> ({formatMoney(p.amount_received)},{" "}
+                {formatDate(p.payment_date)}) will be deleted.
+                {p.credit_applied > 0 || p.excess_action === "CREDIT"
+                  ? " Any advance it created will be removed."
+                  : ""}
+              </>
+            )
+          }
           confirmLabel="Delete payment"
           onConfirm={async () => {
             await deletePayment(p.id);
