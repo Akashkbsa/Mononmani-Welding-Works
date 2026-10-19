@@ -150,7 +150,19 @@ export default function SupplierBillDetailsModal({ id, onClose, onChanged, onOpe
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete supplier bill ${bill.bill_number}?`}
-          message="This supplier bill and its attached files will be deleted. This cannot be undone."
+          message={
+            data.settled_amount > 0 ? (
+              <>
+                <strong>{bill.bill_number}</strong> from <strong>{bill.supplier_name}</strong> ({formatMoney(bill.total_amount)}) has
+                payments recorded against it. Delete those payments first.
+              </>
+            ) : (
+              <>
+                <strong>{bill.bill_number}</strong> from <strong>{bill.supplier_name}</strong> ({formatMoney(bill.total_amount)}) and
+                any attached files will be deleted permanently.
+              </>
+            )
+          }
           confirmLabel="Delete supplier bill"
           onConfirm={async () => {
             await deleteSupplierBill(id);
