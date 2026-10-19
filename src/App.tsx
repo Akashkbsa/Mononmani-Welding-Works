@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { getBackupStatus } from "./services/api";
-import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, House, LayoutDashboard, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Users, FolderLock } from "lucide-react";
+import { BellRing, ClipboardList, CreditCard, FileCheck2, FileText, HandCoins, HardHat, History, House, LayoutDashboard, PanelLeftClose, PanelLeftOpen, ReceiptText, Settings, Users, FolderLock } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/ui";
 import BrandMark from "./components/BrandMark";
@@ -29,6 +29,7 @@ const pageLoaders = {
   customers: () => import("./pages/CustomersPage"),
   documents: () => import("./pages/DocumentVaultPage"),
   settings: () => import("./pages/SettingsPage"),
+  auditLog: () => import("./pages/AuditLogPage"),
 };
 const InvoicesPage = lazy(pageLoaders.invoices);
 const PurchaseOrdersPage = lazy(pageLoaders.purchaseOrders);
@@ -42,8 +43,9 @@ const RemindersPage = lazy(pageLoaders.reminders);
 const CustomersPage = lazy(pageLoaders.customers);
 const DocumentVaultPage = lazy(pageLoaders.documents);
 const SettingsPage = lazy(pageLoaders.settings);
+const AuditLogPage = lazy(pageLoaders.auditLog);
 
-export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "employees" | "reminders" | "customers" | "documents" | "settings";
+export type Page = "dashboard" | "invoices" | "quotations" | "purchaseOrders" | "payments" | "supplierBills" | "supplierPayments" | "rentals" | "employees" | "reminders" | "customers" | "documents" | "settings" | "auditLog";
 
 /** The menu in groups, in the order the work flows; a thin line separates the groups. */
 const NAV_GROUPS: { id: Page; label: string; icon: typeof FileText }[][] = [
@@ -263,6 +265,13 @@ function App() {
           </nav>
           <div className={`pb-3 ${sidebar.closed ? "px-2" : "px-3"}`}>
             <NavButton
+              active={page === "auditLog"}
+              onClick={() => setPage("auditLog")}
+              icon={History}
+              label="Audit log"
+              compact={sidebar.closed}
+            />
+            <NavButton
               active={page === "settings"}
               onClick={() => setPage("settings")}
               icon={Settings}
@@ -348,6 +357,7 @@ function App() {
                 {page === "customers" && <CustomersPage openId={otherId("COMPANY")} onOpenHandled={clearOther} />}
                 {page === "documents" && <DocumentVaultPage />}
                 {page === "settings" && <SettingsPage />}
+                {page === "auditLog" && <AuditLogPage />}
                 </Suspense>
               </ErrorBoundary>
             </div>

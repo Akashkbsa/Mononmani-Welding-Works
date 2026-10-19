@@ -1,4 +1,5 @@
 mod attachments;
+mod audit;
 mod backup;
 mod customers;
 mod db;
@@ -292,7 +293,8 @@ pub fn run() {
             documents::get_document_preview,
             documents::open_document,
             settings::get_settings,
-            settings::save_settings
+            settings::save_settings,
+            audit::list_audit_log
         ])
         .run(tauri::generate_context!());
     // For example WebView2 missing or broken: the window could not be made.

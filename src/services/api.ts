@@ -77,6 +77,7 @@ import { MessageKind, MessageTemplate } from "../types/messages";
 import { Ledger, OpeningBalance } from "../types/ledger";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
 import { DocumentFilter, DocumentInput, DocumentSummary, VaultDocument } from "../types/document";
+import { AuditLogPage } from "../types/audit";
 import {
   EmployeeDetail,
   EmployeeFileInfo,
@@ -417,3 +418,7 @@ export const updateDocument = (id: number, input: DocumentInput) => call<VaultDo
 export const deleteDocument = (id: number) => call<void>("delete_document", { id });
 export const getDocumentPreview = (id: number) => call<string>("get_document_preview", { id });
 export const openDocument = (id: number) => call<void>("open_document", { id });
+
+// Audit log
+export const listAuditLog = (params?: { limit?: number; before_seq?: number }) =>
+  call<AuditLogPage>("list_audit_log", params);
