@@ -30,6 +30,7 @@ import InvoiceDetailsModal from "../components/invoices/InvoiceDetailsModal";
 import PaymentFormModal from "../components/payments/PaymentFormModal";
 import { useReminders } from "../components/reminders/RemindersContext";
 import { usePageShortcuts } from "../lib/usePageShortcuts";
+import SetupChecklist from "../components/dashboard/SetupChecklist";
 
 // The first dashboard load of a session gets one gentle reveal. Coming back to the dashboard, or
 // reloading its data after a save, never replays it: people see this screen all day.
@@ -315,6 +316,8 @@ export default function DashboardPage({
           </>
         }
       />
+
+      <SetupChecklist onNavigate={onNavigate} />
 
       {error && (
         <div className="mb-4">
