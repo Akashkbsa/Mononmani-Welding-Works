@@ -291,7 +291,7 @@ function App() {
                 <ReminderBanner refreshKey={`${page}-${remindersVersion}`} onOpenAll={() => setPage("reminders")} />
               </div>
             )}
-            <BackupBanner refreshKey={`${page}-${backupVersion}`} onChanged={backupChanged} />
+            <BackupBanner refreshKey={`${page}-${backupVersion}`} onChanged={backupChanged} onOpenSettings={() => setPage("settings")} />
             <div key={page} className="mww-page">
               <ErrorBoundary>
                 <Suspense fallback={null}>
