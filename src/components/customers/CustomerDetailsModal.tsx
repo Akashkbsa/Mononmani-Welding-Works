@@ -251,8 +251,8 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit, onDele
           title="Delete company?"
           message={
             <>
-              <strong>{customer.name}</strong> will be removed from your list. Companies with invoices, payments or supplier
-              records can't be deleted.
+              <strong>{customer.name}</strong> will be removed from your records.
+              Companies that have invoices, payments or supplier bills cannot be deleted.
             </>
           }
           confirmLabel="Delete"
