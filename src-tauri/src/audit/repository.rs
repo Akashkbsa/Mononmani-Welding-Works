@@ -10,15 +10,15 @@ impl AuditRepository {
         let limit = limit.unwrap_or(DEFAULT_LIMIT);
         let fetch = (limit + 1) as i64;
 
-        let mut entries: Vec<AuditLogEntry> = match before_seq {
-            Some(before) => {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT seq, table_name, row_id, op, changed_at \
-                         FROM change_log WHERE seq < ?1 ORDER BY seq DESC LIMIT ?2",
-                    )
-                    .map_err(|e| e.to_string())?;
-                stmt.query_map(params![before, fetch], |r| {
+        let mut entries: Vec<AuditLogEntry> = if let Some(before) = before_seq {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT seq, table_name, row_id, op, changed_at \
+                     FROM change_log WHERE seq < ?1 ORDER BY seq DESC LIMIT ?2",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![before, fetch], |r| {
                     Ok(AuditLogEntry {
                         seq: r.get(0)?,
                         table_name: r.get(1)?,
@@ -28,17 +28,18 @@ impl AuditRepository {
                     })
                 })
                 .map_err(|e| e.to_string())?
-                .collect::<Result<_, _>>()
-                .map_err(|e: rusqlite::Error| e.to_string())?
-            }
-            None => {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT seq, table_name, row_id, op, changed_at \
-                         FROM change_log ORDER BY seq DESC LIMIT ?1",
-                    )
-                    .map_err(|e| e.to_string())?;
-                stmt.query_map(params![fetch], |r| {
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e: rusqlite::Error| e.to_string())?;
+            rows
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT seq, table_name, row_id, op, changed_at \
+                     FROM change_log ORDER BY seq DESC LIMIT ?1",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![fetch], |r| {
                     Ok(AuditLogEntry {
                         seq: r.get(0)?,
                         table_name: r.get(1)?,
@@ -48,9 +49,9 @@ impl AuditRepository {
                     })
                 })
                 .map_err(|e| e.to_string())?
-                .collect::<Result<_, _>>()
-                .map_err(|e: rusqlite::Error| e.to_string())?
-            }
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e: rusqlite::Error| e.to_string())?;
+            rows
         };
 
         let has_more = entries.len() > limit as usize;

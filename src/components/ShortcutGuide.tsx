@@ -15,6 +15,7 @@ const GROUPS: Group[] = [
   {
     title: "Anywhere",
     rows: [
+      { keys: ["Ctrl+K"], description: "Open global search" },
       { keys: ["Ctrl+B"], description: "Open or close the sidebar" },
       { keys: ["Escape"], description: "Close the open dialog or menu" },
       { keys: ["?"], description: "Show this keyboard shortcut guide" },

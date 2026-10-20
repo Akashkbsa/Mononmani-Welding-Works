@@ -78,6 +78,7 @@ import { Ledger, OpeningBalance } from "../types/ledger";
 import { BackupResult, BackupStatus, DriveBackupList } from "../types/backup";
 import { DocumentFilter, DocumentInput, DocumentSummary, VaultDocument } from "../types/document";
 import { AuditLogPage } from "../types/audit";
+import { SearchResult } from "../types/search";
 import {
   EmployeeDetail,
   EmployeeFileInfo,
@@ -422,3 +423,6 @@ export const openDocument = (id: number) => call<void>("open_document", { id });
 // Audit log
 export const listAuditLog = (params?: { limit?: number; before_seq?: number }) =>
   call<AuditLogPage>("list_audit_log", params);
+
+// Global search
+export const searchAll = (query: string) => call<SearchResult[]>("search_all", { query });
