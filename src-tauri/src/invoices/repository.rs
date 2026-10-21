@@ -491,7 +491,7 @@ impl InvoiceRepository {
                     invoice_id,
                     (idx + 1) as i32,
                     crate::util::sanitize_rich_text(&item.description),
-                    item.hsn_sac.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("9954"),
+                    item.hsn_sac.as_deref().map(str::trim).unwrap_or(""),
                     item.qum.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("NOS"),
                     item.quantity,
                     item.rate,
@@ -1350,5 +1350,66 @@ mod tests {
             assert_eq!(t.total_amount, num(&e["total"]), "{name}: total");
             assert_eq!(t.round_off, 0.0, "{name}: no round-off to the rupee");
         }
+    }
+
+    #[test]
+    fn blank_hsn_sac_is_stored_blank_not_defaulted_to_9954() {
+        let conn = setup_test_db();
+        let c = add_customer(&conn, "Test Co");
+        let input = InvoiceCreateInput {
+            invoice_number: "MWW/26-27/HSN".to_string(),
+            invoice_date: "2026-10-21".to_string(),
+            due_date: None,
+            payment_terms_days: None,
+            invoice_state: None,
+            customer_id: Some(c),
+            customer_name: "Test Co".to_string(),
+            customer_address: None,
+            customer_phone: None,
+            customer_gstin: None,
+            customer_state: None,
+            customer_state_code: None,
+            po_number_and_date: None,
+            vehicle_number: None,
+            date_of_supply: None,
+            place_of_supply: None,
+            our_dc_number_and_date: None,
+            your_dc_number_and_date: None,
+            delivery_note: None,
+            supplier_ref: None,
+            buyer_ref: None,
+            dispatch_doc_no: None,
+            delivery_note_date: None,
+            dispatch_through: None,
+            destination: None,
+            terms_of_delivery: None,
+            tax_type: "CGST_SGST".to_string(),
+            discount: None,
+            cgst_rate: Some(0.0),
+            sgst_rate: Some(0.0),
+            igst_rate: None,
+            bank_name: None,
+            bank_branch: None,
+            bank_account_no: None,
+            bank_ifsc: None,
+            terms_and_conditions: None,
+            status: None,
+            notes: None,
+            purchase_order_id: None,
+            items: vec![InvoiceItemInput {
+                sl_no: Some(1),
+                description: "Fabrication work".to_string(),
+                hsn_sac: None,
+                qum: Some("JOB".to_string()),
+                quantity: 1.0,
+                rate: 5000.0,
+            }],
+        };
+        let saved = InvoiceRepository::create(&conn, input).unwrap();
+        assert_eq!(
+            saved.items[0].hsn_sac,
+            "",
+            "blank HSN/SAC must be stored as empty string, not \"9954\""
+        );
     }
 }
